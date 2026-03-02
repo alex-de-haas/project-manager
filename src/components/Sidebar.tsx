@@ -73,7 +73,7 @@ export default function Sidebar() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [projects, setProjects] = useState<AppProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>("");
-  const isLoginRoute = pathname === "/login";
+  const isAuthRoute = pathname === "/login" || pathname === "/invite";
 
   const getCookieValue = (key: string) => {
     const parts = document.cookie.split(";").map((item) => item.trim());
@@ -93,7 +93,7 @@ export default function Sidebar() {
   }, [mode]);
 
   useEffect(() => {
-    if (isLoginRoute) return;
+    if (isAuthRoute) return;
 
     const loadSessionAndProjects = async () => {
       try {
@@ -123,7 +123,7 @@ export default function Sidebar() {
     };
 
     loadSessionAndProjects();
-  }, [isLoginRoute]);
+  }, [isAuthRoute]);
 
   const isCompact = mode === "compact";
   const activeProject =
@@ -153,7 +153,7 @@ export default function Sidebar() {
     window.location.reload();
   };
 
-  if (isLoginRoute) {
+  if (isAuthRoute) {
     return null;
   }
 

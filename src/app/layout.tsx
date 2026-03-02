@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
-import Sidebar from "@/components/Sidebar";
 
 export const metadata: Metadata = {
   title: "Time Tracker",
@@ -27,12 +26,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <div className="flex h-dvh overflow-hidden">
-            <Sidebar />
-            <main className="flex h-dvh min-w-0 flex-1 flex-col overflow-hidden">
-              {children}
-            </main>
-          </div>
+          {children}
           <Toaster />
         </ThemeProvider>
       </body>
