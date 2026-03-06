@@ -120,11 +120,11 @@ function LoginPageContent() {
   };
 
   if (requiresSetup === null) {
-    return <div className="flex h-full items-center justify-center px-6">Loading...</div>;
+    return <div className="flex min-h-dvh items-center justify-center px-6">Loading...</div>;
   }
 
   return (
-    <div className="flex h-full items-center justify-center px-6">
+    <div className="flex min-h-dvh items-center justify-center px-6">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>{requiresSetup ? "Create first user" : "Sign in"}</CardTitle>
@@ -203,7 +203,7 @@ function LoginPageContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="flex h-full items-center justify-center px-6">Loading...</div>}>
+    <Suspense fallback={<div className="flex min-h-dvh items-center justify-center px-6">Loading...</div>}>
       <LoginPageContent />
     </Suspense>
   );

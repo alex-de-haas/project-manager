@@ -20,6 +20,22 @@ const getUserEmail = (userId: number): string | null => {
   return user?.email?.trim() || null;
 };
 
+const isUnsupportedStateError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  const hasStateFieldMention =
+    message.includes("field 'state'") || message.includes("field \"state\"") || message.includes("system.state");
+  const hasUnsupportedValueMention =
+    message.includes("supported values") ||
+    message.includes("allowed values") ||
+    message.includes("invalid value");
+
+  return hasStateFieldMention && hasUnsupportedValueMention;
+};
+
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -97,57 +113,75 @@ export async function POST(request: NextRequest) {
     // Map local task type to Azure DevOps work item type
     const workItemType = task.type === 'bug' ? 'Bug' : 'Task';
 
-    // Build patch document for creating work item
-    const patchOperations: JsonPatchOperation[] = [
-      {
-        op: Operation.Add,
-        path: '/fields/System.Title',
-        value: task.title
-      } as JsonPatchOperation,
-    ];
+    const buildPatchDocument = (includeState: boolean): JsonPatchDocument => {
+      const patchOperations: JsonPatchOperation[] = [
+        {
+          op: Operation.Add,
+          path: '/fields/System.Title',
+          value: task.title
+        } as JsonPatchOperation,
+      ];
 
-    // Add assigned to only when we have the selected assignee's email
-    if (assignedUserEmail) {
-      patchOperations.push({
-        op: Operation.Add,
-        path: '/fields/System.AssignedTo',
-        value: assignedUserEmail
-      } as JsonPatchOperation);
-    }
+      // Add assigned to only when we have the selected assignee's email
+      if (assignedUserEmail) {
+        patchOperations.push({
+          op: Operation.Add,
+          path: '/fields/System.AssignedTo',
+          value: assignedUserEmail
+        } as JsonPatchOperation);
+      }
 
-    // Set state if available
-    if (task.status) {
-      patchOperations.push({
-        op: Operation.Add,
-        path: '/fields/System.State',
-        value: task.status
-      } as JsonPatchOperation);
-    }
+      // Try preserving local state, but this can be unsupported in custom Azure workflows.
+      if (includeState && task.status) {
+        patchOperations.push({
+          op: Operation.Add,
+          path: '/fields/System.State',
+          value: task.status
+        } as JsonPatchOperation);
+      }
 
-    // Add parent link if provided
-    if (parentWorkItemId) {
-      patchOperations.push({
-        op: Operation.Add,
-        path: '/relations/-',
-        value: {
-          rel: 'System.LinkTypes.Hierarchy-Reverse',
-          url: `https://dev.azure.com/${settings.organization}/_apis/wit/workItems/${parentWorkItemId}`,
-          attributes: {
-            comment: 'Parent work item'
+      // Add parent link if provided
+      if (parentWorkItemId) {
+        patchOperations.push({
+          op: Operation.Add,
+          path: '/relations/-',
+          value: {
+            rel: 'System.LinkTypes.Hierarchy-Reverse',
+            url: `https://dev.azure.com/${settings.organization}/_apis/wit/workItems/${parentWorkItemId}`,
+            attributes: {
+              comment: 'Parent work item'
+            }
           }
-        }
-      } as JsonPatchOperation);
+        } as JsonPatchOperation);
+      }
+
+      return patchOperations;
+    };
+
+    let createdWorkItem;
+    try {
+      createdWorkItem = await witApi.createWorkItem(
+        undefined,
+        buildPatchDocument(true),
+        settings.project,
+        workItemType
+      );
+    } catch (error) {
+      // Fallback for projects where the local status is not valid for initial state.
+      if (!task.status || !isUnsupportedStateError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        `Azure DevOps export: retrying work item creation without System.State (taskId=${taskId}, status="${task.status}")`
+      );
+      createdWorkItem = await witApi.createWorkItem(
+        undefined,
+        buildPatchDocument(false),
+        settings.project,
+        workItemType
+      );
     }
-
-    const patchDocument: JsonPatchDocument = patchOperations;
-
-    // Create the work item in Azure DevOps
-    const createdWorkItem = await witApi.createWorkItem(
-      undefined,
-      patchDocument,
-      settings.project,
-      workItemType
-    );
 
     if (!createdWorkItem || !createdWorkItem.id) {
       return NextResponse.json(
