@@ -1,4 +1,8 @@
 import { WorkItemTrackingApi } from "azure-devops-node-api/WorkItemTrackingApi";
+import {
+  WorkItemErrorPolicy,
+  WorkItemExpand,
+} from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
 import db from "@/lib/db";
 
 export interface ChildWorkItemSnapshot {
@@ -25,6 +29,15 @@ const uniqueParentIds = (parentIds: number[]): number[] =>
     )
   );
 
+const CHILD_LINK_RELATION = "System.LinkTypes.Hierarchy-Forward";
+
+const parseWorkItemIdFromUrl = (url?: string): number | null => {
+  if (!url) return null;
+  const match = url.match(/\/workItems\/(\d+)(?:$|[/?#])/i);
+  if (!match) return null;
+  return parsePositiveInt(match[1]);
+};
+
 export const fetchChildWorkItemsForParentIds = async (
   witApi: WorkItemTrackingApi,
   project: string,
@@ -33,70 +46,85 @@ export const fetchChildWorkItemsForParentIds = async (
   const uniqueIds = uniqueParentIds(parentIds);
   if (uniqueIds.length === 0) return [];
 
-  const parentBatchSize = 100;
+  const parentBatchSize = 200;
   const workItemBatchSize = 200;
   const allItems: ChildWorkItemSnapshot[] = [];
+  const childIdToParentId = new Map<number, number>();
 
   for (let i = 0; i < uniqueIds.length; i += parentBatchSize) {
     const parentBatch = uniqueIds.slice(i, i + parentBatchSize);
-    const wiql = {
-      query: `
-        SELECT [System.Id]
-        FROM WorkItems
-        WHERE [System.Parent] IN (${parentBatch.join(",")})
-          AND ([System.WorkItemType] = 'Task' OR [System.WorkItemType] = 'Bug')
-          AND [System.State] <> 'Removed'
-        ORDER BY [System.ChangedDate] DESC
-      `,
-    };
+    const parentItems = await witApi.getWorkItems(
+      parentBatch,
+      ["System.Id"],
+      undefined,
+      WorkItemExpand.Relations,
+      WorkItemErrorPolicy.Omit,
+      project
+    );
 
-    const queryResult = await witApi.queryByWiql(wiql, { project });
-    const ids =
-      queryResult?.workItems?.map((wi) => wi.id).filter((id): id is number => !!id) ??
-      [];
+    for (const parentItem of parentItems ?? []) {
+      const parentId = parsePositiveInt(parentItem.id);
+      if (!parentId) continue;
 
-    if (ids.length === 0) continue;
-
-    for (let j = 0; j < ids.length; j += workItemBatchSize) {
-      const idBatch = ids.slice(j, j + workItemBatchSize);
-      const workItems = await witApi.getWorkItems(
-        idBatch,
-        [
-          "System.Id",
-          "System.Parent",
-          "System.Title",
-          "System.WorkItemType",
-          "System.State",
-          "System.AssignedTo",
-        ],
-        undefined,
-        undefined,
-        undefined
-      );
-
-      for (const workItem of workItems ?? []) {
-        if (!workItem.id || !workItem.fields) continue;
-        const parentId = parsePositiveInt(workItem.fields["System.Parent"]);
-        if (!parentId) continue;
-
-        const assignedField = workItem.fields["System.AssignedTo"] as
-          | string
-          | { displayName?: string; uniqueName?: string }
-          | undefined;
-        const assignedTo =
-          typeof assignedField === "string"
-            ? assignedField
-            : assignedField?.displayName || assignedField?.uniqueName || null;
-
-        allItems.push({
-          id: workItem.id,
-          parentId,
-          title: String(workItem.fields["System.Title"] ?? "Untitled"),
-          type: String(workItem.fields["System.WorkItemType"] ?? "Unknown"),
-          state: String(workItem.fields["System.State"] ?? "Unknown"),
-          assignedTo,
-        });
+      for (const relation of parentItem.relations ?? []) {
+        if (relation.rel !== CHILD_LINK_RELATION) continue;
+        const childId = parseWorkItemIdFromUrl(relation.url);
+        if (!childId) continue;
+        childIdToParentId.set(childId, parentId);
       }
+    }
+  }
+
+  const childIds = Array.from(childIdToParentId.keys());
+  if (childIds.length === 0) return [];
+
+  for (let i = 0; i < childIds.length; i += workItemBatchSize) {
+    const idBatch = childIds.slice(i, i + workItemBatchSize);
+    const workItems = await witApi.getWorkItems(
+      idBatch,
+      [
+        "System.Id",
+        "System.Title",
+        "System.WorkItemType",
+        "System.State",
+        "System.AssignedTo",
+      ],
+      undefined,
+      undefined,
+      WorkItemErrorPolicy.Omit,
+      project
+    );
+
+    for (const workItem of workItems ?? []) {
+      if (!workItem.id || !workItem.fields) continue;
+      const parentId = childIdToParentId.get(workItem.id);
+      if (!parentId) continue;
+
+      const type = String(workItem.fields["System.WorkItemType"] ?? "Unknown");
+      const normalizedType = type.trim().toLowerCase();
+      const state = String(workItem.fields["System.State"] ?? "Unknown");
+      const normalizedState = state.trim().toLowerCase();
+      if ((normalizedType !== "task" && normalizedType !== "bug") || normalizedState === "removed") {
+        continue;
+      }
+
+      const assignedField = workItem.fields["System.AssignedTo"] as
+        | string
+        | { displayName?: string; uniqueName?: string }
+        | undefined;
+      const assignedTo =
+        typeof assignedField === "string"
+          ? assignedField
+          : assignedField?.displayName || assignedField?.uniqueName || null;
+
+      allItems.push({
+        id: workItem.id,
+        parentId,
+        title: String(workItem.fields["System.Title"] ?? "Untitled"),
+        type,
+        state,
+        assignedTo,
+      });
     }
   }
 
