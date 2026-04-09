@@ -7,5 +7,10 @@ Dockerfile
 README.md
 docs
 db_backups
+/data
+.npm-cache
+.vercel
+coverage
+*.tsbuildinfo
 time_tracker.db
 *.db
