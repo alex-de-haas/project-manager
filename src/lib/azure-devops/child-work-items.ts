@@ -38,6 +38,51 @@ const parseWorkItemIdFromUrl = (url?: string): number | null => {
   return parsePositiveInt(match[1]);
 };
 
+const buildWorkItemTypeCategorySets = async (
+  witApi: WorkItemTrackingApi,
+  project: string
+): Promise<{ taskTypes: Set<string>; bugTypes: Set<string> }> => {
+  const taskTypes = new Set<string>(["task"]);
+  const bugTypes = new Set<string>(["bug"]);
+
+  try {
+    const categories = await witApi.getWorkItemTypeCategories(project);
+    for (const category of categories ?? []) {
+      const referenceName = category.referenceName?.trim().toLowerCase();
+      const targetSet =
+        referenceName === "microsoft.taskcategory"
+          ? taskTypes
+          : referenceName === "microsoft.bugcategory"
+            ? bugTypes
+            : null;
+
+      if (!targetSet) continue;
+
+      for (const workItemType of category.workItemTypes ?? []) {
+        const name = workItemType.name?.trim().toLowerCase();
+        if (name) {
+          targetSet.add(name);
+        }
+      }
+    }
+  } catch {
+    // Fall back to literal Task/Bug matching if category metadata is unavailable.
+  }
+
+  return { taskTypes, bugTypes };
+};
+
+const normalizeChildWorkItemType = (
+  type: string,
+  categorySets: { taskTypes: Set<string>; bugTypes: Set<string> }
+): "task" | "bug" | null => {
+  const normalized = type.trim().toLowerCase();
+  if (!normalized) return null;
+  if (categorySets.bugTypes.has(normalized)) return "bug";
+  if (categorySets.taskTypes.has(normalized)) return "task";
+  return null;
+};
+
 export const fetchChildWorkItemsForParentIds = async (
   witApi: WorkItemTrackingApi,
   project: string,
@@ -45,6 +90,7 @@ export const fetchChildWorkItemsForParentIds = async (
 ): Promise<ChildWorkItemSnapshot[]> => {
   const uniqueIds = uniqueParentIds(parentIds);
   if (uniqueIds.length === 0) return [];
+  const workItemTypeCategories = await buildWorkItemTypeCategorySets(witApi, project);
 
   const parentBatchSize = 200;
   const workItemBatchSize = 200;
@@ -101,7 +147,7 @@ export const fetchChildWorkItemsForParentIds = async (
       if (!parentId) continue;
 
       const type = String(workItem.fields["System.WorkItemType"] ?? "Unknown");
-      const normalizedType = type.trim().toLowerCase();
+      const normalizedType = normalizeChildWorkItemType(type, workItemTypeCategories);
       const state = String(workItem.fields["System.State"] ?? "Unknown");
       const normalizedState = state.trim().toLowerCase();
       if ((normalizedType !== "task" && normalizedType !== "bug") || normalizedState === "removed") {
@@ -121,7 +167,7 @@ export const fetchChildWorkItemsForParentIds = async (
         id: workItem.id,
         parentId,
         title: String(workItem.fields["System.Title"] ?? "Untitled"),
-        type,
+        type: normalizedType === "bug" ? "Bug" : "Task",
         state,
         assignedTo,
       });

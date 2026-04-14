@@ -226,8 +226,8 @@ export default function ReleaseTrackingPage() {
     if (!showChildItemsDialog) return [];
     return childItemsDialogItems.filter((childItem) =>
       showChildItemsDialog.filter === "task"
-        ? childItem.type.toLowerCase() === "task"
-        : childItem.type.toLowerCase() === "bug"
+        ? childItem.type.trim().toLowerCase() === "task"
+        : childItem.type.trim().toLowerCase() === "bug"
     );
   }, [childItemsDialogItems, showChildItemsDialog]);
 
@@ -836,7 +836,7 @@ export default function ReleaseTrackingPage() {
   const getChildStatusOptions = (workItemType: string): string[] => {
     const normalized = workItemType.trim().toLowerCase();
     if (normalized === "bug") {
-      return ["New", "Active", "Resolved"];
+      return ["New", "Active", "Resolved", "Closed"];
     }
     return ["New", "Active", "Closed"];
   };

@@ -45,7 +45,7 @@ const normalizeStatus = (value?: string): string | null => {
 
 const getAllowedStatuses = (workItemType: "task" | "bug"): string[] => {
   if (workItemType === "bug") {
-    return ["New", "Active", "Resolved"];
+    return ["New", "Active", "Resolved", "Closed"];
   }
   return ["New", "Active", "Closed"];
 };

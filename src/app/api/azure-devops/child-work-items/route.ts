@@ -25,6 +25,9 @@ const isTaskResolvedOrClosed = (state?: string | null): boolean => {
   return normalized === "resolved" || normalized === "closed";
 };
 
+const normalizeItemType = (type?: string | null): string =>
+  type?.trim().toLowerCase() ?? "";
+
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -50,7 +53,7 @@ export async function GET(request: NextRequest) {
           WHERE project_id = ?
             AND parent_external_id = ?
           ORDER BY
-            CASE LOWER(work_item_type)
+            CASE LOWER(TRIM(work_item_type))
               WHEN 'task' THEN 0
               WHEN 'bug' THEN 1
               ELSE 2
@@ -72,7 +75,7 @@ export async function GET(request: NextRequest) {
 
     const counts = items.reduce(
       (acc, item) => {
-        const itemType = item.type.toLowerCase();
+        const itemType = normalizeItemType(item.type);
         if (itemType === "task") acc.tasks += 1;
         if (itemType === "bug") acc.bugs += 1;
         if (itemType === "task" && isTaskResolvedOrClosed(item.state)) {
@@ -122,12 +125,12 @@ export async function POST(request: NextRequest) {
         `
           SELECT
             parent_external_id,
-            SUM(CASE WHEN LOWER(work_item_type) = 'task' THEN 1 ELSE 0 END) as tasks_total,
-            SUM(CASE WHEN LOWER(work_item_type) = 'bug' THEN 1 ELSE 0 END) as bugs_total,
+            SUM(CASE WHEN LOWER(TRIM(work_item_type)) = 'task' THEN 1 ELSE 0 END) as tasks_total,
+            SUM(CASE WHEN LOWER(TRIM(work_item_type)) = 'bug' THEN 1 ELSE 0 END) as bugs_total,
             SUM(
               CASE
-                WHEN LOWER(work_item_type) = 'task'
-                  AND LOWER(COALESCE(state, '')) IN ('resolved', 'closed')
+                WHEN LOWER(TRIM(work_item_type)) = 'task'
+                  AND LOWER(TRIM(COALESCE(state, ''))) IN ('resolved', 'closed')
                 THEN 1
                 ELSE 0
               END
