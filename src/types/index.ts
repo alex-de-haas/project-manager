@@ -117,6 +117,7 @@ export interface Blocker {
   is_resolved: number; // SQLite uses 0/1 for boolean
   created_at: Date;
   resolved_at?: Date | null;
+  resolution_comment?: string | null;
 }
 
 export interface TaskWithBlockers extends Task {

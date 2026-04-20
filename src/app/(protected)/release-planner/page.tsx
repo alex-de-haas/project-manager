@@ -389,7 +389,8 @@ export default function ReleaseTrackingPage() {
       setWorkItemsLoading(true);
       try {
         const response = await fetch(
-          `/api/releases/work-items?releaseId=${activeReleaseId}`
+          `/api/releases/work-items?releaseId=${activeReleaseId}`,
+          { cache: "no-store" }
         );
         if (!response.ok) {
           throw new Error("Failed to fetch release work items");
@@ -449,7 +450,8 @@ export default function ReleaseTrackingPage() {
       setExistingChildTasksError(null);
       try {
         const response = await fetch(
-          `/api/azure-devops/child-work-items?parentId=${showCreateChild.workItemExternalId}`
+          `/api/azure-devops/child-work-items?parentId=${showCreateChild.workItemExternalId}`,
+          { cache: "no-store" }
         );
         if (!response.ok) {
           throw new Error("Failed to fetch existing child tasks");
@@ -496,7 +498,9 @@ export default function ReleaseTrackingPage() {
   const loadWorkItemsForRelease = useCallback(async (releaseId: number) => {
     setWorkItemsLoading(true);
     try {
-      const response = await fetch(`/api/releases/work-items?releaseId=${releaseId}`);
+      const response = await fetch(`/api/releases/work-items?releaseId=${releaseId}`, {
+        cache: "no-store",
+      });
       if (!response.ok) throw new Error("Failed to fetch work items");
       const data = (await response.json()) as ReleaseWorkItem[];
       setWorkItems(data);
@@ -1059,7 +1063,8 @@ export default function ReleaseTrackingPage() {
       setChildItemsDialogItems([]);
       try {
         const response = await fetch(
-          `/api/azure-devops/child-work-items?parentId=${parentId}`
+          `/api/azure-devops/child-work-items?parentId=${parentId}`,
+          { cache: "no-store" }
         );
         if (!response.ok) {
           throw new Error("Failed to fetch child items");
@@ -1116,12 +1121,23 @@ export default function ReleaseTrackingPage() {
       });
 
       if (refreshResponse.ok) {
-        const result = await refreshResponse.json();
+        const result = (await refreshResponse.json()) as {
+          updated?: number;
+          skipped?: number;
+          childItemsSyncError?: string | null;
+        };
 
-        if (result.updated > 0) {
-          toast.success(`Successfully updated ${result.updated} task(s) from Azure DevOps`);
-        } else if (result.skipped > 0) {
-          toast.info(`All ${result.skipped} imported task(s) are up to date`);
+        const updatedCount = result.updated ?? 0;
+        const skippedCount = result.skipped ?? 0;
+
+        if (updatedCount > 0) {
+          toast.success(`Successfully updated ${updatedCount} task(s) from Azure DevOps`);
+        } else if (skippedCount > 0) {
+          toast.info(`All ${skippedCount} imported task(s) are up to date`);
+        }
+
+        if (result.childItemsSyncError) {
+          toast.error(`Child work item sync failed: ${result.childItemsSyncError}`);
         }
       } else if (refreshResponse.status === 400) {
         console.log("Azure DevOps settings not configured, skipping refresh");
@@ -1135,6 +1151,9 @@ export default function ReleaseTrackingPage() {
     } finally {
       if (activeReleaseId) {
         await loadWorkItemsForRelease(activeReleaseId);
+      }
+      if (showChildItemsDialog?.parentId) {
+        await loadChildItemsForDialog(showChildItemsDialog.parentId);
       }
       setIsRefreshing(false);
     }

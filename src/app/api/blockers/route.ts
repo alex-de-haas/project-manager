@@ -86,7 +86,7 @@ export async function PATCH(request: NextRequest) {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
-    const { id, comment, severity, is_resolved } = body;
+    const { id, comment, severity, is_resolved, resolution_comment } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -99,8 +99,15 @@ export async function PATCH(request: NextRequest) {
     const values: any[] = [];
 
     if (comment !== undefined) {
+      if (typeof comment !== 'string' || !comment.trim()) {
+        return NextResponse.json(
+          { error: 'Comment is required' },
+          { status: 400 }
+        );
+      }
+
       updates.push('comment = ?');
-      values.push(comment);
+      values.push(comment.trim());
     }
 
     if (severity !== undefined) {
@@ -114,15 +121,28 @@ export async function PATCH(request: NextRequest) {
       values.push(severity);
     }
 
+    if (resolution_comment !== undefined && resolution_comment !== null && typeof resolution_comment !== 'string') {
+      return NextResponse.json(
+        { error: 'Resolution comment must be a string or null' },
+        { status: 400 }
+      );
+    }
+
     if (is_resolved !== undefined) {
       updates.push('is_resolved = ?');
       values.push(is_resolved ? 1 : 0);
       
       if (is_resolved) {
         updates.push('resolved_at = CURRENT_TIMESTAMP');
+        updates.push('resolution_comment = ?');
+        values.push(typeof resolution_comment === 'string' && resolution_comment.trim() ? resolution_comment.trim() : null);
       } else {
         updates.push('resolved_at = NULL');
+        updates.push('resolution_comment = NULL');
       }
+    } else if (resolution_comment !== undefined) {
+      updates.push('resolution_comment = ?');
+      values.push(typeof resolution_comment === 'string' && resolution_comment.trim() ? resolution_comment.trim() : null);
     }
 
     if (updates.length === 0) {

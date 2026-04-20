@@ -235,6 +235,7 @@ const initDb = () => {
       is_resolved INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       resolved_at DATETIME,
+      resolution_comment TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
@@ -300,6 +301,16 @@ const initDb = () => {
     }
   };
 
+  const ensureColumn = (tableName: string, columnName: string, columnDefinition: string) => {
+    const tableInfo = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+    const hasColumn = tableInfo.some((col) => col.name === columnName);
+    if (!hasColumn) {
+      console.log(`Adding ${columnName} column to ${tableName} table...`);
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+      console.log(`${columnName} column added to ${tableName} successfully`);
+    }
+  };
+
   try {
     ensureUserColumn("tasks");
     ensureUserColumn("releases");
@@ -318,6 +329,12 @@ const initDb = () => {
     ensureProjectColumn("release_work_items");
     ensureProjectColumn("blockers");
     ensureProjectColumn("checklist_items");
+  } catch (error) {
+    console.error("Migration error:", error);
+  }
+
+  try {
+    ensureColumn("blockers", "resolution_comment", "TEXT");
   } catch (error) {
     console.error("Migration error:", error);
   }

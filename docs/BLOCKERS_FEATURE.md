@@ -7,6 +7,7 @@ The blocker feature allows users to track issues that are blocking work items fr
 
 ### Blocker Properties
 - **Comment**: Description of what is blocking the task
+- **Resolution Comment**: Optional note added when the blocker is resolved
 - **Severity Levels**: 
   - Low (Blue highlight)
   - Medium (Yellow highlight)
@@ -39,7 +40,7 @@ Each task shows a "Blockers" button that displays:
 ### Managing Blockers
 In the Blockers Modal:
 - **Edit**: Modify the comment or severity of an existing blocker
-- **Resolve**: Mark a blocker as resolved (moves to "Resolved Blockers" section)
+- **Resolve**: Mark a blocker as resolved and optionally add a resolution comment (moves to "Resolved Blockers" section)
 - **Unresolve**: Reactivate a resolved blocker
 - **Delete**: Permanently remove a blocker
 
@@ -59,6 +60,7 @@ CREATE TABLE blockers (
   is_resolved INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   resolved_at DATETIME,
+  resolution_comment TEXT,
   FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
   CHECK(severity IN ('low', 'medium', 'high', 'critical'))
 );
@@ -75,7 +77,7 @@ CREATE TABLE blockers (
 - Creates a new blocker
 
 ### PATCH /api/blockers
-- Body: `{ id, comment?, severity?, is_resolved? }`
+- Body: `{ id, comment?, severity?, is_resolved?, resolution_comment? }`
 - Updates an existing blocker
 
 ### DELETE /api/blockers

@@ -15,7 +15,7 @@ Project Manager is a Next.js application for time tracking, release planning, an
 ### Work Item Management
 - Local tasks and bugs
 - Status updates with completion date handling
-- Task-level blockers with severity and resolved state
+- Task-level blockers with severity, resolved state, and optional resolution comments
 - Task checklists with drag-and-drop ordering
 - AI-generated checklist items (via LM Studio)
 - Rule: task cannot be resolved/closed while checklist has incomplete items

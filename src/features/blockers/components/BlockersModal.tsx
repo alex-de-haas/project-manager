@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { Blocker, BlockerSeverity } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,12 +41,10 @@ export default function BlockersModal({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editComment, setEditComment] = useState("");
   const [editSeverity, setEditSeverity] = useState<BlockerSeverity>("medium");
+  const [resolvingId, setResolvingId] = useState<number | null>(null);
+  const [resolveComment, setResolveComment] = useState("");
 
-  useEffect(() => {
-    fetchBlockers();
-  }, [taskId]);
-
-  const fetchBlockers = async () => {
+  const fetchBlockers = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`/api/blockers?taskId=${taskId}`);
@@ -60,7 +58,11 @@ export default function BlockersModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, [taskId]);
+
+  useEffect(() => {
+    void fetchBlockers();
+  }, [fetchBlockers]);
 
   const handleAddBlocker = async () => {
     if (!comment.trim()) {
@@ -121,23 +123,47 @@ export default function BlockersModal({
     }
   };
 
-  const handleToggleResolved = async (blocker: Blocker) => {
+  const handleResolveBlocker = async (blockerId: number) => {
     try {
       const response = await fetch("/api/blockers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: blocker.id,
-          is_resolved: blocker.is_resolved ? 0 : 1,
+          id: blockerId,
+          is_resolved: 1,
+          resolution_comment: resolveComment.trim() || null,
         }),
       });
 
-      if (!response.ok) throw new Error("Failed to toggle blocker status");
+      if (!response.ok) throw new Error("Failed to resolve blocker");
+
+      setResolvingId(null);
+      setResolveComment("");
+      await fetchBlockers();
+      onSuccess?.();
+    } catch (err) {
+      setError("Failed to resolve blocker");
+      console.error(err);
+    }
+  };
+
+  const handleUnresolveBlocker = async (blockerId: number) => {
+    try {
+      const response = await fetch("/api/blockers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: blockerId,
+          is_resolved: 0,
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to unresolve blocker");
 
       await fetchBlockers();
       onSuccess?.();
     } catch (err) {
-      setError("Failed to toggle blocker status");
+      setError("Failed to unresolve blocker");
       console.error(err);
     }
   };
@@ -163,6 +189,8 @@ export default function BlockersModal({
   };
 
   const startEdit = (blocker: Blocker) => {
+    setResolvingId(null);
+    setResolveComment("");
     setEditingId(blocker.id);
     setEditComment(blocker.comment);
     setEditSeverity(blocker.severity);
@@ -172,6 +200,19 @@ export default function BlockersModal({
     setEditingId(null);
     setEditComment("");
     setEditSeverity("medium");
+  };
+
+  const startResolve = (blockerId: number) => {
+    setEditingId(null);
+    setEditComment("");
+    setEditSeverity("medium");
+    setResolvingId(blockerId);
+    setResolveComment("");
+  };
+
+  const cancelResolve = () => {
+    setResolvingId(null);
+    setResolveComment("");
   };
 
   const getSeverityColor = (severity: BlockerSeverity) => {
@@ -295,6 +336,47 @@ export default function BlockersModal({
                           </Button>
                         </div>
                       </div>
+                    ) : resolvingId === blocker.id ? (
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <Badge className={getSeverityColor(blocker.severity)}>
+                              {getSeverityLabel(blocker.severity)}
+                            </Badge>
+                          </div>
+                          <Button
+                            onClick={cancelResolve}
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        <div>
+                          <Label htmlFor={`resolution-comment-${blocker.id}`}>
+                            Resolution Comment
+                          </Label>
+                          <textarea
+                            id={`resolution-comment-${blocker.id}`}
+                            value={resolveComment}
+                            onChange={(e) => setResolveComment(e.target.value)}
+                            placeholder="Optional: describe how this blocker was resolved..."
+                            className="mt-1 w-full min-h-[96px] rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => handleResolveBlocker(blocker.id)}
+                            size="sm"
+                          >
+                            Confirm Resolve
+                          </Button>
+                          <Button onClick={cancelResolve} variant="outline" size="sm">
+                            Keep Active
+                          </Button>
+                        </div>
+                      </div>
                     ) : (
                       <div>
                         <div className="flex items-start justify-between gap-2 mb-2">
@@ -311,7 +393,7 @@ export default function BlockersModal({
                               Edit
                             </Button>
                             <Button
-                              onClick={() => handleToggleResolved(blocker)}
+                              onClick={() => startResolve(blocker.id)}
                               variant="ghost"
                               size="sm"
                               className="h-7 text-xs text-green-600 hover:text-green-700"
@@ -358,7 +440,7 @@ export default function BlockersModal({
                       </Badge>
                       <div className="flex gap-1">
                         <Button
-                          onClick={() => handleToggleResolved(blocker)}
+                          onClick={() => handleUnresolveBlocker(blocker.id)}
                           variant="ghost"
                           size="sm"
                           className="h-7 text-xs text-orange-600 hover:text-orange-700"
@@ -375,7 +457,24 @@ export default function BlockersModal({
                         </Button>
                       </div>
                     </div>
-                    <p className="text-sm text-gray-700 dark:text-gray-300">{blocker.comment}</p>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Blocker
+                        </p>
+                        <p className="text-sm text-gray-700 dark:text-gray-300">{blocker.comment}</p>
+                      </div>
+                      {blocker.resolution_comment && (
+                        <div className="rounded-md border border-green-200 bg-white/80 p-3 dark:border-green-900 dark:bg-green-900/20">
+                          <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Resolution Comment
+                          </p>
+                          <p className="text-sm text-gray-700 dark:text-gray-300">
+                            {blocker.resolution_comment}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                       Resolved: {blocker.resolved_at ? new Date(blocker.resolved_at).toLocaleString() : "N/A"}
                     </p>
