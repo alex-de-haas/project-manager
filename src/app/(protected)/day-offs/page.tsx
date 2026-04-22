@@ -19,14 +19,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DayOffsModal } from "@/features/day-offs";
+import type { DayOff } from "@/types";
 
-type DayOffWithUser = {
-  id: number;
-  user_id?: number;
+type DayOffWithUser = DayOff & {
   user_name?: string;
-  date: string;
-  description?: string | null;
-  is_half_day: number;
 };
 
 const WEEK_STARTS_ON_MONDAY = { weekStartsOn: 1 as const };
@@ -35,7 +32,9 @@ const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export default function DayOffsCalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [dayOffs, setDayOffs] = useState<DayOffWithUser[]>([]);
+  const [currentUserDayOffs, setCurrentUserDayOffs] = useState<DayOff[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showDayOffsModal, setShowDayOffsModal] = useState(false);
 
   const monthRange = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
@@ -75,17 +74,29 @@ export default function DayOffsCalendarPage() {
   const fetchDayOffs = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(
-        `/api/day-offs?allUsers=true&startDate=${monthRange.startDate}&endDate=${monthRange.endDate}`
-      );
-      if (!response.ok) {
+      const teamDayOffsUrl = `/api/day-offs?allUsers=true&startDate=${monthRange.startDate}&endDate=${monthRange.endDate}`;
+      const currentUserDayOffsUrl = `/api/day-offs?startDate=${monthRange.startDate}&endDate=${monthRange.endDate}`;
+
+      const [teamResponse, currentUserResponse] = await Promise.all([
+        fetch(teamDayOffsUrl),
+        fetch(currentUserDayOffsUrl),
+      ]);
+
+      if (!teamResponse.ok || !currentUserResponse.ok) {
         throw new Error("Failed to load day-offs");
       }
-      const data = (await response.json()) as DayOffWithUser[];
-      setDayOffs(data);
+
+      const [teamDayOffs, userDayOffs] = await Promise.all([
+        teamResponse.json() as Promise<DayOffWithUser[]>,
+        currentUserResponse.json() as Promise<DayOff[]>,
+      ]);
+
+      setDayOffs(teamDayOffs);
+      setCurrentUserDayOffs(userDayOffs);
     } catch (error) {
       console.error(error);
       setDayOffs([]);
+      setCurrentUserDayOffs([]);
     } finally {
       setLoading(false);
     }
@@ -106,6 +117,9 @@ export default function DayOffsCalendarPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button onClick={() => setShowDayOffsModal(true)}>
+              + Add Day-Off
+            </Button>
             <Button
               variant="outline"
               size="icon"
@@ -245,6 +259,17 @@ export default function DayOffsCalendarPage() {
           </span>
         </div>
       </div>
+
+      {showDayOffsModal && (
+        <DayOffsModal
+          onClose={() => setShowDayOffsModal(false)}
+          onSuccess={() => {
+            setShowDayOffsModal(false);
+            fetchDayOffs();
+          }}
+          currentDayOffs={currentUserDayOffs}
+        />
+      )}
     </div>
   );
 }

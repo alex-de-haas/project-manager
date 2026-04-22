@@ -67,7 +67,6 @@ import {
 } from "@/components/ui/dialog";
 import { WorkItemModal } from "@/features/tasks";
 import { ImportModal, ExportToDevOpsModal } from "@/features/azure-devops";
-import { DayOffsModal } from "@/features/day-offs";
 import { BlockersModal } from "@/features/blockers";
 import { ChecklistModal } from "@/features/checklist";
 import { Bug, ClipboardCheck, GripVertical, ListChecks, Clock3, Upload } from "lucide-react";
@@ -416,7 +415,6 @@ export default function Home() {
   
   const [showAddTask, setShowAddTask] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [showDayOffs, setShowDayOffs] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showBlockers, setShowBlockers] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showChecklist, setShowChecklist] = useState<{ taskId: number; taskTitle: string } | null>(null);
@@ -1181,9 +1179,6 @@ export default function Home() {
             <Button onClick={() => setShowAddTask(true)} variant="outline" size="sm" className="h-10">
               + Add row
             </Button>
-            <Button onClick={() => setShowDayOffs(true)} variant="outline" size="sm" className="h-10">
-              + Day Offs
-            </Button>
             <Button onClick={() => setShowImport(true)} variant="outline" size="sm" className="h-10">
               Import from Azure DevOps
             </Button>
@@ -1838,17 +1833,6 @@ export default function Home() {
             setShowImport(false);
             fetchTasks();
           }}
-        />
-      )}
-
-      {showDayOffs && (
-        <DayOffsModal
-          onClose={() => setShowDayOffs(false)}
-          onSuccess={() => {
-            setShowDayOffs(false);
-            fetchDayOffs();
-          }}
-          currentDayOffs={dayOffs}
         />
       )}
 
