@@ -24,6 +24,7 @@ export interface TimeEntry {
 
 export interface TaskWithTimeEntries extends Task {
   timeEntries: Record<string, number>; // date -> hours
+  totalHoursTracked?: number;
   blockers?: Blocker[];
   checklistSummary?: {
     total: number;

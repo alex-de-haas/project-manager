@@ -62,6 +62,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -92,6 +93,7 @@ import { CSS } from "@dnd-kit/utilities";
 const WEEK_STARTS_ON_MONDAY = { weekStartsOn: 1 as const };
 const MAX_VISIBLE_TASK_TAGS = 3;
 const CHIP_GAP_PX = 6;
+const COMPLETED_STATUSES = new Set(["closed", "resolved", "done", "completed"]);
 
 const parseTaskTags = (rawTags?: string | null): string[] =>
   rawTags
@@ -419,6 +421,12 @@ export default function Home() {
   const [showBlockers, setShowBlockers] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showChecklist, setShowChecklist] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showTimeEntries, setShowTimeEntries] = useState<{ taskId: number; taskTitle: string } | null>(null);
+  const [pendingNoTimeStatusChange, setPendingNoTimeStatusChange] = useState<{
+    taskId: number;
+    taskTitle: string;
+    newStatus: string;
+    hasExternalSource: boolean;
+  } | null>(null);
   const [timeEntriesByTask, setTimeEntriesByTask] = useState<Record<number, { date: string; hours: number }[]>>({});
   const [timeEntriesLoading, setTimeEntriesLoading] = useState(false);
   const [timeEntriesError, setTimeEntriesError] = useState<string | null>(null);
@@ -948,7 +956,37 @@ export default function Home() {
     }
   };
 
-  const handleStatusChange = async (taskId: number, newStatus: string, hasExternalSource: boolean) => {
+  const handleStatusChange = async (
+    taskId: number,
+    newStatus: string,
+    hasExternalSource: boolean,
+    options?: { skipNoTimeConfirmation?: boolean }
+  ) => {
+    const task = tasks.find((item) => item.id === taskId);
+    const isCompletedStatus = COMPLETED_STATUSES.has(newStatus.toLowerCase());
+    const wasCompletedStatus = task?.status
+      ? COMPLETED_STATUSES.has(task.status.toLowerCase())
+      : false;
+    const totalHoursTracked =
+      task?.totalHoursTracked ??
+      Object.values(task?.timeEntries ?? {}).reduce((sum, hours) => sum + hours, 0);
+
+    if (
+      !options?.skipNoTimeConfirmation &&
+      task &&
+      isCompletedStatus &&
+      !wasCompletedStatus &&
+      totalHoursTracked <= 0
+    ) {
+      setPendingNoTimeStatusChange({
+        taskId,
+        taskTitle: task.title,
+        newStatus,
+        hasExternalSource,
+      });
+      return;
+    }
+
     try {
       // Use Azure DevOps sync endpoint if task is linked to Azure DevOps
       const endpoint = hasExternalSource 
@@ -987,6 +1025,19 @@ export default function Home() {
       toast.error(message);
       console.error(err);
     }
+  };
+
+  const confirmNoTimeStatusChange = () => {
+    if (!pendingNoTimeStatusChange) return;
+
+    const pendingStatusChange = pendingNoTimeStatusChange;
+    setPendingNoTimeStatusChange(null);
+    handleStatusChange(
+      pendingStatusChange.taskId,
+      pendingStatusChange.newStatus,
+      pendingStatusChange.hasExternalSource,
+      { skipNoTimeConfirmation: true }
+    );
   };
 
   const handleCopyExternalId = useCallback(async (externalId: string) => {
@@ -1812,6 +1863,47 @@ export default function Home() {
               <span>{trackedTimeTotal > 0 ? formatTimeDisplay(trackedTimeTotal) : "0:00"}</span>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingNoTimeStatusChange)}
+        onOpenChange={(open) => {
+          if (!open) setPendingNoTimeStatusChange(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>No tracked time recorded</DialogTitle>
+            <DialogDescription>
+              This work item has no tracked time. Confirm that you still want to
+              change its status.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingNoTimeStatusChange && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">
+              <div className="font-medium text-foreground">
+                {pendingNoTimeStatusChange.taskTitle}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                New status: {pendingNoTimeStatusChange.newStatus}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingNoTimeStatusChange(null)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={confirmNoTimeStatusChange}>
+              Change status anyway
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

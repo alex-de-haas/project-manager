@@ -11,6 +11,11 @@ interface ChecklistSummary {
   completed: number;
 }
 
+interface TimeEntryTotal {
+  task_id: number;
+  total_hours: number;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -81,6 +86,20 @@ export async function GET(request: NextRequest) {
       });
     });
 
+    // Fetch all-time tracked hours so completion confirmation is not limited to the selected period.
+    const timeEntryTotals = db.prepare(
+      `SELECT te.task_id, SUM(te.hours) as total_hours
+       FROM time_entries te
+       INNER JOIN tasks t ON t.id = te.task_id
+       WHERE t.user_id = ? AND t.project_id = ?
+       GROUP BY te.task_id`
+    ).all(userId, projectId) as TimeEntryTotal[];
+
+    const timeEntryTotalMap = new Map<number, number>();
+    timeEntryTotals.forEach((entry) => {
+      timeEntryTotalMap.set(entry.task_id, entry.total_hours ?? 0);
+    });
+
     // Combine tasks with their time entries, blockers, and checklist summary
     const tasksWithEntries: TaskWithTimeEntries[] = tasks.map(task => {
       const entries: Record<string, number> = {};
@@ -97,6 +116,7 @@ export async function GET(request: NextRequest) {
       return {
         ...task,
         timeEntries: entries,
+        totalHoursTracked: timeEntryTotalMap.get(task.id) ?? 0,
         blockers: taskBlockers,
         checklistSummary,
       };
