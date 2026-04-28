@@ -8,6 +8,8 @@ import {
   endOfWeek,
   format,
   isSameMonth,
+  isSaturday,
+  isSunday,
   isToday,
   startOfMonth,
   startOfWeek,
@@ -151,14 +153,23 @@ export default function DayOffsCalendarPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid grid-cols-7 gap-2">
-              {WEEKDAY_LABELS.map((day) => (
-                <div
-                  key={day}
-                  className="rounded-md border bg-muted/30 py-2 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  {day}
-                </div>
-              ))}
+              {WEEKDAY_LABELS.map((day, index) => {
+                const isWeekendLabel = index >= 5;
+
+                return (
+                  <div
+                    key={day}
+                    className={[
+                      "rounded-md border py-2 text-center text-xs font-medium uppercase tracking-wide",
+                      isWeekendLabel
+                        ? "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
+                        : "bg-muted/30 text-muted-foreground",
+                    ].join(" ")}
+                  >
+                    {day}
+                  </div>
+                );
+              })}
             </div>
 
             {loading ? (
@@ -174,6 +185,7 @@ export default function DayOffsCalendarPage() {
                   const entries = dayOffsByDate.get(dateKey) ?? [];
                   const inCurrentMonth = isSameMonth(day, currentMonth);
                   const isCurrentDay = isToday(day);
+                  const isWeekend = isSaturday(day) || isSunday(day);
                   const hasDayOffs = entries.length > 0;
 
                   return (
@@ -186,6 +198,10 @@ export default function DayOffsCalendarPage() {
                           ? "bg-orange-100 dark:bg-orange-950/50 border-orange-300 dark:border-orange-800"
                           : hasDayOffs
                           ? "bg-purple-100 dark:bg-purple-950/50 border-purple-300 dark:border-purple-800"
+                          : isWeekend && inCurrentMonth
+                          ? "bg-slate-100 border-slate-300 dark:bg-slate-900/70 dark:border-slate-700"
+                          : isWeekend
+                          ? "bg-slate-50/70 border-slate-200 dark:bg-slate-900/40 dark:border-slate-800"
                           : inCurrentMonth
                           ? "bg-background border-border"
                           : "bg-muted/25 border-border",
@@ -198,6 +214,8 @@ export default function DayOffsCalendarPage() {
                               ? "text-orange-600 dark:text-orange-400"
                               : hasDayOffs
                               ? "text-purple-700 dark:text-purple-400"
+                              : isWeekend
+                              ? "text-slate-700 dark:text-slate-200"
                               : undefined
                           }
                         >
@@ -209,6 +227,14 @@ export default function DayOffsCalendarPage() {
                             className="h-5 border-orange-300 bg-orange-50 px-1.5 text-[10px] text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300"
                           >
                             Today
+                          </Badge>
+                        )}
+                        {!isCurrentDay && isWeekend && (
+                          <Badge
+                            variant="outline"
+                            className="h-5 border-slate-300 bg-slate-50 px-1.5 text-[10px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                          >
+                            Weekend
                           </Badge>
                         )}
                       </div>
@@ -228,7 +254,9 @@ export default function DayOffsCalendarPage() {
                           </div>
                         ))}
                         {entries.length === 0 && inCurrentMonth && (
-                          <div className="text-[11px] text-muted-foreground">No day-off</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {isWeekend ? "Weekend" : "No day-off"}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -252,6 +280,12 @@ export default function DayOffsCalendarPage() {
             className="border-purple-300 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
           >
             Day-off
+          </Badge>
+          <Badge
+            variant="outline"
+            className="border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            Weekend
           </Badge>
           <span className="ml-2">
             Showing {dayOffs.length} {dayOffs.length === 1 ? "entry" : "entries"} in{" "}
