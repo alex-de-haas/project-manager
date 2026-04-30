@@ -30,12 +30,55 @@ const uniqueParentIds = (parentIds: number[]): number[] =>
   );
 
 const CHILD_LINK_RELATION = "System.LinkTypes.Hierarchy-Forward";
+const MAX_WIQL_LINK_QUERY_PARENTS = 200;
 
 const parseWorkItemIdFromUrl = (url?: string): number | null => {
   if (!url) return null;
   const match = url.match(/\/workItems\/(\d+)(?:$|[/?#])/i);
   if (!match) return null;
   return parsePositiveInt(match[1]);
+};
+
+const formatWiqlIdList = (ids: number[]): string => ids.join(", ");
+
+const fetchChildIdsByWiql = async (
+  witApi: WorkItemTrackingApi,
+  project: string,
+  parentIds: number[]
+): Promise<Map<number, Set<number>>> => {
+  const childIdsByParentId = new Map<number, Set<number>>();
+  const uniqueIds = uniqueParentIds(parentIds);
+
+  for (let i = 0; i < uniqueIds.length; i += MAX_WIQL_LINK_QUERY_PARENTS) {
+    const parentBatch = uniqueIds.slice(i, i + MAX_WIQL_LINK_QUERY_PARENTS);
+    if (parentBatch.length === 0) continue;
+
+    const result = await witApi.queryByWiql(
+      {
+        query: `
+          SELECT [System.Id]
+          FROM WorkItemLinks
+          WHERE
+            ([Source].[System.Id] IN (${formatWiqlIdList(parentBatch)}))
+            AND ([System.Links.LinkType] = '${CHILD_LINK_RELATION}')
+          MODE (MustContain)
+        `,
+      },
+      { project }
+    );
+
+    for (const relation of result.workItemRelations ?? []) {
+      const parentId = parsePositiveInt(relation.source?.id);
+      const childId = parsePositiveInt(relation.target?.id);
+      if (!parentId || !childId) continue;
+
+      const existing = childIdsByParentId.get(parentId) ?? new Set<number>();
+      existing.add(childId);
+      childIdsByParentId.set(parentId, existing);
+    }
+  }
+
+  return childIdsByParentId;
 };
 
 const buildWorkItemTypeCategorySets = async (
@@ -101,7 +144,7 @@ export const fetchChildWorkItemsForParentIds = async (
     const parentBatch = uniqueIds.slice(i, i + parentBatchSize);
     const parentItems = await witApi.getWorkItems(
       parentBatch,
-      ["System.Id"],
+      undefined,
       undefined,
       WorkItemExpand.Relations,
       WorkItemErrorPolicy.Omit,
@@ -119,6 +162,23 @@ export const fetchChildWorkItemsForParentIds = async (
         childIdToParentId.set(childId, parentId);
       }
     }
+  }
+
+  try {
+    const wiqlChildIdsByParentId = await fetchChildIdsByWiql(
+      witApi,
+      project,
+      uniqueIds
+    );
+    for (const [parentId, childIds] of Array.from(
+      wiqlChildIdsByParentId.entries()
+    )) {
+      for (const childId of Array.from(childIds)) {
+        childIdToParentId.set(childId, parentId);
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to fetch child links via WIQL:", error);
   }
 
   const childIds = Array.from(childIdToParentId.keys());
