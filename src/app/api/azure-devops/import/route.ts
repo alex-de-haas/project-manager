@@ -22,6 +22,16 @@ const getUserEmail = (userId: number): string | null => {
 
 const escapeWiqlString = (value: string): string => value.replace(/'/g, "''");
 
+const hasCurrentProjectScope = (query: string, project: string): boolean => {
+  const normalizedQuery = query.replace(/\s+/g, " ").toLowerCase();
+  const normalizedProject = escapeWiqlString(project).toLowerCase();
+  return (
+    normalizedQuery.includes("system.teamproject") &&
+    (normalizedQuery.includes("@project") ||
+      normalizedQuery.includes(`'${normalizedProject}'`))
+  );
+};
+
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -85,6 +95,7 @@ export async function POST(request: NextRequest) {
           SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State]
           FROM WorkItems
           WHERE [System.AssignedTo] = '${escapedUserEmail}'
+            AND [System.TeamProject] = @project
             AND [System.State] <> 'Closed'
             AND [System.State] <> 'Removed'
           ORDER BY [System.ChangedDate] DESC
@@ -95,6 +106,15 @@ export async function POST(request: NextRequest) {
       workItemIds = queryResult?.workItems?.map(wi => wi.id!).filter(Boolean) || [];
     } else if (body.query) {
       // Custom WIQL query
+      if (!hasCurrentProjectScope(body.query, settings.project)) {
+        return NextResponse.json(
+          {
+            error:
+              "Custom WIQL queries must include a System.TeamProject filter for the configured project.",
+          },
+          { status: 400 }
+        );
+      }
       const wiql = { query: body.query };
       const queryResult = await witApi.queryByWiql(wiql, { project: settings.project });
       workItemIds = queryResult?.workItems?.map(wi => wi.id!).filter(Boolean) || [];

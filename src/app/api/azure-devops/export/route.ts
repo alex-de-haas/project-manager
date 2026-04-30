@@ -262,6 +262,7 @@ export async function GET(request: NextRequest) {
           OR [System.WorkItemType] = 'Feature'
           OR [System.WorkItemType] = 'Epic'
           OR [System.WorkItemType] = 'Product Backlog Item')
+          AND [System.TeamProject] = @project
           AND [System.State] <> 'Closed'
           AND [System.State] <> 'Removed'
           AND [System.State] <> 'Done'

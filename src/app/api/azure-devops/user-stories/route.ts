@@ -88,6 +88,7 @@ export async function GET(request: NextRequest) {
       SELECT [System.Id]
       FROM WorkItems
       WHERE [System.WorkItemType] = 'User Story'
+        AND [System.TeamProject] = @project
         AND [System.State] <> 'Closed'
         AND [System.State] <> 'Removed'
         AND [System.State] <> 'Released'

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Release } from "@/types";
-import { CheckCircle2, GripVertical, MoreHorizontal, Plus, Trash2, UserPen } from "lucide-react";
+import { CheckCircle2, ExternalLink, GripVertical, MoreHorizontal, Plus, Trash2, UserPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Input } from "@/components/ui/input";
@@ -235,6 +235,17 @@ export function GeneralSettingsForm({
         a.start_date.localeCompare(b.start_date)
     );
   }, [releases]);
+
+  const azureProjectUrl = useMemo(() => {
+    const trimmedOrganization = organization.trim();
+    const trimmedProject = project.trim();
+
+    if (!trimmedOrganization || !trimmedProject) {
+      return "";
+    }
+
+    return `https://dev.azure.com/${encodeURIComponent(trimmedOrganization)}/${encodeURIComponent(trimmedProject)}`;
+  }, [organization, project]);
 
   const fetchModels = async (endpoint: string) => {
     setLoadingModels(true);
@@ -1651,15 +1662,30 @@ export function GeneralSettingsForm({
             </p>
           </div>
 
-          <Button
-            type="button"
-            onClick={handleTestAzureConnection}
-            disabled={testing || saving}
-            variant="outline"
-            className="w-full border-blue-600 text-blue-600 hover:bg-blue-50"
-          >
-            {testing ? "Testing..." : "Test Connection"}
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              onClick={handleTestAzureConnection}
+              disabled={testing || saving}
+              variant="outline"
+              className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50"
+            >
+              {testing ? "Testing..." : "Test Connection"}
+            </Button>
+            {azureProjectUrl ? (
+              <Button asChild variant="outline" className="flex-1">
+                <a href={azureProjectUrl} target="_blank" rel="noreferrer">
+                  <ExternalLink className="h-4 w-4" />
+                  Open Project
+                </a>
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" disabled className="flex-1">
+                <ExternalLink className="h-4 w-4" />
+                Open Project
+              </Button>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="ai" className="space-y-4 mt-4">

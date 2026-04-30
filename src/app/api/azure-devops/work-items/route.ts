@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
         SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State]
         FROM WorkItems
         WHERE [System.AssignedTo] = '${escapedUserEmail}'
+          AND [System.TeamProject] = @project
           AND [System.State] <> 'Closed'
           AND [System.State] <> 'Removed'
         ORDER BY [System.ChangedDate] DESC
