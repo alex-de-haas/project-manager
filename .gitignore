@@ -39,3 +39,6 @@ next-env.d.ts
 
 # app runtime data
 /data/
+
+# temporary files
+/tmp/

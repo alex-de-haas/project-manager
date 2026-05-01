@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
 import { parseIcsDayOffs } from "@/lib/ics";
+import { safeServerFetch, validateHttpUrlForServerFetch } from "@/lib/safe-fetch";
 import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
 
 const MAX_ICS_CONTENT_LENGTH = 2_000_000;
@@ -17,24 +18,23 @@ class DayOffImportError extends Error {
 }
 
 const loadCalendarContent = async (url: string) => {
-  let parsedUrl: URL;
-
   try {
-    parsedUrl = new URL(url);
-  } catch {
-    throw new DayOffImportError("Calendar URL must be a valid absolute URL");
+    await validateHttpUrlForServerFetch(url);
+  } catch (error) {
+    throw new DayOffImportError(error instanceof Error ? error.message : "Invalid calendar URL");
   }
 
-  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-    throw new DayOffImportError("Calendar URL must use http or https");
+  let response: Response;
+  try {
+    response = await safeServerFetch(url, {
+      headers: {
+        Accept: "text/calendar,text/plain;q=0.9,*/*;q=0.8",
+      },
+      cache: "no-store",
+    });
+  } catch (error) {
+    throw new DayOffImportError(error instanceof Error ? error.message : "Invalid calendar URL");
   }
-
-  const response = await fetch(parsedUrl.toString(), {
-    headers: {
-      Accept: "text/calendar,text/plain;q=0.9,*/*;q=0.8",
-    },
-    cache: "no-store",
-  });
 
   if (!response.ok) {
     throw new DayOffImportError(

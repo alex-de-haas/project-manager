@@ -22,8 +22,15 @@ const base64UrlDecode = (value: string) => {
   return Buffer.from(`${normalized}${padding}`, "base64").toString("utf-8");
 };
 
-const getAuthSecret = () =>
-  process.env.AUTH_SECRET || "local-dev-auth-secret-change-in-production";
+const DEVELOPMENT_AUTH_SECRET = "local-dev-auth-secret-change-in-production";
+
+const getAuthSecret = () => {
+  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_SECRET is required in production");
+  }
+  return DEVELOPMENT_AUTH_SECRET;
+};
 
 const signPayload = (payload: string) =>
   crypto

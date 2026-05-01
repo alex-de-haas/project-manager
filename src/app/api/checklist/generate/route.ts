@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { Settings } from '@/types';
+import { safeServerFetch, validateHttpUrlForServerFetch } from '@/lib/safe-fetch';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 
 interface LMStudioSettings {
@@ -64,7 +65,12 @@ Return ONLY a JSON array of checklist items.`;
     { role: 'user', content: userPrompt }
   ];
 
-  const response = await fetch(`${settings.endpoint}/v1/chat/completions`, {
+  const endpointUrl = await validateHttpUrlForServerFetch(settings.endpoint, {
+    allowLoopbackOnly: true,
+  });
+  const completionsUrl = new URL('/v1/chat/completions', endpointUrl);
+
+  const response = await safeServerFetch(completionsUrl.toString(), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -75,6 +81,8 @@ Return ONLY a JSON array of checklist items.`;
       temperature: 0.3,
       max_tokens: 2048,
     }),
+  }, {
+    allowLoopbackOnly: true,
   });
 
   if (!response.ok) {

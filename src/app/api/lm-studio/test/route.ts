@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { Settings } from '@/types';
+import { safeServerFetch, validateHttpUrlForServerFetch } from '@/lib/safe-fetch';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 
 interface LMStudioSettings {
@@ -49,12 +50,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const endpointUrl = await validateHttpUrlForServerFetch(targetEndpoint, {
+      allowLoopbackOnly: true,
+    });
+    const modelsUrl = new URL('/v1/models', endpointUrl);
+
     // Test connection by fetching models
-    const response = await fetch(`${targetEndpoint}/v1/models`, {
+    const response = await safeServerFetch(modelsUrl.toString(), {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
+    }, {
+      allowLoopbackOnly: true,
     });
 
     if (!response.ok) {

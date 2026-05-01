@@ -25,12 +25,14 @@ The Azure DevOps integration connects Project Manager with Azure DevOps work ite
 
 1. Create a Personal Access Token in Azure DevOps.
 2. Give the token access to work items.
-3. Open Settings in Project Manager.
+3. Open Settings in Project Manager as a project owner or administrator.
 4. Enter the Azure DevOps organization, project, and token.
 5. Test the connection.
 6. Save the settings after the test succeeds.
 
 For status updates and exported tasks, the token needs work item write access. Read-only tokens can still support read-focused workflows such as import and refresh.
+
+Saved tokens are treated as project-level secrets. Project owners and administrators can manage them; other project members can use the integration features without viewing or changing the token.
 
 ## Importing Work Items
 

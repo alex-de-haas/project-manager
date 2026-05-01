@@ -20,17 +20,24 @@ const isPublicPath = (pathname: string) => {
   return false;
 };
 
-const getAuthSecret = () =>
-  process.env.AUTH_SECRET || "local-dev-auth-secret-change-in-production";
+const DEVELOPMENT_AUTH_SECRET = "local-dev-auth-secret-change-in-production";
+
+const getAuthSecret = () => {
+  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
+  if (process.env.NODE_ENV === "production") return null;
+  return DEVELOPMENT_AUTH_SECRET;
+};
 
 const verifyToken = async (token: string | undefined): Promise<boolean> => {
   if (!token) return false;
   const [payload, signature] = token.split(".");
   if (!payload || !signature) return false;
+  const authSecret = getAuthSecret();
+  if (!authSecret) return false;
 
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(getAuthSecret()),
+    new TextEncoder().encode(authSecret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]

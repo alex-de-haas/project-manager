@@ -2,9 +2,13 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
 import { restoreDatabaseFromBackup } from '@/lib/db';
+import { requireAdminUser } from '@/lib/authorization';
 
 export async function POST(request: NextRequest) {
   try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
     const body = await request.json();
     const { fileName } = body;
 

@@ -2,9 +2,13 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createDatabaseBackup, deleteDatabaseBackup, listDatabaseBackups } from '@/lib/db';
+import { requireAdminUser } from '@/lib/authorization';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
     const backups = listDatabaseBackups();
     return NextResponse.json(backups);
   } catch (error) {
@@ -15,6 +19,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
     const body = await request.json().catch(() => ({}));
     const fileName = typeof body.fileName === 'string' ? body.fileName : undefined;
 
@@ -31,6 +38,9 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
     const searchParams = request.nextUrl.searchParams;
     const fileName = searchParams.get('fileName');
 

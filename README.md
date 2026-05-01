@@ -38,14 +38,14 @@ Install dependencies:
 npm install
 ```
 
-Create `.env.local` if you want to configure session security and generated invitation links:
+Create `.env.local` to configure session security and generated invitation links:
 
 ```bash
 AUTH_SECRET=replace-with-strong-random-secret
 APP_BASE_URL=http://localhost:3000
 ```
 
-`AUTH_SECRET` is recommended for production. If it is not set, the app uses a local development fallback.
+`AUTH_SECRET` is required for production. If it is missing in production, authentication fails closed; local development uses a development-only fallback.
 
 Start the development server:
 

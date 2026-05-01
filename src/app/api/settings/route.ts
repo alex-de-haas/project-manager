@@ -4,6 +4,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { Settings, AzureDevOpsSettings, LMStudioSettings } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import { canManageProject } from '@/lib/authorization';
+
+const redactAzureDevOpsSettings = (
+  value: AzureDevOpsSettings
+): AzureDevOpsSettings & { has_pat: boolean } => ({
+  ...value,
+  pat: value.pat ? "" : value.pat,
+  has_pat: Boolean(value.pat),
+});
+
+const parseAzureDevOpsSettings = (value: string): AzureDevOpsSettings | null => {
+  try {
+    return JSON.parse(value) as AzureDevOpsSettings;
+  } catch {
+    return null;
+  }
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,6 +30,12 @@ export async function GET(request: NextRequest) {
     const key = searchParams.get('key');
 
     if (key) {
+      const canManageSensitiveSettings =
+        key !== "azure_devops" || canManageProject(userId, projectId);
+      if (!canManageSensitiveSettings) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
       const setting = key === "azure_devops"
         ? (db
             .prepare("SELECT id, ? as user_id, project_id, key, value, created_at, updated_at FROM project_settings WHERE key = ? AND project_id = ?")
@@ -27,12 +50,11 @@ export async function GET(request: NextRequest) {
 
       // Parse JSON value if it's Azure DevOps settings
       if (key === 'azure_devops') {
-        try {
-          const value = JSON.parse(setting.value) as AzureDevOpsSettings;
-          return NextResponse.json({ ...setting, value });
-        } catch {
-          return NextResponse.json(setting);
+        const value = parseAzureDevOpsSettings(setting.value);
+        if (value) {
+          return NextResponse.json({ ...setting, value: redactAzureDevOpsSettings(value) });
         }
+        return NextResponse.json(setting);
       }
 
       // Parse JSON value if it's LM Studio settings
@@ -81,13 +103,35 @@ export async function POST(request: NextRequest) {
 
     // Upsert setting
     if (key === "azure_devops") {
+      if (!canManageProject(userId, projectId)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      const nextValue = typeof value === 'object' && value !== null
+        ? { ...(value as AzureDevOpsSettings) }
+        : parseAzureDevOpsSettings(String(value));
+
+      if (!nextValue) {
+        return NextResponse.json({ error: 'Invalid Azure DevOps settings' }, { status: 400 });
+      }
+
+      if (!nextValue.pat) {
+        const existing = db
+          .prepare("SELECT value FROM project_settings WHERE key = ? AND project_id = ?")
+          .get(key, projectId) as { value: string } | undefined;
+        const existingValue = existing ? parseAzureDevOpsSettings(existing.value) : null;
+        if (existingValue?.pat) {
+          nextValue.pat = existingValue.pat;
+        }
+      }
+
       db.prepare(`
         INSERT INTO project_settings (project_id, key, value, updated_at)
         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(project_id, key) DO UPDATE SET
           value = excluded.value,
           updated_at = CURRENT_TIMESTAMP
-      `).run(projectId, key, stringValue);
+      `).run(projectId, key, JSON.stringify(nextValue));
     } else {
       const stmt = db.prepare(`
         INSERT INTO settings (user_id, project_id, key, value, updated_at)
@@ -106,6 +150,13 @@ export async function POST(request: NextRequest) {
       : (db
           .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
           .get(key, userId, projectId) as Settings);
+
+    if (key === "azure_devops") {
+      const value = parseAzureDevOpsSettings(setting.value);
+      if (value) {
+        return NextResponse.json({ ...setting, value: redactAzureDevOpsSettings(value) });
+      }
+    }
 
     return NextResponse.json(setting);
   } catch (error) {
@@ -129,6 +180,10 @@ export async function DELETE(request: NextRequest) {
         { error: 'Key is required' },
         { status: 400 }
       );
+    }
+
+    if (key === "azure_devops" && !canManageProject(userId, projectId)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const result = key === "azure_devops"

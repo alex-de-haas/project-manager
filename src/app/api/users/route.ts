@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
 import type { User } from "@/types";
 import { createInvitationToken, hashInvitationToken, INVITATION_EXPIRY_SECONDS } from "@/lib/invitations";
+import { requireAdminUser } from "@/lib/authorization";
 
 const normalizeBaseUrl = (raw: string): string | null => {
   const trimmed = raw.trim();
@@ -59,8 +60,11 @@ const fallbackNameFromEmail = (email: string): string => {
   return localPart || email;
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
     const users = db
       .prepare("SELECT id, name, email, is_admin, created_at FROM users ORDER BY created_at ASC")
       .all() as User[];
@@ -73,6 +77,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
     const body = await request.json();
     const email = normalizeEmail(body?.email);
     const rawName = typeof body?.name === "string" ? body.name : "";
@@ -147,6 +154,9 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
     const userId = parseUserId(request.nextUrl.searchParams.get("id"));
     if (!userId) {
       return NextResponse.json({ error: "Valid user id is required" }, { status: 400 });
@@ -237,6 +247,9 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
     const userId = parseUserId(request.nextUrl.searchParams.get("id"));
     if (!userId) {
       return NextResponse.json({ error: "Valid user id is required" }, { status: 400 });
