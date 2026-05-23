@@ -149,7 +149,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 value={organization}
                 onChange={(e) => setOrganization(e.target.value)}
                 placeholder="e.g., mycompany"
-                required={!hasPat}
+                required
               />
               <p className="text-xs text-muted-foreground">
                 From: https://dev.azure.com/[organization]
@@ -174,7 +174,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 value={pat}
                 onChange={(e) => setPat(e.target.value)}
                 placeholder={hasPat ? "Personal PAT saved" : "Enter your Azure DevOps PAT"}
-                required
+                required={!hasPat}
               />
               <p className="text-xs text-muted-foreground">
                 {hasPat

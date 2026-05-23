@@ -32,7 +32,41 @@ const withDirectoryRole = (
     host_role: hostRolesByUserId.get(user.host_user_id) ?? null,
   }));
 
+const usersResponse = (users: HostBackedUser[], directoryStatus: string) =>
+  NextResponse.json(users, {
+    headers: {
+      "Cache-Control": "no-store",
+      "X-Project-Manager-Host-Directory-Status": directoryStatus,
+    },
+  });
+
 export async function GET(request: NextRequest) {
+  try {
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+
+    const directory = await getHostDirectorySnapshot();
+    const hostRolesByUserId = new Map(
+      directory.users.map((user) => [user.id, user.hostRole] as const)
+    );
+    const assignedHostUserIds = new Set(directory.users.map((user) => user.id));
+    const knownUsers = listHostBackedUsers();
+    const users =
+      directory.status === "ok"
+        ? withDirectoryRole(
+            knownUsers.filter((user) => assignedHostUserIds.has(user.host_user_id)),
+            hostRolesByUserId
+          )
+        : knownUsers;
+
+    return usersResponse(users, directory.status);
+  } catch (error) {
+    console.error("Database error:", error);
+    return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
   try {
     const admin = requireAdminUser(request);
     if ("response" in admin) return admin.response;
@@ -46,15 +80,10 @@ export async function GET(request: NextRequest) {
         ? withDirectoryRole(upsertHostDirectoryUsers(directory.users), hostRolesByUserId)
         : listHostBackedUsers();
 
-    return NextResponse.json(users, {
-      headers: {
-        "Cache-Control": "no-store",
-        "X-Project-Manager-Host-Directory-Status": directory.status,
-      },
-    });
+    return usersResponse(users, directory.status);
   } catch (error) {
     console.error("Database error:", error);
-    return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to synchronize users" }, { status: 500 });
   }
 }
 
@@ -89,9 +118,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     const directory = await getHostDirectorySnapshot();
+    const assignedHostUserIds =
+      directory.status === "ok" ? new Set(directory.users.map((user) => user.id)) : null;
     if (directory.status === "ok") {
       upsertHostDirectoryUsers(directory.users);
-      if (hostUserId && !directory.users.some((user) => user.id === hostUserId)) {
+      if (hostUserId && !assignedHostUserIds?.has(hostUserId)) {
         return NextResponse.json(
           { error: "User is not assigned to this module" },
           { status: 404 }
@@ -113,6 +144,12 @@ export async function PATCH(request: NextRequest) {
 
     if (!existingUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+    if (assignedHostUserIds && !assignedHostUserIds.has(existingUser.host_user_id)) {
+      return NextResponse.json(
+        { error: "User is not assigned to this module" },
+        { status: 404 }
+      );
     }
 
     const nextIsAdmin = isAdmin ?? existingUser.is_admin;

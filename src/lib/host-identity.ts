@@ -43,6 +43,8 @@ type HostJsonWebKey = JsonWebKey & {
 };
 
 const JWKS_CACHE_MS = 5 * 60 * 1000;
+const JWKS_FETCH_TIMEOUT_MS = 5000;
+const JWT_EXPIRATION_LEEWAY_SECONDS = 60;
 
 let jwksCache:
   | {
@@ -83,7 +85,10 @@ const resolveJwksUrl = async (): Promise<string | null> => {
 
   const discoveryUrl = `${origin}/.well-known/docker-host/module-identity.json`;
   try {
-    const response = await fetch(discoveryUrl, { cache: "no-store" });
+    const response = await fetch(discoveryUrl, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS),
+    });
     if (response.ok) {
       const data = (await response.json()) as { jwksUrl?: string; jwks_uri?: string };
       const discovered = data.jwksUrl || data.jwks_uri;
@@ -104,7 +109,10 @@ const fetchJwks = async (url: string): Promise<HostJsonWebKey[]> => {
     return jwksCache.keys;
   }
 
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await fetch(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch Docker Host JWKS: ${response.status}`);
   }
@@ -191,7 +199,10 @@ export const verifyDockerHostIdentityToken = async (
     const claims = base64UrlToJson<HostIdentityClaims>(encodedPayload);
     if (claims.iss !== "docker-host") return null;
     if (!claims.sub || !claims.aud || !hasAudience(claims.aud, getModuleId())) return null;
-    if (typeof claims.exp !== "number" || claims.exp <= Math.floor(Date.now() / 1000)) {
+    if (
+      typeof claims.exp !== "number" ||
+      claims.exp + JWT_EXPIRATION_LEEWAY_SECONDS <= Math.floor(Date.now() / 1000)
+    ) {
       return null;
     }
 

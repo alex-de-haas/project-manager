@@ -260,7 +260,7 @@ export function GeneralSettingsForm({
     setLoadingUsers(true);
     try {
       const [usersResponse, sessionResponse] = await Promise.all([
-        fetch("/api/users"),
+        fetch("/api/users", { method: "POST" }),
         fetch("/api/auth/session"),
       ]);
       if (!usersResponse.ok) {
