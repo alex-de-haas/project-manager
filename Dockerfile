@@ -3,6 +3,7 @@
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV DOCKER_HOST_MODULE_ID=com.haas.project-manager
 
 FROM base AS deps
 COPY package*.json ./
@@ -15,11 +16,12 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN mkdir -p public .next/cache
-RUN --mount=type=cache,target=/app/.next/cache npm run build
+RUN --mount=type=cache,target=/app/.next/cache npm run build && node scripts/patch-next-docker-host-embed.mjs
 
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV PROJECT_MANAGER_DATA_DIR=/app/data
 COPY package*.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next

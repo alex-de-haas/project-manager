@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "0.2",
+  "id": "com.haas.project-manager",
+  "name": "Project Manager",
+  "description": "Project planning, time tracking, release planning, and Azure DevOps coordination for Docker Host users.",
+  "version": "1.0.0",
+  "containers": [
+    {
+      "key": "app",
+      "image": {
+        "repository": "ghcr.io/alex-de-haas/project-manager",
+        "tag": "latest",
+        "pullPolicy": "ifNotPresent"
+      },
+      "runtime": {
+        "ports": [
+          {
+            "key": "http",
+            "containerPort": 3000,
+            "protocol": "http"
+          }
+        ],
+        "resources": {
+          "cpus": 1,
+          "memory": "1g"
+        }
+      }
+    }
+  ],
+  "endpoints": [
+    {
+      "key": "http",
+      "container": "app",
+      "port": "http",
+      "public": true
+    }
+  ],
+  "storage": {
+    "directories": [
+      {
+        "key": "data",
+        "label": "Application Data",
+        "description": "SQLite database, backups, and module-owned persistent state.",
+        "purpose": "data",
+        "required": true,
+        "targets": [
+          {
+            "container": "app",
+            "containerPath": "/app/data",
+            "writable": true
+          }
+        ],
+        "mount": {
+          "recommended": true,
+          "type": "bind",
+          "modulePath": "data"
+        }
+      }
+    ],
+    "mountCollections": []
+  },
+  "ui": {
+    "category": "Apps",
+    "icon": "calendar-days",
+    "entrypoint": {
+      "portKey": "http",
+      "path": "/"
+    },
+    "navigation": [
+      {
+        "label": "Time Management",
+        "path": "/"
+      },
+      {
+        "label": "Planning",
+        "path": "/release-planner"
+      },
+      {
+        "label": "Calendar",
+        "path": "/day-offs"
+      },
+      {
+        "label": "Settings",
+        "path": "/settings"
+      }
+    ]
+  }
+}

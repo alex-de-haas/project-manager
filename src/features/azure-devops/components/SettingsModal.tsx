@@ -22,6 +22,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [organization, setOrganization] = useState("");
   const [project, setProject] = useState("");
   const [pat, setPat] = useState("");
+  const [hasPat, setHasPat] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -46,7 +47,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               : data.value;
           setOrganization(settings.organization || "");
           setProject(settings.project || "");
-          setPat(settings.pat || "");
+          setHasPat(Boolean(settings.hasPat));
+          setPat("");
         }
       }
     } catch (err) {
@@ -57,7 +59,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   };
 
   const handleTest = async () => {
-    if (!organization || !project || !pat) {
+    if (!organization || !project || (!pat && !hasPat)) {
       setMessage("Please fill in all fields before testing");
       setMessageType("error");
       return;
@@ -107,6 +109,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       });
 
       if (!response.ok) throw new Error("Failed to save settings");
+      const data = await response.json().catch(() => null);
+      if (data?.value) {
+        setHasPat(Boolean(data.value.hasPat));
+        setPat("");
+      }
 
       setMessage("✓ Settings saved successfully!");
       setMessageType("success");
@@ -166,12 +173,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 type="password"
                 value={pat}
                 onChange={(e) => setPat(e.target.value)}
-                placeholder="Enter your Azure DevOps PAT"
-                required
+                placeholder={hasPat ? "Personal PAT saved" : "Enter your Azure DevOps PAT"}
+                required={!hasPat}
               />
               <p className="text-xs text-muted-foreground">
-                Create a PAT at: User Settings → Personal access tokens → New
-                Token (needs Work Items: Read scope)
+                {hasPat
+                  ? "Leave blank to keep the saved personal PAT."
+                  : "Create a PAT at: User Settings -> Personal access tokens -> New Token."}
               </p>
             </div>
 

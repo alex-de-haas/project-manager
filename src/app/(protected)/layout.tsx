@@ -1,39 +1,30 @@
-import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import Sidebar from "@/components/Sidebar";
-import db from "@/lib/db";
-import { AUTH_COOKIE_NAME, verifyAuthToken } from "@/lib/auth";
+import TopNavigation from "@/components/TopNavigation";
+import { headers } from "next/headers";
+import { readTrustedHostIdentity } from "@/lib/host-identity";
+import { ensureHostUser } from "@/lib/host-users";
 import { PROJECT_COOKIE_NAME } from "@/lib/user-context";
 import { getProjectsForUser } from "@/lib/projects";
-
-interface SidebarUser {
-  id: number;
-  name: string;
-  email?: string | null;
-}
 
 export default async function ProtectedLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const headerStore = await headers();
+  const hostIdentity = readTrustedHostIdentity(headerStore);
+
+  if (!hostIdentity) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center px-6 text-sm text-muted-foreground">
+        Docker Host identity is required.
+      </div>
+    );
+  }
+
+  const currentUser = ensureHostUser(hostIdentity);
   const cookieStore = await cookies();
-  const authToken = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-  const payload = verifyAuthToken(authToken);
-
-  if (!payload) {
-    redirect("/login");
-  }
-
-  const currentUser = db
-    .prepare("SELECT id, name, email FROM users WHERE id = ?")
-    .get(payload.uid) as SidebarUser | undefined;
-
-  if (!currentUser) {
-    redirect("/login");
-  }
-
-  const projects = getProjectsForUser(payload.uid);
+  const projects = getProjectsForUser(currentUser.id);
   const cookieProjectId = cookieStore.get(PROJECT_COOKIE_NAME)?.value ?? "";
   const activeProjectId = projects.some(
     (project) => String(project.id) === cookieProjectId
@@ -44,13 +35,13 @@ export default async function ProtectedLayout({
     : "";
 
   return (
-    <div className="flex h-dvh overflow-hidden">
-      <Sidebar
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <TopNavigation
         initialUser={currentUser}
         initialProjects={projects}
         initialActiveProjectId={activeProjectId}
       />
-      <main className="flex h-dvh min-w-0 flex-1 flex-col overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {children}
       </main>
     </div>

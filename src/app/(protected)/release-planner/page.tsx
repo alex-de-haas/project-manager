@@ -57,6 +57,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { BookOpen, Bug, ClipboardCheck, GripVertical, MoreVertical, ShieldAlert } from "lucide-react";
+import { readLocalStorage, writeLocalStorage } from "@/lib/browser-storage";
 
 const ReleaseImportModal = dynamic(
   () => import("@/features/release-planner/components/ReleaseImportModal"),
@@ -169,8 +170,7 @@ export default function ReleaseTrackingPage() {
   const [workItems, setWorkItems] = useState<ReleaseWorkItem[]>([]);
   const [workItemsLoading, setWorkItemsLoading] = useState(false);
   const [activeReleaseId, setActiveReleaseId] = useState<number | null>(() => {
-    if (typeof window === "undefined") return null;
-    const stored = window.localStorage.getItem(ACTIVE_RELEASE_STORAGE_KEY);
+    const stored = readLocalStorage(ACTIVE_RELEASE_STORAGE_KEY);
     if (!stored) return null;
     const parsed = Number(stored);
     return Number.isNaN(parsed) ? null : parsed;
@@ -437,12 +437,8 @@ export default function ReleaseTrackingPage() {
   }, [sortedReleases, activeReleaseIndex, activeReleaseId]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
     if (activeReleaseId === null) return;
-    window.localStorage.setItem(
-      ACTIVE_RELEASE_STORAGE_KEY,
-      String(activeReleaseId)
-    );
+    writeLocalStorage(ACTIVE_RELEASE_STORAGE_KEY, String(activeReleaseId));
   }, [activeReleaseId]);
 
   useEffect(() => {

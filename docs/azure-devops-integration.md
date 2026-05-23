@@ -6,7 +6,8 @@ The Azure DevOps integration connects Project Manager with Azure DevOps work ite
 
 ## Capabilities
 
-- Configure Azure DevOps organization, project, and Personal Access Token.
+- Configure Azure DevOps organization and project.
+- Store each user's Azure DevOps Personal Access Token separately.
 - Test the Azure DevOps connection before saving settings.
 - Import work items assigned to the current user.
 - Import specific work items by ID.
@@ -25,14 +26,14 @@ The Azure DevOps integration connects Project Manager with Azure DevOps work ite
 
 1. Create a Personal Access Token in Azure DevOps.
 2. Give the token access to work items.
-3. Open Settings in Project Manager as a project owner or administrator.
-4. Enter the Azure DevOps organization, project, and token.
-5. Test the connection.
-6. Save the settings after the test succeeds.
+3. Open Settings in Project Manager as a module administrator.
+4. Enter the Azure DevOps organization and project for the active Project Manager project.
+5. Open Profile and save your personal token.
+6. Test the connection.
 
 For status updates and exported tasks, the token needs work item write access. Read-only tokens can still support read-focused workflows such as import and refresh.
 
-Saved tokens are treated as project-level secrets. Project owners and administrators can manage them; other project members can use the integration features without viewing or changing the token.
+Saved tokens are personal credentials. Project Manager stores each Host user's PAT separately and uses only the current Host user's PAT for import, export, refresh, and status synchronization. API responses expose only whether the current user has a saved PAT.
 
 ## Importing Work Items
 
@@ -60,6 +61,7 @@ Release planning can import Azure DevOps user stories and related work items int
 - Confirm that the token has not expired.
 - Confirm that the token has work item permissions.
 - Verify that the user can access the target project in Azure DevOps.
+- Confirm that the current Project Manager user has saved a personal PAT in Profile.
 
 ### No Work Items Are Found
 

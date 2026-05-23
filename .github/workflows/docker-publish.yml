@@ -5,15 +5,9 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      publish_legacy:
-        description: Publish the one-time legacy backup tag
-        required: false
-        type: boolean
-        default: false
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -29,6 +23,9 @@ jobs:
 
       - name: Normalize image name
         run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -47,18 +44,48 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=sha
+            type=sha,format=short,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=legacy,enable=${{ github.event_name == 'workflow_dispatch' && inputs.publish_legacy }}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Render Docker Host module metadata
+        run: |
+          node scripts/render-module-metadata.mjs \
+            --repository "$IMAGE_NAME" \
+            --tag "sha-${GITHUB_SHA::7}" \
+            --output dist/module-metadata/metadata.json
+
+      - name: Upload Docker Host module metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-host-module-metadata
+          path: dist/module-metadata/metadata.json
+
+      - name: Publish latest Docker Host module metadata release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          METADATA_RELEASE_TAG: latest
+          METADATA_RELEASE_TITLE: Latest Docker Host module metadata
+          METADATA_ASSET_PATH: dist/module-metadata/metadata.json
+        run: |
+          if gh release view "$METADATA_RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$METADATA_RELEASE_TAG" "$METADATA_ASSET_PATH" --clobber
+          else
+            gh release create "$METADATA_RELEASE_TAG" "$METADATA_ASSET_PATH" \
+              --target "$GITHUB_SHA" \
+              --title "$METADATA_RELEASE_TITLE" \
+              --notes "Mutable Docker Host metadata channel for the latest Project Manager image." \
+              --latest=false
+          fi

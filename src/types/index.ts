@@ -46,14 +46,15 @@ export interface AzureDevOpsSettings {
   organization: string;
   project: string;
   pat: string;
+  hasPat?: boolean;
 }
 
 export interface GeneralSettings {
   default_day_length: number;
 }
 
-export interface LMStudioSettings {
-  endpoint: string;
+export interface AiProviderSettings {
+  baseUrl: string;
   model: string;
 }
 
@@ -139,6 +140,7 @@ export interface ChecklistItem {
 
 export interface User {
   id: number;
+  host_user_id?: string | null;
   name: string;
   email?: string | null;
   is_admin?: number;

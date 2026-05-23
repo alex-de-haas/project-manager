@@ -87,6 +87,7 @@ import {
 } from "@dnd-kit/sortable";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
+import { readLocalStorage, writeLocalStorage } from "@/lib/browser-storage";
 
 const WorkItemModal = dynamic(
   () =>
@@ -420,27 +421,23 @@ export default function Home() {
   
   // Initialize state from localStorage
   const [currentDate, setCurrentDate] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('projectManager.currentDate');
-      if (stored) {
-        try {
-          return new Date(stored);
-        } catch {
-          return new Date();
-        }
+    const stored = readLocalStorage("projectManager.currentDate");
+    if (stored) {
+      try {
+        return new Date(stored);
+      } catch {
+        return new Date();
       }
     }
     return new Date();
   });
   
   const [viewMode, setViewMode] = useState<"week" | "month">(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('projectManager.viewMode');
-      if (stored === 'week' || stored === 'month') {
-        return stored;
-      }
+    const stored = readLocalStorage("projectManager.viewMode");
+    if (stored === "week" || stored === "month") {
+      return stored;
     }
-    return 'week';
+    return "week";
   });
   
   const [showAddTask, setShowAddTask] = useState(false);
@@ -470,15 +467,13 @@ export default function Home() {
   const lockedTrackerScrollLeftRef = useRef<number | null>(null);
   
   const [visibleStatuses, setVisibleStatuses] = useState<Set<string>>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('projectManager.visibleStatuses');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          return new Set(Array.isArray(parsed) ? parsed : ["New", "Active", "Resolved", "Closed"]);
-        } catch {
-          return new Set(["New", "Active", "Resolved", "Closed"]);
-        }
+    const stored = readLocalStorage("projectManager.visibleStatuses");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return new Set(Array.isArray(parsed) ? parsed : ["New", "Active", "Resolved", "Closed"]);
+      } catch {
+        return new Set(["New", "Active", "Resolved", "Closed"]);
       }
     }
     return new Set(["New", "Active", "Resolved", "Closed"]);
@@ -655,23 +650,17 @@ export default function Home() {
 
   // Persist currentDate to localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('projectManager.currentDate', currentDate.toISOString());
-    }
+    writeLocalStorage("projectManager.currentDate", currentDate.toISOString());
   }, [currentDate]);
 
   // Persist viewMode to localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('projectManager.viewMode', viewMode);
-    }
+    writeLocalStorage("projectManager.viewMode", viewMode);
   }, [viewMode]);
 
   // Persist visibleStatuses to localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('projectManager.visibleStatuses', JSON.stringify(Array.from(visibleStatuses)));
-    }
+    writeLocalStorage("projectManager.visibleStatuses", JSON.stringify(Array.from(visibleStatuses)));
   }, [visibleStatuses]);
 
 
