@@ -83,7 +83,7 @@ Recommendation:
 
 ### Phase 4 - Docker Host metadata and runtime contract
 
-**Status**: In Progress
+**Status**: Completed
 
 Package Project Manager as an installable Docker Host module.
 
@@ -97,13 +97,14 @@ Tasks:
 - Completed: Add module storage mapping for `/app/data`.
 - Completed: Add CI metadata rendering for immutable `sha-<commit>` image tags.
 - Completed: Configure CI to publish rendered metadata as the `metadata.json` asset on the `latest` GitHub release.
+- Completed: Publish Docker images as a multi-architecture manifest for `linux/amd64` and `linux/arm64`.
 - Completed: Confirm Docker Host automatically injects internal origin, module id, and service token.
-- Remaining: Run the publish workflow from the Docker Host module branch and verify the release asset URL returns rendered metadata for the pushed image tag.
-- Remaining: Install the metadata through Docker Host developer mode or managed install flow.
+- Completed: Run the publish workflow from the Docker Host module branch and verify the release asset URL returns rendered metadata for the pushed image tag.
+- Completed: Install the metadata through Docker Host developer mode managed install flow.
 
 Recommendation:
 
-- Keep metadata strict. Schema `0.2` rejects unknown fields, so Host-owned credentials should not be modeled as administrator-entered settings unless Docker Host explicitly requires that.
+- Keep metadata strict. Schema `0.2` rejects unknown fields, so Host-owned credentials should not be modeled as administrator-entered settings unless Docker Host explicitly requires that. Keep CI publishing both `linux/amd64` and `linux/arm64`, because Docker Host installs on Apple Silicon require an arm64 image manifest.
 
 ### Phase 5 - Azure DevOps settings
 
