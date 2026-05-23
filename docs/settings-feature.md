@@ -2,7 +2,7 @@
 
 ## Overview
 
-Settings provide a central place to configure application behavior, module roles, project administration, Azure DevOps connectivity, AI provider settings, and database maintenance.
+Settings provide a central place to configure application behavior, module roles, project administration, Azure DevOps project connectivity, AI provider settings, and database maintenance.
 
 ## General Settings
 
@@ -32,11 +32,11 @@ JSON import remains available for migration into a fresh module. It imports the 
 
 ## Azure DevOps Settings
 
-Azure DevOps settings let a project connect to an Azure DevOps organization and project with a Personal Access Token. Users can test the connection before saving settings, which helps catch incorrect organization names, project names, expired tokens, or insufficient permissions.
+Azure DevOps settings let a module administrator connect a Project Manager project to an Azure DevOps organization and project. Each Host user stores their own Personal Access Token in Profile, and users can test the connection with their personal credential.
 
 These settings enable Azure DevOps import, export, refresh, and status synchronization features elsewhere in the app.
 
-The Personal Access Token is a project-level secret in the current implementation. Project owners and administrators can manage it, and the saved token is not displayed back to the browser after it is stored.
+The Personal Access Token is a user credential. It is not returned to the browser after storage; API responses expose only `hasPat` for the current user.
 
 ## AI Settings
 
@@ -47,13 +47,15 @@ AI settings configure the LM Studio-compatible provider endpoint and selected mo
 1. Open Settings from the sidebar.
 2. Review general app defaults.
 3. Configure Azure DevOps if the project uses it.
-4. Review assigned Docker Host users and module administrator roles.
-5. Manage projects and project membership.
-6. Import migration JSON if needed.
-7. Create a database backup before major operational changes.
+4. Open Profile and save a personal Azure DevOps PAT if you use Azure DevOps features.
+5. Review assigned Docker Host users and module administrator roles.
+6. Manage projects and project membership.
+7. Import migration JSON if needed.
+8. Create a database backup before major operational changes.
 
 ## Operational Notes
 
 - Access to Settings requires a valid Docker Host identity and Project Manager administrator rights.
+- Access to Profile requires a valid Docker Host identity and is available to all assigned module users.
 - Keep Azure DevOps tokens current and scoped to the permissions needed by the team.
 - Create backups before restoring data or making broad administrative changes.

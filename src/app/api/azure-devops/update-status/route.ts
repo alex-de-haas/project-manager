@@ -1,12 +1,15 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
-import * as azdev from 'azure-devops-node-api';
-import { WorkItemTrackingApi } from 'azure-devops-node-api/WorkItemTrackingApi';
 import { JsonPatchDocument, JsonPatchOperation, Operation } from 'azure-devops-node-api/interfaces/common/VSSInterfaces';
 import db from '@/lib/db';
-import type { Settings, AzureDevOpsSettings, Task } from '@/types';
+import type { Task } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import {
+  createAzureDevOpsConnectionContext,
+  getAzureDevOpsSettingsForUser,
+  isAzureDevOpsConfigProblem,
+} from '@/lib/azure-devops/settings';
 
 export async function POST(request: NextRequest) {
   try {
@@ -75,44 +78,16 @@ export async function POST(request: NextRequest) {
     // If task is linked to Azure DevOps, update it there too
     if (task.external_source === 'azure_devops' && task.external_id) {
       try {
-        // Get Azure DevOps settings
-        const settingRow = db
-          .prepare('SELECT id, key, value, created_at, updated_at FROM project_settings WHERE key = ? AND project_id = ?')
-          .get('azure_devops', projectId) as Settings | undefined;
-        
-        if (!settingRow) {
+        const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
+        if (isAzureDevOpsConfigProblem(settingsResult)) {
           return NextResponse.json({
             success: true,
-            message: 'Status updated locally. Azure DevOps settings not configured.',
+            message: `Status updated locally. ${settingsResult.message}`,
             localOnly: true
           });
         }
 
-        let settings: AzureDevOpsSettings;
-        try {
-          settings = JSON.parse(settingRow.value) as AzureDevOpsSettings;
-        } catch {
-          return NextResponse.json({
-            success: true,
-            message: 'Status updated locally. Invalid Azure DevOps settings.',
-            localOnly: true
-          });
-        }
-
-        if (!settings.organization || !settings.project || !settings.pat) {
-          return NextResponse.json({
-            success: true,
-            message: 'Status updated locally. Azure DevOps settings incomplete.',
-            localOnly: true
-          });
-        }
-
-        // Create Azure DevOps connection
-        const orgUrl = `https://dev.azure.com/${settings.organization}`;
-        const authHandler = azdev.getPersonalAccessTokenHandler(settings.pat);
-        const connection = new azdev.WebApi(orgUrl, authHandler);
-
-        const witApi: WorkItemTrackingApi = await connection.getWorkItemTrackingApi();
+        const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
 
         const workItemId = parseInt(task.external_id);
         if (isNaN(workItemId)) {

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import db from '@/lib/db';
-import type { Task, TimeEntry, Settings, AzureDevOpsSettings } from '@/types';
+import type { Task, TimeEntry } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import { getAzureDevOpsProjectSettings } from '@/lib/azure-devops/settings';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -23,17 +24,7 @@ export async function GET(request: NextRequest) {
     const endDate = `${year}-${monthNum}-31`;
 
     // Fetch Azure DevOps settings for building links
-    let azureSettings: AzureDevOpsSettings | null = null;
-    try {
-      const setting = db
-        .prepare('SELECT id, key, value, created_at, updated_at FROM project_settings WHERE key = ? AND project_id = ?')
-        .get('azure_devops', projectId) as Settings | undefined;
-      if (setting) {
-        azureSettings = JSON.parse(setting.value) as AzureDevOpsSettings;
-      }
-    } catch {
-      // Settings not configured, continue without links
-    }
+    const azureSettings = getAzureDevOpsProjectSettings(projectId);
 
     // Fetch tasks that overlap with the selected period
     const tasks = db.prepare(`

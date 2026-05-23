@@ -12,6 +12,7 @@ import {
   PanelLeftOpen,
   Rocket,
   Settings,
+  UserRound,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -286,6 +287,22 @@ export default function Sidebar({
                 </Link>
               </Button>
             ) : null}
+
+            <Button
+              asChild
+              variant="ghost"
+              className={cn(
+                "h-9 w-full justify-start gap-3 rounded-md px-3",
+                "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                pathname === "/profile" && "bg-sidebar-accent text-sidebar-accent-foreground",
+                isCompact && "justify-center px-0"
+              )}
+            >
+              <Link href="/profile" title={isCompact ? "Profile" : undefined}>
+                <UserRound className="h-4 w-4" />
+                <span className={cn("text-sm", isCompact && "sr-only")}>Profile</span>
+              </Link>
+            </Button>
 
             <ThemeToggle
               isCompact={isCompact}

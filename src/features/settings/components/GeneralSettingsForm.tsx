@@ -184,6 +184,7 @@ export function GeneralSettingsForm({
   const [organization, setOrganization] = useState("");
   const [project, setProject] = useState("");
   const [pat, setPat] = useState("");
+  const [hasAzurePat, setHasAzurePat] = useState(false);
 
   // LM Studio settings
   const [lmStudioEndpoint, setLmStudioEndpoint] = useState(
@@ -409,7 +410,8 @@ export function GeneralSettingsForm({
               : data.value;
           setOrganization(settings.organization || "");
           setProject(settings.project || "");
-          setPat(settings.pat || "");
+          setHasAzurePat(Boolean(settings.hasPat));
+          setPat("");
         }
       }
 
@@ -777,8 +779,8 @@ export function GeneralSettingsForm({
   };
 
   const handleTestAzureConnection = async () => {
-    if (!organization || !project || !pat) {
-      setMessage("Please fill in all Azure DevOps fields before testing");
+    if (!organization || !project || (!pat && !hasAzurePat)) {
+      setMessage("Please fill in Azure DevOps organization, project, and personal PAT before testing");
       setMessageType("error");
       return;
     }
@@ -860,6 +862,17 @@ export function GeneralSettingsForm({
       return;
     }
 
+    const hasAnyAzureInput =
+      organization.trim().length > 0 ||
+      project.trim().length > 0 ||
+      pat.trim().length > 0 ||
+      hasAzurePat;
+    if (hasAnyAzureInput && (!organization.trim() || !project.trim())) {
+      setMessage("Azure DevOps organization and project are required when Azure DevOps is configured.");
+      setMessageType("error");
+      return;
+    }
+
     setSaving(true);
     setMessage("");
     try {
@@ -877,18 +890,25 @@ export function GeneralSettingsForm({
         throw new Error("Failed to save general settings");
       }
 
-      // Save Azure DevOps settings
-      const azureResponse = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          key: "azure_devops",
-          value: { organization, project, pat },
-        }),
-      });
+      if (hasAnyAzureInput) {
+        // Save Azure DevOps settings
+        const azureResponse = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "azure_devops",
+            value: { organization, project, pat },
+          }),
+        });
 
-      if (!azureResponse.ok) {
-        throw new Error("Failed to save Azure DevOps settings");
+        if (!azureResponse.ok) {
+          throw new Error("Failed to save Azure DevOps settings");
+        }
+        const azureData = await azureResponse.json().catch(() => null);
+        if (azureData?.value) {
+          setHasAzurePat(Boolean(azureData.value.hasPat));
+          setPat("");
+        }
       }
 
       // Save LM Studio settings
@@ -1082,6 +1102,31 @@ export function GeneralSettingsForm({
       setMessageType("error");
     } finally {
       setImportingJson(false);
+    }
+  };
+
+  const handleDeleteAzurePat = async () => {
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/settings?key=azure_devops&credential=pat", {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to remove Azure DevOps PAT.");
+      }
+
+      setPat("");
+      setHasAzurePat(false);
+      setMessage("Azure DevOps personal PAT removed.");
+      setMessageType("success");
+    } catch {
+      setMessage("Failed to remove Azure DevOps PAT.");
+      setMessageType("error");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1511,11 +1556,12 @@ export function GeneralSettingsForm({
               type="password"
               value={pat}
               onChange={(e) => setPat(e.target.value)}
-              placeholder="Enter your Azure DevOps PAT"
+              placeholder={hasAzurePat ? "Personal PAT saved" : "Enter your Azure DevOps PAT"}
             />
             <p className="text-xs text-muted-foreground">
-              Create a PAT at: User Settings -&gt; Personal access tokens -&gt; New
-              Token (needs Work Items: Read scope)
+              {hasAzurePat
+                ? "Leave blank to keep the saved personal PAT."
+                : "Create a PAT at: User Settings -> Personal access tokens -> New Token."}
             </p>
           </div>
 
@@ -1542,6 +1588,15 @@ export function GeneralSettingsForm({
                 Open Project
               </Button>
             )}
+            <Button
+              type="button"
+              onClick={handleDeleteAzurePat}
+              disabled={!hasAzurePat || saving}
+              variant="outline"
+              className="flex-1"
+            >
+              Remove PAT
+            </Button>
           </div>
         </TabsContent>
 

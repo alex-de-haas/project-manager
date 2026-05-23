@@ -1,12 +1,15 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
-import * as azdev from 'azure-devops-node-api';
-import { WorkItemTrackingApi } from 'azure-devops-node-api/WorkItemTrackingApi';
 import { JsonPatchDocument, JsonPatchOperation, Operation } from 'azure-devops-node-api/interfaces/common/VSSInterfaces';
 import db from '@/lib/db';
-import type { Settings, AzureDevOpsSettings, Task } from '@/types';
+import type { Task } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import {
+  createAzureDevOpsConnectionContext,
+  getAzureDevOpsSettingsForUser,
+  isAzureDevOpsConfigProblem,
+} from '@/lib/azure-devops/settings';
 
 interface ExportRequest {
   taskId: number;
@@ -70,41 +73,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get Azure DevOps settings
-    const settingRow = db
-      .prepare('SELECT id, key, value, created_at, updated_at FROM project_settings WHERE key = ? AND project_id = ?')
-      .get('azure_devops', projectId) as Settings | undefined;
-    
-    if (!settingRow) {
+    const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
+    if (isAzureDevOpsConfigProblem(settingsResult)) {
       return NextResponse.json(
-        { error: 'Azure DevOps settings not configured. Please configure in Settings.' },
+        { error: settingsResult.message },
         { status: 400 }
       );
     }
 
-    let settings: AzureDevOpsSettings;
-    try {
-      settings = JSON.parse(settingRow.value) as AzureDevOpsSettings;
-    } catch {
-      return NextResponse.json(
-        { error: 'Invalid Azure DevOps settings format' },
-        { status: 400 }
-      );
-    }
-
-    if (!settings.organization || !settings.project || !settings.pat) {
-      return NextResponse.json(
-        { error: 'Azure DevOps settings incomplete. Please check organization, project, and PAT.' },
-        { status: 400 }
-      );
-    }
-
-    // Create Azure DevOps connection
-    const orgUrl = `https://dev.azure.com/${settings.organization}`;
-    const authHandler = azdev.getPersonalAccessTokenHandler(settings.pat);
-    const connection = new azdev.WebApi(orgUrl, authHandler);
-
-    const witApi: WorkItemTrackingApi = await connection.getWorkItemTrackingApi();
+    const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
 
     // Use the task owner's email when setting assignment (supports release-planner user selection)
     const assigneeUserId = task.user_id ?? userId;
@@ -217,41 +194,15 @@ export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
-    // Get Azure DevOps settings
-    const settingRow = db
-      .prepare('SELECT id, key, value, created_at, updated_at FROM project_settings WHERE key = ? AND project_id = ?')
-      .get('azure_devops', projectId) as Settings | undefined;
-    
-    if (!settingRow) {
+    const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
+    if (isAzureDevOpsConfigProblem(settingsResult)) {
       return NextResponse.json(
-        { error: 'Azure DevOps settings not configured.' },
+        { error: settingsResult.message },
         { status: 400 }
       );
     }
 
-    let settings: AzureDevOpsSettings;
-    try {
-      settings = JSON.parse(settingRow.value) as AzureDevOpsSettings;
-    } catch {
-      return NextResponse.json(
-        { error: 'Invalid Azure DevOps settings format' },
-        { status: 400 }
-      );
-    }
-
-    if (!settings.organization || !settings.project || !settings.pat) {
-      return NextResponse.json(
-        { error: 'Azure DevOps settings incomplete.' },
-        { status: 400 }
-      );
-    }
-
-    // Create Azure DevOps connection
-    const orgUrl = `https://dev.azure.com/${settings.organization}`;
-    const authHandler = azdev.getPersonalAccessTokenHandler(settings.pat);
-    const connection = new azdev.WebApi(orgUrl, authHandler);
-
-    const witApi: WorkItemTrackingApi = await connection.getWorkItemTrackingApi();
+    const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
 
     // Query for potential parent work items (User Stories, Features, Epics, Product Backlog Items)
     const wiql = {

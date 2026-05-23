@@ -46,6 +46,7 @@ export interface AzureDevOpsSettings {
   organization: string;
   project: string;
   pat: string;
+  hasPat?: boolean;
 }
 
 export interface GeneralSettings {

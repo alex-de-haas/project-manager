@@ -5,14 +5,12 @@ import db from '@/lib/db';
 import type { Settings, AzureDevOpsSettings, LMStudioSettings } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 import { canManageProject } from '@/lib/authorization';
-
-const redactAzureDevOpsSettings = (
-  value: AzureDevOpsSettings
-): AzureDevOpsSettings & { has_pat: boolean } => ({
-  ...value,
-  pat: value.pat ? "" : value.pat,
-  has_pat: Boolean(value.pat),
-});
+import {
+  deleteAzureDevOpsUserPat,
+  getAzureDevOpsPublicSettings,
+  upsertAzureDevOpsProjectSettings,
+  upsertAzureDevOpsUserPat,
+} from '@/lib/azure-devops/settings';
 
 const parseAzureDevOpsSettings = (value: string): AzureDevOpsSettings | null => {
   try {
@@ -30,31 +28,29 @@ export async function GET(request: NextRequest) {
     const key = searchParams.get('key');
 
     if (key) {
-      const canManageSensitiveSettings =
-        key !== "azure_devops" || canManageProject(userId, projectId);
-      if (!canManageSensitiveSettings) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (key === "azure_devops") {
+        const value = getAzureDevOpsPublicSettings(userId, projectId);
+        if (!value) {
+          return NextResponse.json({ error: 'Setting not found' }, { status: 404 });
+        }
+
+        return NextResponse.json({
+          id: 0,
+          user_id: userId,
+          project_id: projectId,
+          key,
+          value,
+          created_at: null,
+          updated_at: null,
+        });
       }
 
-      const setting = key === "azure_devops"
-        ? (db
-            .prepare("SELECT id, ? as user_id, project_id, key, value, created_at, updated_at FROM project_settings WHERE key = ? AND project_id = ?")
-            .get(userId, key, projectId) as Settings | undefined)
-        : (db
-            .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
-            .get(key, userId, projectId) as Settings | undefined);
+      const setting = db
+        .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
+        .get(key, userId, projectId) as Settings | undefined;
       
       if (!setting) {
         return NextResponse.json({ error: 'Setting not found' }, { status: 404 });
-      }
-
-      // Parse JSON value if it's Azure DevOps settings
-      if (key === 'azure_devops') {
-        const value = parseAzureDevOpsSettings(setting.value);
-        if (value) {
-          return NextResponse.json({ ...setting, value: redactAzureDevOpsSettings(value) });
-        }
-        return NextResponse.json(setting);
       }
 
       // Parse JSON value if it's LM Studio settings
@@ -98,15 +94,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Stringify value if it's an object
-    const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-
     // Upsert setting
     if (key === "azure_devops") {
-      if (!canManageProject(userId, projectId)) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-
       const nextValue = typeof value === 'object' && value !== null
         ? { ...(value as AzureDevOpsSettings) }
         : parseAzureDevOpsSettings(String(value));
@@ -115,24 +104,46 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid Azure DevOps settings' }, { status: 400 });
       }
 
-      if (!nextValue.pat) {
-        const existing = db
-          .prepare("SELECT value FROM project_settings WHERE key = ? AND project_id = ?")
-          .get(key, projectId) as { value: string } | undefined;
-        const existingValue = existing ? parseAzureDevOpsSettings(existing.value) : null;
-        if (existingValue?.pat) {
-          nextValue.pat = existingValue.pat;
-        }
+      const canManageCurrentProject = canManageProject(userId, projectId);
+      const includesProjectSettings =
+        Object.prototype.hasOwnProperty.call(nextValue, "organization") ||
+        Object.prototype.hasOwnProperty.call(nextValue, "project");
+
+      if (includesProjectSettings && !canManageCurrentProject) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
-      db.prepare(`
-        INSERT INTO project_settings (project_id, key, value, updated_at)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(project_id, key) DO UPDATE SET
-          value = excluded.value,
-          updated_at = CURRENT_TIMESTAMP
-      `).run(projectId, key, JSON.stringify(nextValue));
+      if (includesProjectSettings) {
+        const organization = nextValue.organization?.trim() ?? "";
+        const project = nextValue.project?.trim() ?? "";
+
+        if (!organization || !project) {
+          return NextResponse.json(
+            { error: "Organization and project are required" },
+            { status: 400 }
+          );
+        }
+
+        upsertAzureDevOpsProjectSettings(projectId, { organization, project });
+      }
+
+      if (typeof nextValue.pat === "string" && nextValue.pat.trim()) {
+        upsertAzureDevOpsUserPat(userId, nextValue.pat);
+      }
+
+      const redactedValue = getAzureDevOpsPublicSettings(userId, projectId);
+      return NextResponse.json({
+        id: 0,
+        user_id: userId,
+        project_id: projectId,
+        key,
+        value: redactedValue,
+        created_at: null,
+        updated_at: null,
+      });
     } else {
+      // Stringify value if it's an object
+      const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
       const stmt = db.prepare(`
         INSERT INTO settings (user_id, project_id, key, value, updated_at)
         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -143,20 +154,9 @@ export async function POST(request: NextRequest) {
       stmt.run(userId, projectId, key, stringValue);
     }
 
-    const setting = key === "azure_devops"
-      ? (db
-          .prepare("SELECT id, ? as user_id, project_id, key, value, created_at, updated_at FROM project_settings WHERE key = ? AND project_id = ?")
-          .get(userId, key, projectId) as Settings)
-      : (db
-          .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
-          .get(key, userId, projectId) as Settings);
-
-    if (key === "azure_devops") {
-      const value = parseAzureDevOpsSettings(setting.value);
-      if (value) {
-        return NextResponse.json({ ...setting, value: redactAzureDevOpsSettings(value) });
-      }
-    }
+    const setting = db
+      .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
+      .get(key, userId, projectId) as Settings;
 
     return NextResponse.json(setting);
   } catch (error) {
@@ -180,6 +180,11 @@ export async function DELETE(request: NextRequest) {
         { error: 'Key is required' },
         { status: 400 }
       );
+    }
+
+    if (key === "azure_devops" && request.nextUrl.searchParams.get("credential") === "pat") {
+      deleteAzureDevOpsUserPat(userId);
+      return NextResponse.json({ success: true });
     }
 
     if (key === "azure_devops" && !canManageProject(userId, projectId)) {

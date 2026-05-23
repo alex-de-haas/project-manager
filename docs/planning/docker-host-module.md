@@ -108,18 +108,18 @@ Recommendation:
 
 ### Phase 5 - Azure DevOps settings
 
-**Status**: Not Started
+**Status**: Completed
 
 Separate project configuration from user credentials.
 
 Tasks:
 
-- Store Azure DevOps organization and project in project settings.
-- Store each user's PAT in their own profile credentials.
-- Use the current Host user's PAT for import, export, refresh, and status synchronization.
-- Block DevOps import/export/sync features when the current user has no PAT.
-- Keep manual task and time-management functionality available without a PAT.
-- Redact PAT values in all API responses and UI forms.
+- Completed: Store Azure DevOps organization and project in project settings.
+- Completed: Store each user's PAT in their own profile credentials.
+- Completed: Use the current Host user's PAT for import, export, refresh, and status synchronization.
+- Completed: Block DevOps import/export/sync features when the current user has no PAT.
+- Completed: Keep manual task and time-management functionality available without a PAT.
+- Completed: Redact PAT values in all API responses and UI forms.
 
 Recommendation:
 
@@ -127,7 +127,7 @@ Recommendation:
 
 ### Phase 6 - AI provider configuration
 
-**Status**: Not Started
+**Status**: In Progress
 
 Move AI provider configuration to module-level settings.
 
@@ -154,7 +154,7 @@ Tasks:
 - Replace the application sidebar with top navigation for Time Management, Planning, Calendar, and Settings.
 - Hide Settings for non-admin users.
 - Move project switching into the top bar or another compact project selector.
-- Add a user profile entry for personal settings such as Azure DevOps PAT.
+- Completed: Add a user profile entry for personal settings such as Azure DevOps PAT.
 
 Recommendation:
 

@@ -2,15 +2,22 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
 import * as azdev from 'azure-devops-node-api';
-import db from '@/lib/db';
-import type { Settings, AzureDevOpsSettings } from '@/types';
+import type { AzureDevOpsSettings } from '@/types';
+import { getAzureDevOpsProjectSettings, getAzureDevOpsUserPat } from '@/lib/azure-devops/settings';
+import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 
 export async function POST(request: NextRequest) {
   try {
+    const userId = getRequestUserId(request);
+    const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
     const { organization, project, pat } = body as Partial<AzureDevOpsSettings>;
+    const savedProjectSettings = getAzureDevOpsProjectSettings(projectId);
+    const effectiveOrganization = organization?.trim() || savedProjectSettings?.organization || "";
+    const effectiveProject = project?.trim() || savedProjectSettings?.project || "";
+    const effectivePat = pat?.trim() || getAzureDevOpsUserPat(userId) || "";
 
-    if (!organization || !project || !pat) {
+    if (!effectiveOrganization || !effectiveProject || !effectivePat) {
       return NextResponse.json(
         { error: 'Organization, project, and PAT are required' },
         { status: 400 }
@@ -18,13 +25,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Test connection
-    const orgUrl = `https://dev.azure.com/${organization}`;
-    const authHandler = azdev.getPersonalAccessTokenHandler(pat);
+    const orgUrl = `https://dev.azure.com/${effectiveOrganization}`;
+    const authHandler = azdev.getPersonalAccessTokenHandler(effectivePat);
     const connection = new azdev.WebApi(orgUrl, authHandler);
 
     // Try to get project info to validate connection
     const coreApi = await connection.getCoreApi();
-    const projectInfo = await coreApi.getProject(project);
+    const projectInfo = await coreApi.getProject(effectiveProject);
 
     if (!projectInfo) {
       return NextResponse.json(

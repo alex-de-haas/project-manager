@@ -34,6 +34,7 @@ The main data groups are:
 
 - Host user mappings and Project Manager administrator flags.
 - Projects, project membership, and project settings.
+- Per-user credentials such as Azure DevOps Personal Access Tokens.
 - Tasks, time entries, day-offs, blockers, and checklist items.
 - Releases, release work items, and release work item children.
 - Module backup files under `/app/data/backups`.

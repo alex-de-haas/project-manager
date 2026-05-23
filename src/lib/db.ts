@@ -128,6 +128,17 @@ const initDb = () => {
       UNIQUE(user_id, project_id, key)
     );
 
+    CREATE TABLE IF NOT EXISTS user_credentials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(user_id, key)
+    );
+
     CREATE TABLE IF NOT EXISTS day_offs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -236,6 +247,7 @@ const initDb = () => {
     CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(date);
     CREATE INDEX IF NOT EXISTS idx_time_entries_task_date ON time_entries(task_id, date);
     CREATE INDEX IF NOT EXISTS idx_settings_user_project_key ON settings(user_id, project_id, key);
+    CREATE INDEX IF NOT EXISTS idx_user_credentials_user_key ON user_credentials(user_id, key);
     CREATE INDEX IF NOT EXISTS idx_dayoffs_user_date ON day_offs(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_dayoffs_user_project_date ON day_offs(user_id, project_id, date);
     CREATE INDEX IF NOT EXISTS idx_dayoffs_date ON day_offs(date);
