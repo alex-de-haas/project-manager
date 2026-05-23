@@ -211,25 +211,8 @@ export default function TopNavigation({
 
   return (
     <header className="shrink-0 bg-background">
-      <div className="mx-auto w-full max-w-7xl px-4 pb-5 pt-6 sm:px-6 lg:px-8">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm uppercase text-muted-foreground">COM.HAAS.PROJECT-MANAGER</p>
-            <h1 className="truncate text-2xl font-semibold tracking-normal text-foreground">
-              Project Manager
-            </h1>
-            <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
-              Project planning, time tracking, release planning, and Azure DevOps coordination.
-            </p>
-          </div>
-
-          <div className="inline-flex shrink-0 items-center gap-2 rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span>Running</span>
-          </div>
-        </div>
-
-        <div className="mt-9 rounded-lg border bg-card p-1 shadow-sm">
+      <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+        <div className="rounded-lg border bg-card p-1 shadow-sm">
           <div className="flex min-w-0 items-center gap-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
