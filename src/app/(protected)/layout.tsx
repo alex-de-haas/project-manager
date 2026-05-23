@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import Sidebar from "@/components/Sidebar";
+import TopNavigation from "@/components/TopNavigation";
 import { headers } from "next/headers";
 import { readTrustedHostIdentity } from "@/lib/host-identity";
 import { ensureHostUser } from "@/lib/host-users";
@@ -35,13 +35,13 @@ export default async function ProtectedLayout({
     : "";
 
   return (
-    <div className="flex h-dvh overflow-hidden">
-      <Sidebar
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <TopNavigation
         initialUser={currentUser}
         initialProjects={projects}
         initialActiveProjectId={activeProjectId}
       />
-      <main className="flex h-dvh min-w-0 flex-1 flex-col overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {children}
       </main>
     </div>

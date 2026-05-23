@@ -47,3 +47,16 @@ The main data groups are:
 - `DOCKER_HOST_MODULE_SERVICE_TOKEN` allows Project Manager to read the Docker Host scoped directory for users assigned to this module.
 - Docker Host should not forward Host session cookies to the module.
 - Project Manager trusts only the signed Host identity token after signature, issuer, audience, and expiration validation.
+
+## Navigation
+
+The module UI uses a Docker Host-friendly top navigation bar instead of an application sidebar. The stable navigation paths match the module metadata:
+
+- Time Management: `/`
+- Planning: `/release-planner`
+- Calendar: `/day-offs`
+- Settings: `/settings`
+
+Settings navigation is rendered only for Project Manager module administrators. Project switching lives in the top bar as a compact selector, and personal settings such as a user's Azure DevOps PAT are available from the profile entry in the user menu.
+
+The module currently renders in the light theme by default. Future Docker Host theme integration should replace the hardcoded light theme with a Host-provided theme signal.

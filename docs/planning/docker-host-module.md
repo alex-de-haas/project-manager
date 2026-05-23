@@ -145,15 +145,15 @@ Recommendation:
 
 ### Phase 7 - Host-friendly navigation
 
-**Status**: Not Started
+**Status**: Completed
 
 Make the module UI fit inside the Docker Host shell.
 
 Tasks:
 
-- Replace the application sidebar with top navigation for Time Management, Planning, Calendar, and Settings.
-- Hide Settings for non-admin users.
-- Move project switching into the top bar or another compact project selector.
+- Completed: Replace the application sidebar with top navigation for Time Management, Planning, Calendar, and Settings.
+- Completed: Hide Settings for non-admin users.
+- Completed: Move project switching into the top bar as a compact project selector.
 - Completed: Add a user profile entry for personal settings such as Azure DevOps PAT.
 
 Recommendation:
@@ -173,9 +173,11 @@ Tasks:
 - Completed: Build the production Docker image locally.
 - Completed: Smoke-test `/api/health` in the built container and verify normal page requests reject missing Host identity.
 - Completed: Add JSON migration import endpoint and Settings UI.
+- Completed: Run lint/build checks for host-friendly top navigation changes.
+- Completed: Browser smoke-test top navigation with local signed Docker Host-style admin and non-admin identity tokens.
 - Remaining: Verify Host identity token validation with a real Docker Host-issued token.
 - Remaining: Verify assigned Host users can access the app through Docker Host.
-- Remaining: Verify non-admin users cannot access Settings APIs or Settings UI.
+- Remaining: Verify non-admin users cannot access Settings APIs or Settings UI inside a real Docker Host managed install.
 - Remaining: Verify admins can manage roles, projects, project settings, and AI settings.
 - Remaining: Verify JSON migration import with a real exported file.
 - Remaining: Verify per-user Azure DevOps PAT behavior after Phase 5.
