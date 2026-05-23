@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      publish_legacy:
+        description: Publish the one-time legacy backup tag
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -43,6 +49,7 @@ jobs:
             type=ref,event=branch
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=legacy,enable=${{ github.event_name == 'workflow_dispatch' && inputs.publish_legacy }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7

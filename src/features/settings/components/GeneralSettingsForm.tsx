@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Release } from "@/types";
-import { CheckCircle2, ExternalLink, GripVertical, MoreHorizontal, Plus, Trash2, UserPen } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, GripVertical, MoreHorizontal, Plus, Trash2, UserPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Input } from "@/components/ui/input";
@@ -198,6 +198,7 @@ export function GeneralSettingsForm({
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [deletingBackup, setDeletingBackup] = useState(false);
   const [restoringBackup, setRestoringBackup] = useState(false);
+  const [exportingLegacyData, setExportingLegacyData] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState("");
 
   const [loading, setLoading] = useState(true);
@@ -1175,6 +1176,41 @@ export function GeneralSettingsForm({
     }
   };
 
+  const handleExportLegacyData = async () => {
+    setExportingLegacyData(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/legacy-export");
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as ApiError;
+        throw new Error(data.error || "Failed to export legacy data.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const fileNameMatch = disposition.match(/filename="([^"]+)"/);
+      const fileName = fileNameMatch?.[1] ?? "project-manager-legacy-export.json";
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+
+      setMessage(`Legacy data export created: ${fileName}`);
+      setMessageType("success");
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to export legacy data.";
+      setMessage(errorMessage);
+      setMessageType("error");
+    } finally {
+      setExportingLegacyData(false);
+    }
+  };
+
   const resetPasswordDialog = () => {
     setCurrentPassword("");
     setNewPassword("");
@@ -1551,6 +1587,26 @@ export function GeneralSettingsForm({
         </TabsContent>
 
         <TabsContent value="database" className="space-y-4 mt-4">
+          <div className="space-y-3 rounded-lg border p-4">
+            <div className="space-y-1">
+              <Label>Legacy Data Export</Label>
+              <p className="text-xs text-muted-foreground">
+                Export current user time entries and day-offs for the Docker Host migration.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleExportLegacyData}
+              disabled={exportingLegacyData}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              {exportingLegacyData ? "Exporting..." : "Export JSON"}
+            </Button>
+          </div>
+
           <div className="space-y-3 rounded-lg border p-4">
             <div className="space-y-1">
               <Label htmlFor="databaseBackupSelect">Database Backups</Label>

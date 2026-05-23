@@ -28,6 +28,12 @@ Project settings support multiple projects in the same app installation. Users c
 
 Database maintenance tools allow administrators to create backups, view existing backups, delete backups that are no longer needed, and restore the application from a selected backup.
 
+## Legacy Data Export
+
+The Database settings area includes a legacy JSON export for the Docker Host migration. The export contains the current user's Azure DevOps-linked time entries grouped by numeric work item ID and date, plus the current user's day-offs.
+
+The export is intentionally narrow and does not change users, projects, authentication, Azure DevOps settings, or stored application data.
+
 Calendar imports can fetch public HTTP or HTTPS calendar URLs. The app blocks private, reserved, and loopback network targets for calendar imports. LM Studio connectivity is intended for loopback endpoints on the server running Project Manager.
 
 ## Typical Workflow
@@ -36,7 +42,7 @@ Calendar imports can fetch public HTTP or HTTPS calendar URLs. The app blocks pr
 2. Review general app defaults.
 3. Configure Azure DevOps if the project uses it.
 4. Manage users and project membership.
-5. Use database backup tools before major operational changes.
+5. Use legacy JSON export or database backup tools before major operational changes.
 
 ## Operational Notes
 
