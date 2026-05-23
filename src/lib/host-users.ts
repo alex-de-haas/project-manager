@@ -1,12 +1,15 @@
 import db from "@/lib/db";
 import type { User } from "@/types";
 import type { TrustedHostIdentity } from "@/lib/host-identity";
+import type { HostDirectoryUser } from "@/lib/host-directory";
 
-type HostBackedUser = User & { host_user_id?: string | null };
+export type HostBackedUser = User & { host_user_id: string };
 
 const DEFAULT_PROJECT_NAME = "Default";
 
-const normalizeDisplayName = (identity: TrustedHostIdentity) => {
+type HostUserIdentityInput = Pick<TrustedHostIdentity, "id" | "email" | "name">;
+
+const normalizeDisplayName = (identity: HostUserIdentityInput) => {
   const fromName = identity.name?.trim();
   if (fromName) return fromName;
 
@@ -33,6 +36,85 @@ const buildUniqueName = (name: string, currentUserId?: number) => {
   }
 
   return `${baseName} ${Date.now()}`;
+};
+
+const selectHostBackedUserById = (userId: number) =>
+  db
+    .prepare("SELECT id, name, email, is_admin, host_user_id, created_at FROM users WHERE id = ?")
+    .get(userId) as HostBackedUser | undefined;
+
+export const listHostBackedUsers = (): HostBackedUser[] =>
+  db
+    .prepare(
+      `
+        SELECT id, name, email, is_admin, host_user_id, created_at
+        FROM users
+        WHERE host_user_id IS NOT NULL
+        ORDER BY created_at ASC, id ASC
+      `
+    )
+    .all() as HostBackedUser[];
+
+export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): HostBackedUser[] => {
+  const uniqueUsers = new Map<string, HostDirectoryUser>();
+  for (const user of directoryUsers) {
+    const id = user.id.trim();
+    if (id) {
+      uniqueUsers.set(id, { ...user, id });
+    }
+  }
+
+  const syncUsers = db.transaction((users: HostDirectoryUser[]) =>
+    users.map((user) => {
+      const existing = db
+        .prepare("SELECT id, name, email, is_admin, host_user_id, created_at FROM users WHERE host_user_id = ?")
+        .get(user.id) as HostBackedUser | undefined;
+      const nextName = buildUniqueName(
+        normalizeDisplayName({
+          id: user.id,
+          email: user.email ?? existing?.email ?? null,
+          name: user.displayName ?? existing?.name ?? null,
+        }),
+        existing?.id
+      );
+      const nextEmail = user.email ?? existing?.email ?? null;
+      const nextIsAdmin = user.hostRole === "host.admin" ? 1 : existing?.is_admin ?? 0;
+
+      if (existing) {
+        if (
+          existing.name !== nextName ||
+          existing.email !== nextEmail ||
+          (existing.is_admin ?? 0) !== nextIsAdmin
+        ) {
+          db.prepare("UPDATE users SET name = ?, email = ?, is_admin = ? WHERE host_user_id = ?").run(
+            nextName,
+            nextEmail,
+            nextIsAdmin,
+            user.id
+          );
+        }
+
+        return {
+          ...existing,
+          name: nextName,
+          email: nextEmail,
+          is_admin: nextIsAdmin,
+        };
+      }
+
+      const created = db
+        .prepare("INSERT INTO users (name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?)")
+        .run(nextName, nextEmail, nextIsAdmin, user.id);
+      const userId = Number(created.lastInsertRowid);
+      const row = selectHostBackedUserById(userId);
+      if (!row) {
+        throw new Error("Failed to create Host directory user");
+      }
+      return row;
+    })
+  );
+
+  return syncUsers([...uniqueUsers.values()]);
 };
 
 const ensureDefaultProjectForUser = (userId: number) => {

@@ -43,7 +43,7 @@ Recommendation:
 
 ### Phase 2 - Module roles and scoped Host users
 
-**Status**: In Progress
+**Status**: Completed
 
 Keep Docker Host authorization separate from Project Manager permissions.
 
@@ -53,12 +53,12 @@ Tasks:
 - Completed: Bootstrap module admin rights for the first Host user and for signed `host.admin` identities.
 - Completed: Restrict Settings UI and Settings APIs to module administrators.
 - Completed: Remove local user create/delete/rename behavior.
-- Remaining: Use the Docker Host scoped directory API to list users assigned to this module before they first open the app.
-- Remaining: Store and manage module roles directly by stable Host user id when scoped directory integration is available.
+- Completed: Use the Docker Host scoped directory API to list users assigned to this module before they first open the app.
+- Completed: Store and manage module roles directly by stable Host user id when scoped directory integration is available.
 
 Recommendation:
 
-- Use `host.admin` for bootstrap and emergency access. Keep normal Project Manager permissions in module-owned storage.
+- Use `host.admin` for bootstrap and emergency access. Keep normal Project Manager permissions in module-owned storage keyed by stable Docker Host user ids.
 
 ### Phase 3 - Fresh module database
 
@@ -96,8 +96,9 @@ Tasks:
 - Completed: Add `ui` metadata with entrypoint path `/` and navigation paths for the main pages.
 - Completed: Add module storage mapping for `/app/data`.
 - Completed: Add CI metadata rendering for immutable `sha-<commit>` image tags.
-- Remaining: Publish the rendered metadata artifact at a stable direct JSON URL for Docker Host installation.
-- Remaining: Confirm Docker Host automatically injects internal origin, module id, and service token.
+- Completed: Configure CI to publish rendered metadata as the `metadata.json` asset on the `latest` GitHub release.
+- Completed: Confirm Docker Host automatically injects internal origin, module id, and service token.
+- Remaining: Run the publish workflow from the Docker Host module branch and verify the release asset URL returns rendered metadata for the pushed image tag.
 - Remaining: Install the metadata through Docker Host developer mode or managed install flow.
 
 Recommendation:
@@ -185,12 +186,12 @@ Recommendation:
 ## Open Questions
 
 - Question: What stable direct URL should Docker Host use for the rendered module metadata artifact?
-  Answer: The CI workflow can render metadata with the immutable `sha-<commit>` image tag, but the final direct JSON publication location still needs to be chosen.
-  Recommendation: Publish the rendered artifact to a release asset or another immutable direct JSON URL. Do not commit build-specific image tags back into the source branch.
+  Answer: The intended latest-channel URL is `https://github.com/alex-de-haas/project-manager/releases/download/latest/metadata.json`.
+  Recommendation: Use the release asset as the Docker Host install URL for the latest channel. Add immutable per-version release assets later if reproducible historical installs are needed.
 
 - Question: What Docker Host internal origin and service token environment names are guaranteed for modules?
   Answer: The implementation expects `DOCKER_HOST_INTERNAL_ORIGIN`, `DOCKER_HOST_MODULE_ID`, and `DOCKER_HOST_MODULE_SERVICE_TOKEN`, with `DOCKER_HOST_IDENTITY_JWKS_URL` available as an explicit JWKS override.
-  Recommendation: Verify these names against the target Docker Host version before managed install testing.
+  Recommendation: Keep these names; Docker Host install/update/recovery builds module service environments with the same variables.
 
 - Question: Should selected AI model be global or per project?
   Answer: Current direction is global.
@@ -202,4 +203,4 @@ Recommendation:
 
 - Question: Should module administrators be bootstrapped from the first Host user, Host administrators, or both?
   Answer: Current implementation grants admin rights to the first Host user that opens the module and to users whose signed token has `hostRole: "host.admin"`.
-  Recommendation: Keep both for bootstrap, then manage normal module roles through scoped Host directory integration.
+  Recommendation: Keep both for bootstrap, then manage normal module roles through the scoped Host directory integration.

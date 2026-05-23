@@ -71,17 +71,23 @@ Build the app image:
 docker build -t project-manager .
 ```
 
-The source module metadata is available in `metadata.json`. CI renders an installable metadata artifact that points at the immutable `sha-<commit>` image tag pushed to GHCR. Persistent state is stored under `/app/data` and is intended to be mounted from Docker Host-managed module storage.
+The source module metadata template is available in `metadata.json`. CI renders an installable metadata file that points at the immutable `sha-<commit>` image tag pushed to GHCR, then publishes that file as the `metadata.json` asset on the `latest` GitHub release. The stable Docker Host metadata URL is:
+
+```text
+https://github.com/alex-de-haas/project-manager/releases/download/latest/metadata.json
+```
+
+Persistent state is stored under `/app/data` and is intended to be mounted from Docker Host-managed module storage.
 
 ## Documentation
 
 Feature documentation lives in the `docs` folder:
 
-- `docs/AZURE_DEVOPS_INTEGRATION.md`
-- `docs/BLOCKERS_FEATURE.md`
-- `docs/DOCKER_HOST_MODULE.md`
-- `docs/SETTINGS_FEATURE.md`
-- `docs/SONNER_USAGE.md`
+- `docs/azure-devops-integration.md`
+- `docs/blockers-feature.md`
+- `docs/docker-host-module.md`
+- `docs/settings-feature.md`
+- `docs/sonner-usage.md`
 
 Documentation in `docs` should describe user-facing feature behavior and avoid detailed implementation notes.
 

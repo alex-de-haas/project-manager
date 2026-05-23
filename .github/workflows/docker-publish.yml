@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -58,10 +58,31 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Render Docker Host module metadata
-        run: node scripts/render-module-metadata.mjs --tag "sha-${GITHUB_SHA::7}" --output dist/module-metadata/metadata.json
+        run: |
+          node scripts/render-module-metadata.mjs \
+            --repository "$IMAGE_NAME" \
+            --tag "sha-${GITHUB_SHA::7}" \
+            --output dist/module-metadata/metadata.json
 
       - name: Upload Docker Host module metadata
         uses: actions/upload-artifact@v4
         with:
           name: docker-host-module-metadata
           path: dist/module-metadata/metadata.json
+
+      - name: Publish latest Docker Host module metadata release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          METADATA_RELEASE_TAG: latest
+          METADATA_RELEASE_TITLE: Latest Docker Host module metadata
+          METADATA_ASSET_PATH: dist/module-metadata/metadata.json
+        run: |
+          if gh release view "$METADATA_RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$METADATA_RELEASE_TAG" "$METADATA_ASSET_PATH" --clobber
+          else
+            gh release create "$METADATA_RELEASE_TAG" "$METADATA_ASSET_PATH" \
+              --target "$GITHUB_SHA" \
+              --title "$METADATA_RELEASE_TITLE" \
+              --notes "Mutable Docker Host metadata channel for the latest Project Manager image." \
+              --latest=false
+          fi

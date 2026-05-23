@@ -11,11 +11,13 @@ There is no standalone mode. Direct browser or API access without Docker Host id
 - Requests must include a valid signed `X-Docker-Host-Identity` token issued by Docker Host.
 - The first Host user that opens the module becomes a module administrator. Host administrators also receive module administrator rights.
 - Settings are visible only to module administrators.
+- Module administrators can manage Project Manager roles for assigned Host users from the Docker Host scoped directory before those users first open the module.
 
 ## Module Packaging
 
 - Source module metadata is defined in `metadata.json`.
-- The checked-in metadata uses the source image tag. The Docker publish workflow renders an installable metadata artifact with the immutable `sha-<commit>` image tag for the image it just pushed.
+- The checked-in metadata is a template. The Docker publish workflow renders installable metadata with the immutable `sha-<commit>` image tag for the image it just pushed.
+- The workflow publishes rendered metadata as `metadata.json` on the `latest` GitHub release. Docker Host can install from `https://github.com/alex-de-haas/project-manager/releases/download/latest/metadata.json`.
 - The app container listens on port `3000`.
 - Persistent data is stored in `/app/data`.
 - `/api/health` checks database readiness and writable module storage without requiring browser cookies.
@@ -40,5 +42,6 @@ The main data groups are:
 
 - `DOCKER_HOST_MODULE_ID` identifies the module audience for Host identity tokens.
 - `DOCKER_HOST_INTERNAL_ORIGIN` or `DOCKER_HOST_IDENTITY_JWKS_URL` must allow the module to resolve Docker Host JWKS.
+- `DOCKER_HOST_MODULE_SERVICE_TOKEN` allows Project Manager to read the Docker Host scoped directory for users assigned to this module.
 - Docker Host should not forward Host session cookies to the module.
 - Project Manager trusts only the signed Host identity token after signature, issuer, audience, and expiration validation.

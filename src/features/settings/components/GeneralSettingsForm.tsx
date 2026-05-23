@@ -56,6 +56,8 @@ interface DatabaseBackupFile {
 
 interface AppUser {
   id: number;
+  host_user_id?: string | null;
+  host_role?: string | null;
   name: string;
   email?: string | null;
   is_admin?: number;
@@ -161,6 +163,7 @@ export function GeneralSettingsForm({
   const [activeTab, setActiveTab] = useState("general");
   const [users, setUsers] = useState<AppUser[]>([]);
   const [activeUserId, setActiveUserId] = useState("");
+  const [hostDirectoryStatus, setHostDirectoryStatus] = useState("");
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [updatingUser, setUpdatingUser] = useState(false);
   const [projects, setProjects] = useState<AppProject[]>([]);
@@ -265,6 +268,9 @@ export function GeneralSettingsForm({
       }
 
       const data = (await usersResponse.json()) as AppUser[];
+      setHostDirectoryStatus(
+        usersResponse.headers.get("x-project-manager-host-directory-status") || ""
+      );
       setUsers(data);
       if (sessionResponse.ok) {
         const sessionData = (await sessionResponse.json()) as { user?: AppUser };
@@ -434,10 +440,16 @@ export function GeneralSettingsForm({
   const handleSetUserAdmin = async (targetUser: AppUser, makeAdmin: boolean) => {
     setUpdatingUser(true);
     try {
-      const response = await fetch(`/api/users?id=${targetUser.id}`, {
+      const targetQuery = targetUser.host_user_id
+        ? `hostUserId=${encodeURIComponent(targetUser.host_user_id)}`
+        : `id=${targetUser.id}`;
+      const response = await fetch(`/api/users?${targetQuery}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_admin: makeAdmin }),
+        body: JSON.stringify({
+          is_admin: makeAdmin,
+          hostUserId: targetUser.host_user_id,
+        }),
       });
 
       if (!response.ok) {
@@ -1115,13 +1127,18 @@ export function GeneralSettingsForm({
           </div>
 
           <div className="space-y-2">
-            <Label>Known Docker Host Users</Label>
+            <Label>Assigned Docker Host Users</Label>
+            <p className="text-xs text-muted-foreground">
+              {hostDirectoryStatus === "ok"
+                ? "Users assigned to this module in Docker Host are available for module roles and project assignment."
+                : "Docker Host scoped directory is not available; showing users already known to this module."}
+            </p>
             <div className="space-y-2 rounded-md border p-3">
               {loadingUsers ? (
                 <p className="text-sm text-muted-foreground">Loading users...</p>
               ) : users.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Assigned Host users appear here after they open the module.
+                  Assigned Host users appear here after Docker Host directory sync or after they open the module.
                 </p>
               ) : (
                 users.map((user) => {
@@ -1130,7 +1147,7 @@ export function GeneralSettingsForm({
                     : "Unknown";
                   return (
                     <div
-                      key={`user-row-${user.id}`}
+                      key={`user-row-${user.host_user_id ?? user.id}`}
                       className="flex items-center justify-between gap-3 rounded-md border bg-background p-2"
                     >
                       <div className="min-w-0">
@@ -1139,6 +1156,11 @@ export function GeneralSettingsForm({
                           {user.is_admin ? (
                             <Badge variant="secondary" className="h-5 px-2 text-[10px]">
                               Administrator
+                            </Badge>
+                          ) : null}
+                          {user.host_role === "host.admin" ? (
+                            <Badge variant="outline" className="h-5 px-2 text-[10px]">
+                              Host admin
                             </Badge>
                           ) : null}
                         </div>

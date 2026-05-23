@@ -8,7 +8,7 @@
     {
       "key": "app",
       "image": {
-        "repository": "ghcr.io/haas/project-manager",
+        "repository": "ghcr.io/alex-de-haas/project-manager",
         "tag": "latest",
         "pullPolicy": "ifNotPresent"
       },

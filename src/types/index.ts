@@ -139,6 +139,7 @@ export interface ChecklistItem {
 
 export interface User {
   id: number;
+  host_user_id?: string | null;
   name: string;
   email?: string | null;
   is_admin?: number;
