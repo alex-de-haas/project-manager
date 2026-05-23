@@ -2,9 +2,16 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import type { Settings, AzureDevOpsSettings, LMStudioSettings } from '@/types';
+import type { Settings, AzureDevOpsSettings } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
-import { canManageProject } from '@/lib/authorization';
+import { canManageProject, isAdminUser } from '@/lib/authorization';
+import {
+  AI_PROVIDER_SETTING_KEY,
+  deleteAiProviderSettings,
+  getAiProviderSettings,
+  parseAiProviderSettings,
+  upsertAiProviderSettings,
+} from '@/lib/ai-provider-settings';
 import {
   deleteAzureDevOpsUserPat,
   getAzureDevOpsPublicSettings,
@@ -45,22 +52,33 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      if (key === AI_PROVIDER_SETTING_KEY || key === "lm_studio") {
+        if (!isAdminUser(userId)) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+
+        const value = getAiProviderSettings();
+        if (!value) {
+          return NextResponse.json({ error: 'Setting not found' }, { status: 404 });
+        }
+
+        return NextResponse.json({
+          id: 0,
+          user_id: null,
+          project_id: null,
+          key: AI_PROVIDER_SETTING_KEY,
+          value,
+          created_at: null,
+          updated_at: null,
+        });
+      }
+
       const setting = db
         .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
         .get(key, userId, projectId) as Settings | undefined;
       
       if (!setting) {
         return NextResponse.json({ error: 'Setting not found' }, { status: 404 });
-      }
-
-      // Parse JSON value if it's LM Studio settings
-      if (key === 'lm_studio') {
-        try {
-          const value = JSON.parse(setting.value) as LMStudioSettings;
-          return NextResponse.json({ ...setting, value });
-        } catch {
-          return NextResponse.json(setting);
-        }
       }
 
       return NextResponse.json(setting);
@@ -141,6 +159,34 @@ export async function POST(request: NextRequest) {
         created_at: null,
         updated_at: null,
       });
+    } else if (key === AI_PROVIDER_SETTING_KEY || key === "lm_studio") {
+      if (!isAdminUser(userId)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      const nextValue = parseAiProviderSettings(value);
+      if (!nextValue) {
+        return NextResponse.json({ error: "Invalid AI provider settings" }, { status: 400 });
+      }
+
+      if (!nextValue.baseUrl || !nextValue.model) {
+        return NextResponse.json(
+          { error: "Provider base URL and model are required" },
+          { status: 400 }
+        );
+      }
+
+      upsertAiProviderSettings(nextValue);
+
+      return NextResponse.json({
+        id: 0,
+        user_id: null,
+        project_id: null,
+        key: AI_PROVIDER_SETTING_KEY,
+        value: getAiProviderSettings(),
+        created_at: null,
+        updated_at: null,
+      });
     } else {
       // Stringify value if it's an object
       const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
@@ -189,6 +235,15 @@ export async function DELETE(request: NextRequest) {
 
     if (key === "azure_devops" && !canManageProject(userId, projectId)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    if (key === AI_PROVIDER_SETTING_KEY || key === "lm_studio") {
+      if (!isAdminUser(userId)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      deleteAiProviderSettings();
+      return NextResponse.json({ success: true });
     }
 
     const result = key === "azure_devops"

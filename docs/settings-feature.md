@@ -40,7 +40,11 @@ The Personal Access Token is a user credential. It is not returned to the browse
 
 ## AI Settings
 
-AI settings configure the LM Studio-compatible provider endpoint and selected model used for checklist generation. The connection test loads available models from the configured endpoint.
+AI settings configure the module-level OpenAI-compatible provider base URL and selected model used for checklist generation. Only module administrators can view or change these settings.
+
+The provider base URL must be reachable from inside the Docker Host module container. For a provider running on the Docker host machine, use a container-reachable address such as `http://host.docker.internal:1234` instead of `localhost`.
+
+Checklist generation is available only after both the provider base URL and model have been saved. The connection test calls the provider's `/v1/models` endpoint and can be used to discover available model names before saving.
 
 ## Typical Workflow
 

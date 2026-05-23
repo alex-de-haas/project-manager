@@ -186,11 +186,10 @@ export function GeneralSettingsForm({
   const [pat, setPat] = useState("");
   const [hasAzurePat, setHasAzurePat] = useState(false);
 
-  // LM Studio settings
-  const [lmStudioEndpoint, setLmStudioEndpoint] = useState(
-    "http://localhost:1234"
-  );
-  const [lmStudioModel, setLmStudioModel] = useState("");
+  // AI provider settings
+  const [aiProviderBaseUrl, setAiProviderBaseUrl] = useState("");
+  const [aiProviderModel, setAiProviderModel] = useState("");
+  const [hasAiProviderSettings, setHasAiProviderSettings] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [backups, setBackups] = useState<DatabaseBackupFile[]>([]);
@@ -205,7 +204,7 @@ export function GeneralSettingsForm({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testingLmStudio, setTestingLmStudio] = useState(false);
+  const [testingAiProvider, setTestingAiProvider] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">(
     "success"
@@ -238,13 +237,13 @@ export function GeneralSettingsForm({
     return `https://dev.azure.com/${encodeURIComponent(trimmedOrganization)}/${encodeURIComponent(trimmedProject)}`;
   }, [organization, project]);
 
-  const fetchModels = async (endpoint: string) => {
+  const fetchModels = async (baseUrl: string) => {
     setLoadingModels(true);
     try {
-      const response = await fetch("/api/lm-studio/test", {
+      const response = await fetch("/api/ai-provider/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint }),
+        body: JSON.stringify({ baseUrl }),
       });
       const data = await response.json();
       if (response.ok && data.models) {
@@ -415,20 +414,21 @@ export function GeneralSettingsForm({
         }
       }
 
-      // Load LM Studio settings
-      const lmStudioResponse = await fetch("/api/settings?key=lm_studio");
-      if (lmStudioResponse.ok) {
-        const data = await lmStudioResponse.json();
+      // Load AI provider settings
+      const aiProviderResponse = await fetch("/api/settings?key=ai_provider");
+      if (aiProviderResponse.ok) {
+        const data = await aiProviderResponse.json();
         if (data.value) {
           const settings =
             typeof data.value === "string"
               ? JSON.parse(data.value)
               : data.value;
-          setLmStudioEndpoint(settings.endpoint || "http://localhost:1234");
-          setLmStudioModel(settings.model || "__default__");
-          // Try to fetch models if endpoint is set
-          if (settings.endpoint) {
-            fetchModels(settings.endpoint);
+          const baseUrl = settings.baseUrl || settings.endpoint || "";
+          setAiProviderBaseUrl(baseUrl);
+          setAiProviderModel(settings.model || "");
+          setHasAiProviderSettings(Boolean(baseUrl || settings.model));
+          if (baseUrl) {
+            fetchModels(baseUrl);
           }
         }
       }
@@ -813,20 +813,20 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleTestLmStudioConnection = async () => {
-    if (!lmStudioEndpoint) {
-      setMessage("Please enter the LM Studio endpoint");
+  const handleTestAiProviderConnection = async () => {
+    if (!aiProviderBaseUrl.trim()) {
+      setMessage("Please enter the AI provider base URL");
       setMessageType("error");
       return;
     }
 
-    setTestingLmStudio(true);
+    setTestingAiProvider(true);
     setMessage("");
     try {
-      const response = await fetch("/api/lm-studio/test", {
+      const response = await fetch("/api/ai-provider/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: lmStudioEndpoint }),
+        body: JSON.stringify({ baseUrl: aiProviderBaseUrl }),
       });
 
       const data = await response.json();
@@ -843,11 +843,11 @@ export function GeneralSettingsForm({
       }
     } catch (err) {
       setMessage(
-        "Error: Connection failed. Make sure LM Studio is running and the endpoint is correct"
+        "Error: Connection failed. Make sure the AI provider is reachable from the module container."
       );
       setMessageType("error");
     } finally {
-      setTestingLmStudio(false);
+      setTestingAiProvider(false);
     }
   };
 
@@ -869,6 +869,16 @@ export function GeneralSettingsForm({
       hasAzurePat;
     if (hasAnyAzureInput && (!organization.trim() || !project.trim())) {
       setMessage("Azure DevOps organization and project are required when Azure DevOps is configured.");
+      setMessageType("error");
+      return;
+    }
+
+    const trimmedAiProviderBaseUrl = aiProviderBaseUrl.trim();
+    const trimmedAiProviderModel = aiProviderModel.trim();
+    const hasAnyAiProviderInput =
+      trimmedAiProviderBaseUrl.length > 0 || trimmedAiProviderModel.length > 0;
+    if (hasAnyAiProviderInput && (!trimmedAiProviderBaseUrl || !trimmedAiProviderModel)) {
+      setMessage("AI provider base URL and model are required when AI is configured.");
       setMessageType("error");
       return;
     }
@@ -911,21 +921,32 @@ export function GeneralSettingsForm({
         }
       }
 
-      // Save LM Studio settings
-      const lmStudioResponse = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          key: "lm_studio",
-          value: {
-            endpoint: lmStudioEndpoint,
-            model: lmStudioModel === "__default__" ? "" : lmStudioModel,
-          },
-        }),
-      });
+      if (hasAnyAiProviderInput) {
+        const aiProviderResponse = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: "ai_provider",
+            value: {
+              baseUrl: trimmedAiProviderBaseUrl,
+              model: trimmedAiProviderModel,
+            },
+          }),
+        });
 
-      if (!lmStudioResponse.ok) {
-        throw new Error("Failed to save LM Studio settings");
+        if (!aiProviderResponse.ok) {
+          throw new Error("Failed to save AI provider settings");
+        }
+        setHasAiProviderSettings(true);
+      } else if (hasAiProviderSettings) {
+        const aiProviderResponse = await fetch("/api/settings?key=ai_provider", {
+          method: "DELETE",
+        });
+
+        if (!aiProviderResponse.ok) {
+          throw new Error("Failed to clear AI provider settings");
+        }
+        setHasAiProviderSettings(false);
       }
 
       setMessage("Settings saved successfully.");
@@ -1142,7 +1163,7 @@ export function GeneralSettingsForm({
           <TabsTrigger value="users">Module Roles</TabsTrigger>
           <TabsTrigger value="database">Database</TabsTrigger>
           <TabsTrigger value="azure">Azure DevOps</TabsTrigger>
-          <TabsTrigger value="ai">AI (LM Studio)</TabsTrigger>
+          <TabsTrigger value="ai">AI Provider</TabsTrigger>
         </TabsList>
 
         <TabsContent value="users" className="space-y-4 mt-4">
@@ -1602,46 +1623,49 @@ export function GeneralSettingsForm({
 
         <TabsContent value="ai" className="space-y-4 mt-4">
           <div className="space-y-2">
-            <Label htmlFor="lmStudioEndpoint">LM Studio Endpoint</Label>
+            <Label htmlFor="aiProviderBaseUrl">Provider Base URL</Label>
             <Input
-              id="lmStudioEndpoint"
+              id="aiProviderBaseUrl"
               type="text"
-              value={lmStudioEndpoint}
-              onChange={(e) => setLmStudioEndpoint(e.target.value)}
-              placeholder="http://localhost:1234"
+              value={aiProviderBaseUrl}
+              onChange={(e) => {
+                setAiProviderBaseUrl(e.target.value);
+                setAvailableModels([]);
+              }}
+              placeholder="http://host.docker.internal:1234"
             />
             <p className="text-xs text-muted-foreground">
-              The URL where LM Studio server is running (default:
-              http://localhost:1234)
+              Use a URL reachable from inside the module container, such as
+              http://host.docker.internal:1234 for a host-running local provider.
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="lmStudioModel">Model</Label>
-            <Select
-              value={lmStudioModel}
-              onValueChange={setLmStudioModel}
-              disabled={loadingModels}
-            >
-              <SelectTrigger id="lmStudioModel">
-                <SelectValue
-                  placeholder={
-                    loadingModels
-                      ? "Loading models..."
-                      : "Select a model (or use default)"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__default__">
-                  Use default loaded model
-                </SelectItem>
-                {availableModels.map((model) => (
-                  <SelectItem key={model} value={model}>
-                    {model}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="aiProviderModel">Model</Label>
+            <Input
+              id="aiProviderModel"
+              type="text"
+              value={aiProviderModel}
+              onChange={(e) => setAiProviderModel(e.target.value)}
+              placeholder="model-name"
+            />
+            {availableModels.length > 0 && (
+              <Select
+                value={availableModels.includes(aiProviderModel) ? aiProviderModel : undefined}
+                onValueChange={setAiProviderModel}
+                disabled={loadingModels}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose an available model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableModels.map((model) => (
+                    <SelectItem key={model} value={model}>
+                      {model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <p className="text-xs text-muted-foreground">
               {availableModels.length === 0
                 ? "Test connection to load available models"
@@ -1651,19 +1675,18 @@ export function GeneralSettingsForm({
 
           <Button
             type="button"
-            onClick={handleTestLmStudioConnection}
-            disabled={testingLmStudio || saving}
+            onClick={handleTestAiProviderConnection}
+            disabled={testingAiProvider || saving}
             variant="outline"
-            className="w-full border-purple-600 text-purple-600 hover:bg-purple-50"
+            className="w-full"
           >
-            {testingLmStudio ? "Testing..." : "Test Connection"}
+            {testingAiProvider ? "Testing..." : "Test Connection"}
           </Button>
 
           <div className="rounded-lg border p-3 bg-muted/50">
             <p className="text-xs text-muted-foreground">
-              <strong>Setup:</strong> Download and run LM Studio, load a model,
-              then start the local server (default port: 1234). This enables
-              AI-powered checklist generation from text.
+              <strong>Setup:</strong> Configure an OpenAI-compatible provider URL and model.
+              Checklist generation stays disabled until both values are saved.
             </p>
           </div>
         </TabsContent>

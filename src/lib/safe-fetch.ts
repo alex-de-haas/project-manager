@@ -3,6 +3,7 @@ import net from "net";
 
 interface SafeFetchOptions {
   allowLoopbackOnly?: boolean;
+  allowPrivateNetwork?: boolean;
   maxRedirects?: number;
 }
 
@@ -77,6 +78,26 @@ const isPrivateOrReservedAddress = (address: string): boolean => {
   );
 };
 
+const isPrivateNetworkAddress = (address: string): boolean => {
+  if (isLoopbackAddress(address)) return true;
+  const normalized = address.toLowerCase();
+
+  if (normalized.startsWith("::ffff:")) {
+    const mappedAddress = normalized.slice("::ffff:".length);
+    return net.isIPv4(mappedAddress) && isPrivateNetworkAddress(mappedAddress);
+  }
+
+  if (net.isIPv4(address)) {
+    return (
+      ipv4InRange(address, "10.0.0.0", 8) ||
+      ipv4InRange(address, "172.16.0.0", 12) ||
+      ipv4InRange(address, "192.168.0.0", 16)
+    );
+  }
+
+  return normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd");
+};
+
 export const validateHttpUrlForServerFetch = async (
   rawUrl: string,
   options: SafeFetchOptions = {}
@@ -105,6 +126,10 @@ export const validateHttpUrlForServerFetch = async (
     if (options.allowLoopbackOnly) {
       if (!isLoopbackAddress(address)) {
         throw new Error("Endpoint must resolve to a loopback address");
+      }
+    } else if (options.allowPrivateNetwork) {
+      if (isPrivateOrReservedAddress(address) && !isPrivateNetworkAddress(address)) {
+        throw new Error("URL must not resolve to a reserved address");
       }
     } else if (isPrivateOrReservedAddress(address)) {
       throw new Error("URL must not resolve to a private or reserved address");

@@ -53,8 +53,8 @@ export interface GeneralSettings {
   default_day_length: number;
 }
 
-export interface LMStudioSettings {
-  endpoint: string;
+export interface AiProviderSettings {
+  baseUrl: string;
   model: string;
 }
 

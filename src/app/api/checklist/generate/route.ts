@@ -2,26 +2,26 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import type { Settings } from '@/types';
-import { safeServerFetch, validateHttpUrlForServerFetch } from '@/lib/safe-fetch';
+import {
+  buildOpenAICompatibleUrl,
+  getAiProviderSettings,
+  hasConfiguredAiProvider,
+  type AiProviderSettings,
+} from '@/lib/ai-provider-settings';
+import { safeServerFetch } from '@/lib/safe-fetch';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
-
-interface LMStudioSettings {
-  endpoint: string;
-  model: string;
-}
 
 interface ChecklistGenerationRequest {
   task_id: number;
   text: string;
 }
 
-interface LMStudioMessage {
+interface AiProviderMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
-interface LMStudioResponse {
+interface AiProviderResponse {
   choices: Array<{
     message: {
       content: string;
@@ -29,19 +29,7 @@ interface LMStudioResponse {
   }>;
 }
 
-async function getLMStudioSettings(userId: number, projectId: number): Promise<LMStudioSettings | null> {
-  try {
-    const setting = db
-      .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
-      .get('lm_studio', userId, projectId) as Settings | undefined;
-    if (!setting) return null;
-    return JSON.parse(setting.value) as LMStudioSettings;
-  } catch {
-    return null;
-  }
-}
-
-async function generateChecklistFromAI(text: string, settings: LMStudioSettings): Promise<string[]> {
+async function generateChecklistFromAI(text: string, settings: AiProviderSettings): Promise<string[]> {
   const systemPrompt = `You are a helpful assistant that analyzes text and extracts actionable checklist items.
 Your task is to:
 1. Read the provided text carefully
@@ -60,15 +48,12 @@ ${text}
 
 Return ONLY a JSON array of checklist items.`;
 
-  const messages: LMStudioMessage[] = [
+  const messages: AiProviderMessage[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt }
   ];
 
-  const endpointUrl = await validateHttpUrlForServerFetch(settings.endpoint, {
-    allowLoopbackOnly: true,
-  });
-  const completionsUrl = new URL('/v1/chat/completions', endpointUrl);
+  const completionsUrl = buildOpenAICompatibleUrl(settings.baseUrl, '/v1/chat/completions');
 
   const response = await safeServerFetch(completionsUrl.toString(), {
     method: 'POST',
@@ -82,15 +67,15 @@ Return ONLY a JSON array of checklist items.`;
       max_tokens: 2048,
     }),
   }, {
-    allowLoopbackOnly: true,
+    allowPrivateNetwork: true,
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
+    throw new Error(`AI provider API error: ${response.status} - ${errorText}`);
   }
 
-  const data = await response.json() as LMStudioResponse;
+  const data = await response.json() as AiProviderResponse;
   const content = data.choices[0]?.message?.content;
 
   if (!content) {
@@ -165,11 +150,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // Get LM Studio settings
-    const settings = await getLMStudioSettings(userId, projectId);
-    if (!settings || !settings.endpoint) {
+    const settings = getAiProviderSettings();
+    if (!hasConfiguredAiProvider(settings)) {
       return NextResponse.json(
-        { error: 'LM Studio settings not configured. Please configure them in Settings.' },
+        { error: 'AI provider is not configured. Please ask a module administrator to configure provider URL and model in Settings.' },
         { status: 400 }
       );
     }

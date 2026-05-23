@@ -127,21 +127,21 @@ Recommendation:
 
 ### Phase 6 - AI provider configuration
 
-**Status**: In Progress
+**Status**: Completed
 
 Move AI provider configuration to module-level settings.
 
 Tasks:
 
-- Add a global/module-level provider base URL setting.
-- Add a global selected model setting.
-- Replace loopback-only LM Studio assumptions with a configured provider URL that works from inside the module container.
-- Restrict AI provider configuration to admins.
-- Keep checklist generation available only when the provider and model are configured.
+- Completed: Add a global/module-level provider base URL setting.
+- Completed: Add a global selected model setting.
+- Completed: Replace loopback-only LM Studio assumptions with a configured provider URL that works from inside the module container.
+- Completed: Restrict AI provider configuration to admins.
+- Completed: Keep checklist generation available only when the provider and model are configured.
 
 Recommendation:
 
-- Configure provider URL through Docker Host module settings when possible, then mirror only non-secret display state in the app database.
+- Configure provider URL through Docker Host module settings when possible. Until Docker Host exposes module settings to the app, Project Manager stores the non-secret provider base URL and selected model in module-owned SQLite settings.
 
 ### Phase 7 - Host-friendly navigation
 
