@@ -6,10 +6,12 @@ import { ThemeProvider } from "@/components/theme-provider";
 const moduleFetchBridgeScript = `
 (() => {
   if (window.__projectManagerFetchBridgeInstalled) return;
-  const match = window.location.pathname.match(/^\\/api\\/apps\\/([^/]+)\\/embed\\/?$/);
+  const match = window.location.pathname.match(
+    /^\\/api\\/apps\\/((?:dev\\/)?[^/]+)\\/embed(?:\\/.*)?\\/?$/
+  );
   if (!match) return;
 
-  const moduleId = decodeURIComponent(match[1]);
+  const appPath = match[1];
   const nextStaticPrefix = "/_next/static/";
   const nextStaticReferencePattern = /\\/\\_next\\/static\\/[^"',\\]\\s]+/g;
   const embedUrl = new URL(window.location.href);
@@ -27,7 +29,7 @@ const moduleFetchBridgeScript = `
   };
   const toEmbedUrl = (pathAndSearch) =>
     "/api/apps/" +
-    encodeURIComponent(moduleId) +
+    appPath +
     "/embed?path=" +
     encodeURIComponent(pathAndSearch) +
     (getEmbedToken() ? "&embedToken=" + encodeURIComponent(getEmbedToken()) : "");
@@ -40,10 +42,15 @@ const moduleFetchBridgeScript = `
     !url.pathname.startsWith("/api/apps/");
   const shouldRewriteNextAssetRequest = (url) =>
     isSameOriginRequest(url) && url.pathname.startsWith(nextStaticPrefix);
+  const shouldRewriteNextRouteRequest = (url) =>
+    isSameOriginRequest(url) &&
+    !url.pathname.startsWith("/api/apps/") &&
+    url.searchParams.has("_rsc");
   const rewriteUrlIfNeeded = (value) => {
     const url = new URL(value, window.location.origin);
     if (shouldRewriteApiRequest(url)) return toEmbedUrl(url.pathname + url.search);
     if (shouldRewriteNextAssetRequest(url)) return toEmbedAssetUrl(url);
+    if (shouldRewriteNextRouteRequest(url)) return toEmbedUrl(url.pathname + url.search);
     return value;
   };
   const rewriteNextStaticReference = (value) =>
@@ -64,7 +71,11 @@ const moduleFetchBridgeScript = `
 
     if (input instanceof Request) {
       const url = new URL(input.url, window.location.origin);
-      if (shouldRewriteApiRequest(url) || shouldRewriteNextAssetRequest(url)) {
+      if (
+        shouldRewriteApiRequest(url) ||
+        shouldRewriteNextAssetRequest(url) ||
+        shouldRewriteNextRouteRequest(url)
+      ) {
         return originalFetch(new Request(rewriteUrlIfNeeded(url), input), withEmbedCredentials(init));
       }
     }
