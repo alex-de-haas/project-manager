@@ -38,6 +38,7 @@ interface JsonWebKeySet {
 }
 
 type HostJsonWebKey = JsonWebKey & {
+  alg?: string;
   kid?: string;
 };
 
@@ -61,9 +62,6 @@ const base64UrlToBytes = (value: string): Uint8Array => {
   }
   return bytes;
 };
-
-const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
-  bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 
 const base64UrlToJson = <T>(value: string): T => {
   const bytes = base64UrlToBytes(value);
@@ -117,13 +115,62 @@ const fetchJwks = async (url: string): Promise<HostJsonWebKey[]> => {
   return keys;
 };
 
+const isSupportedAlgorithm = (algorithm: string | undefined) =>
+  algorithm === "ES256" || algorithm === "RS256";
+
 const selectVerificationKey = (keys: HostJsonWebKey[], header: JwtHeader) => {
   if (header.kid) {
-    const matching = keys.find((key) => key.kid === header.kid);
+    const matching = keys.find(
+      (key) => key.kid === header.kid && (!header.alg || !key.alg || key.alg === header.alg)
+    );
     if (matching) return matching;
   }
 
-  return keys.find((key) => key.kty === "RSA");
+  if (header.alg === "ES256") {
+    return keys.find((key) => key.kty === "EC" && (!key.alg || key.alg === header.alg));
+  }
+
+  if (header.alg === "RS256") {
+    return keys.find((key) => key.kty === "RSA" && (!key.alg || key.alg === header.alg));
+  }
+
+  return undefined;
+};
+
+const importVerificationKey = async (jwk: HostJsonWebKey, algorithm: string) => {
+  if (algorithm === "ES256") {
+    return await crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+  }
+
+  if (algorithm === "RS256") {
+    return await crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+  }
+
+  return null;
+};
+
+const getVerifyAlgorithm = (algorithm: string) => {
+  if (algorithm === "ES256") {
+    return { name: "ECDSA", hash: "SHA-256" } as const;
+  }
+
+  if (algorithm === "RS256") {
+    return { name: "RSASSA-PKCS1-v1_5" } as const;
+  }
+
+  return null;
 };
 
 export const verifyDockerHostIdentityToken = async (
@@ -139,7 +186,7 @@ export const verifyDockerHostIdentityToken = async (
 
   try {
     const header = base64UrlToJson<JwtHeader>(encodedHeader);
-    if (header.alg !== "RS256") return null;
+    if (!isSupportedAlgorithm(header.alg)) return null;
 
     const claims = base64UrlToJson<HostIdentityClaims>(encodedPayload);
     if (claims.iss !== "docker-host") return null;
@@ -154,19 +201,17 @@ export const verifyDockerHostIdentityToken = async (
     const jwk = selectVerificationKey(await fetchJwks(jwksUrl), header);
     if (!jwk) return null;
 
-    const key = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["verify"]
-    );
+    const key = await importVerificationKey(jwk, header.alg);
+    const verifyAlgorithm = getVerifyAlgorithm(header.alg);
+    if (!key || !verifyAlgorithm) return null;
+    const signature = base64UrlToBytes(encodedSignature) as BufferSource;
+    const signedData = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`) as BufferSource;
 
     const isValid = await crypto.subtle.verify(
-      { name: "RSASSA-PKCS1-v1_5" },
+      verifyAlgorithm,
       key,
-      toArrayBuffer(base64UrlToBytes(encodedSignature)),
-      toArrayBuffer(new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`))
+      signature,
+      signedData
     );
 
     return isValid ? claims : null;
