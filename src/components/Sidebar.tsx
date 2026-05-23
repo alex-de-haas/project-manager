@@ -8,7 +8,6 @@ import {
   Check,
   ChevronsUpDown,
   Clock3,
-  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   Rocket,
@@ -43,6 +42,7 @@ interface AppUser {
   id: number;
   name: string;
   email?: string | null;
+  is_admin?: number | null;
 }
 
 interface AppProject {
@@ -94,7 +94,6 @@ export default function Sidebar({
   const pathname = usePathname();
   const [mode, setMode] = useState<SidebarMode>("compact");
   const [activeProjectId, setActiveProjectId] = useState<string>(initialActiveProjectId);
-  const isAuthRoute = pathname === "/login" || pathname === "/invite";
   const currentUser = initialUser;
   const projects = initialProjects;
 
@@ -127,11 +126,6 @@ export default function Sidebar({
     setMode((prev) => (prev === "compact" ? "normal" : "compact"));
   };
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login";
-  };
-
   const handleProjectChange = (value: string) => {
     if (!value || value === activeProjectId) return;
 
@@ -139,10 +133,6 @@ export default function Sidebar({
     document.cookie = `${PROJECT_COOKIE_NAME}=${encodeURIComponent(value)}; path=/; max-age=31536000; samesite=lax`;
     window.location.reload();
   };
-
-  if (isAuthRoute) {
-    return null;
-  }
 
   return (
     <aside
@@ -279,42 +269,29 @@ export default function Sidebar({
               </div>
             )}
 
-            <Button
-              asChild
-              variant="ghost"
-              className={cn(
-                "h-9 w-full justify-start gap-3 rounded-md px-3",
-                "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                pathname === "/settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
-                isCompact && "justify-center px-0"
-              )}
-            >
-              <Link href="/settings" title={isCompact ? "Settings" : undefined}>
-                <Settings className="h-4 w-4" />
-                <span className={cn("text-sm", isCompact && "sr-only")}>Settings</span>
-              </Link>
-            </Button>
+            {currentUser?.is_admin ? (
+              <Button
+                asChild
+                variant="ghost"
+                className={cn(
+                  "h-9 w-full justify-start gap-3 rounded-md px-3",
+                  "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  pathname === "/settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
+                  isCompact && "justify-center px-0"
+                )}
+              >
+                <Link href="/settings" title={isCompact ? "Settings" : undefined}>
+                  <Settings className="h-4 w-4" />
+                  <span className={cn("text-sm", isCompact && "sr-only")}>Settings</span>
+                </Link>
+              </Button>
+            ) : null}
 
             <ThemeToggle
               isCompact={isCompact}
               align="start"
               className="h-9 rounded-md"
             />
-
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleLogout}
-              className={cn(
-                "h-9 w-full justify-start gap-3 rounded-md px-3",
-                "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                isCompact && "justify-center px-0"
-              )}
-              title={isCompact ? "Log out" : undefined}
-            >
-              <LogOut className="h-4 w-4" />
-              <span className={cn("text-sm", isCompact && "sr-only")}>Log out</span>
-            </Button>
 
             <Button
               variant="ghost"

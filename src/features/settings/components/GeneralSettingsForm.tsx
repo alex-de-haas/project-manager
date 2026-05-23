@@ -2,21 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Release } from "@/types";
-import { CheckCircle2, Download, ExternalLink, GripVertical, MoreHorizontal, Plus, Trash2, UserPen } from "lucide-react";
+import { CheckCircle2, ExternalLink, GripVertical, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -76,12 +68,17 @@ interface AppProject {
   member_user_ids?: number[];
 }
 
-interface CreatedUserResponse extends AppUser {
-  invitation_link?: string;
-}
-
 interface ApiError {
   error?: string;
+}
+
+interface JsonImportResponse {
+  imported?: {
+    timeEntries?: number;
+    dayOffs?: number;
+    tasksCreated?: number;
+    tasksMatched?: number;
+  };
 }
 
 interface SortableReleaseRowProps {
@@ -165,7 +162,6 @@ export function GeneralSettingsForm({
   const [users, setUsers] = useState<AppUser[]>([]);
   const [activeUserId, setActiveUserId] = useState("");
   const [loadingUsers, setLoadingUsers] = useState(true);
-  const [creatingUser, setCreatingUser] = useState(false);
   const [updatingUser, setUpdatingUser] = useState(false);
   const [projects, setProjects] = useState<AppProject[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
@@ -198,7 +194,8 @@ export function GeneralSettingsForm({
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [deletingBackup, setDeletingBackup] = useState(false);
   const [restoringBackup, setRestoringBackup] = useState(false);
-  const [exportingLegacyData, setExportingLegacyData] = useState(false);
+  const [jsonImportFile, setJsonImportFile] = useState<File | null>(null);
+  const [importingJson, setImportingJson] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState("");
 
   const [loading, setLoading] = useState(true);
@@ -209,17 +206,6 @@ export function GeneralSettingsForm({
   const [messageType, setMessageType] = useState<"success" | "error">(
     "success"
   );
-  const [showChangePassword, setShowChangePassword] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [showCreateUser, setShowCreateUser] = useState(false);
-  const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserName, setNewUserName] = useState("");
-  const [lastInvitationLink, setLastInvitationLink] = useState("");
-  const [showRenameUser, setShowRenameUser] = useState(false);
-  const [renameUserName, setRenameUserName] = useState("");
 
   const releaseSensors = useSensors(
     useSensor(PointerSensor),
@@ -442,136 +428,6 @@ export function GeneralSettingsForm({
       console.error("Failed to load settings:", err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const resetCreateUserDialog = () => {
-    setNewUserEmail("");
-    setNewUserName("");
-  };
-
-  const handleOpenCreateUser = () => {
-    resetCreateUserDialog();
-    setShowCreateUser(true);
-  };
-
-  const handleCreateUser = async () => {
-    const trimmedEmail = newUserEmail.trim();
-    const trimmed = newUserName.trim();
-    if (!trimmedEmail) {
-      setMessage("Email is required.");
-      setMessageType("error");
-      setLastInvitationLink("");
-      return;
-    }
-
-    setCreatingUser(true);
-    setLastInvitationLink("");
-    try {
-      const response = await fetch("/api/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed, email: trimmedEmail }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as ApiError;
-        setMessage(data.error || "Failed to create user.");
-        setMessageType("error");
-        setLastInvitationLink("");
-        return;
-      }
-
-      const created = (await response.json()) as CreatedUserResponse;
-      setUsers((prev) => [...prev, created]);
-      setShowCreateUser(false);
-      resetCreateUserDialog();
-      setMessage(`Created user "${created.name}". Share the invitation link to let them set a password.`);
-      setMessageType("success");
-      setLastInvitationLink(created.invitation_link ?? "");
-    } catch (err) {
-      setMessage("Failed to create user.");
-      setMessageType("error");
-      setLastInvitationLink("");
-    } finally {
-      setCreatingUser(false);
-    }
-  };
-
-  const handleRenameUser = async () => {
-    const selected = users.find((user) => String(user.id) === activeUserId);
-    if (!selected) return;
-
-    const trimmed = renameUserName.trim();
-    if (!trimmed || trimmed === selected.name) return;
-
-    setUpdatingUser(true);
-    try {
-      const response = await fetch(`/api/users?id=${selected.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as ApiError;
-        setMessage(data.error || "Failed to rename user.");
-        setMessageType("error");
-        return;
-      }
-
-      const updated = (await response.json()) as AppUser;
-      setUsers((prev) => prev.map((user) => (user.id === updated.id ? updated : user)));
-      setShowRenameUser(false);
-      setRenameUserName("");
-      setMessage(`Renamed user to "${updated.name}".`);
-      setMessageType("success");
-    } catch (err) {
-      setMessage("Failed to rename user.");
-      setMessageType("error");
-    } finally {
-      setUpdatingUser(false);
-    }
-  };
-
-  const handleOpenRenameUser = () => {
-    const selected = users.find((user) => String(user.id) === activeUserId);
-    if (!selected) return;
-    setRenameUserName(selected.name);
-    setShowRenameUser(true);
-  };
-
-  const handleDeleteUser = async (targetUser: AppUser) => {
-    if (users.length <= 1) return;
-
-    const confirmed = window.confirm(
-      `Delete user "${targetUser.name}" and all associated data?`
-    );
-    if (!confirmed) return;
-
-    setUpdatingUser(true);
-    try {
-      const response = await fetch(`/api/users?id=${targetUser.id}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as ApiError;
-        setMessage(data.error || "Failed to delete user.");
-        setMessageType("error");
-        return;
-      }
-
-      const nextUsers = users.filter((user) => user.id !== targetUser.id);
-      setUsers(nextUsers);
-      await loadUsers();
-      setMessage(`Removed user "${targetUser.name}".`);
-      setMessageType("success");
-    } catch (err) {
-      setMessage("Failed to delete user.");
-      setMessageType("error");
-    } finally {
-      setUpdatingUser(false);
     }
   };
 
@@ -1176,98 +1032,44 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleExportLegacyData = async () => {
-    setExportingLegacyData(true);
+  const handleImportJson = async () => {
+    if (!jsonImportFile) {
+      setMessage("Please select a JSON import file.");
+      setMessageType("error");
+      return;
+    }
+
+    setImportingJson(true);
     setMessage("");
 
     try {
-      const response = await fetch("/api/legacy-export");
+      const parsed = JSON.parse(await jsonImportFile.text());
+      const response = await fetch("/api/json-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed),
+      });
+      const data = (await response.json().catch(() => ({}))) as ApiError & JsonImportResponse;
+
       if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as ApiError;
-        throw new Error(data.error || "Failed to export legacy data.");
+        throw new Error(data.error || "Failed to import JSON data.");
       }
 
-      const blob = await response.blob();
-      const disposition = response.headers.get("content-disposition") ?? "";
-      const fileNameMatch = disposition.match(/filename="([^"]+)"/);
-      const fileName = fileNameMatch?.[1] ?? "project-manager-legacy-export.json";
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(objectUrl);
-
-      setMessage(`Legacy data export created: ${fileName}`);
+      const imported = data.imported ?? {};
+      setMessage(
+        `JSON import completed: ${imported.timeEntries ?? 0} time entries, ${
+          imported.dayOffs ?? 0
+        } day-offs, ${imported.tasksCreated ?? 0} tasks created, ${
+          imported.tasksMatched ?? 0
+        } tasks matched.`
+      );
       setMessageType("success");
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to export legacy data.";
+      const errorMessage = err instanceof Error ? err.message : "Failed to import JSON data.";
       setMessage(errorMessage);
       setMessageType("error");
     } finally {
-      setExportingLegacyData(false);
-    }
-  };
-
-  const resetPasswordDialog = () => {
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
-  };
-
-  const handleOpenChangePassword = () => {
-    resetPasswordDialog();
-    setShowChangePassword(true);
-  };
-
-  const handleChangePassword = async () => {
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setMessage("Please fill in all password fields.");
-      setMessageType("error");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setMessage("New password and confirmation do not match.");
-      setMessageType("error");
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      setMessage("New password must be at least 8 characters long.");
-      setMessageType("error");
-      return;
-    }
-
-    setChangingPassword(true);
-    try {
-      const response = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as ApiError;
-        setMessage(data.error || "Failed to change password.");
-        setMessageType("error");
-        return;
-      }
-
-      setShowChangePassword(false);
-      resetPasswordDialog();
-      setMessage("Password updated successfully.");
-      setMessageType("success");
-    } catch {
-      setMessage("Failed to change password.");
-      setMessageType("error");
-    } finally {
-      setChangingPassword(false);
+      setImportingJson(false);
     }
   };
 
@@ -1280,7 +1082,7 @@ export function GeneralSettingsForm({
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="projects">Projects</TabsTrigger>
           <TabsTrigger value="releases">Releases</TabsTrigger>
-          <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="users">Module Roles</TabsTrigger>
           <TabsTrigger value="database">Database</TabsTrigger>
           <TabsTrigger value="azure">Azure DevOps</TabsTrigger>
           <TabsTrigger value="ai">AI (LM Studio)</TabsTrigger>
@@ -1306,34 +1108,21 @@ export function GeneralSettingsForm({
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleOpenRenameUser}
-                disabled={!activeUserId || creatingUser || updatingUser || loadingUsers}
-                className="gap-2"
-              >
-                <UserPen className="h-4 w-4" />
-                Rename
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={handleOpenChangePassword}
-                disabled={!activeUserId || changingPassword}
-              >
-                Change Password
+              <Button type="button" variant="outline" disabled>
+                Managed by Docker Host
               </Button>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>All Created Users</Label>
+            <Label>Known Docker Host Users</Label>
             <div className="space-y-2 rounded-md border p-3">
               {loadingUsers ? (
                 <p className="text-sm text-muted-foreground">Loading users...</p>
               ) : users.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No users created yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  Assigned Host users appear here after they open the module.
+                </p>
               ) : (
                 users.map((user) => {
                   const createdAt = user.created_at
@@ -1379,14 +1168,6 @@ export function GeneralSettingsForm({
                             >
                               {user.is_admin ? "Remove administrator" : "Mark as administrator"}
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => void handleDeleteUser(user)}
-                              disabled={users.length <= 1 || updatingUser}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Remove user
-                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -1395,19 +1176,6 @@ export function GeneralSettingsForm({
                 })
               )}
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleOpenCreateUser}
-              disabled={creatingUser || updatingUser || loadingUsers}
-              className="gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              {creatingUser ? "Creating..." : "Add User"}
-            </Button>
           </div>
         </TabsContent>
 
@@ -1589,21 +1357,32 @@ export function GeneralSettingsForm({
         <TabsContent value="database" className="space-y-4 mt-4">
           <div className="space-y-3 rounded-lg border p-4">
             <div className="space-y-1">
-              <Label>Legacy Data Export</Label>
+              <Label htmlFor="jsonImportFile">JSON Data Import</Label>
               <p className="text-xs text-muted-foreground">
-                Export current user time entries and day-offs for the Docker Host migration.
+                Import a Project Manager migration JSON file into the current Host user and active project.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Input
+                id="jsonImportFile"
+                type="file"
+                accept="application/json,.json"
+                onChange={(event) => setJsonImportFile(event.target.files?.[0] ?? null)}
+                disabled={importingJson || saving}
+              />
+              <p className="text-xs text-muted-foreground">
+                Time entries are matched by Azure DevOps work item ID. Missing work items are created as local Azure DevOps-linked tasks.
               </p>
             </div>
 
             <Button
               type="button"
               variant="outline"
-              onClick={handleExportLegacyData}
-              disabled={exportingLegacyData}
-              className="gap-2"
+              onClick={handleImportJson}
+              disabled={!jsonImportFile || importingJson || saving}
             >
-              <Download className="h-4 w-4" />
-              {exportingLegacyData ? "Exporting..." : "Export JSON"}
+              {importingJson ? "Importing..." : "Import JSON"}
             </Button>
           </div>
 
@@ -1823,207 +1602,10 @@ export function GeneralSettingsForm({
           }
         >
           <AlertDescription>
-            <div>{message}</div>
-            {lastInvitationLink && (message.startsWith("Created user") || message.startsWith("Invitation link copied")) ? (
-              <div className="mt-2 flex items-center gap-2 rounded-md border border-green-300/70 bg-background/80 p-2 dark:border-green-700">
-                <Input
-                  value={lastInvitationLink}
-                  readOnly
-                  className="font-mono text-xs text-foreground"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(lastInvitationLink);
-                      setMessage("Invitation link copied to clipboard.");
-                      setMessageType("success");
-                    } catch {
-                      setMessage("Failed to copy invitation link.");
-                      setMessageType("error");
-                    }
-                  }}
-                >
-                  Copy Link
-                </Button>
-              </div>
-            ) : null}
+            {message}
           </AlertDescription>
         </Alert>
       )}
-
-      <Dialog
-        open={showCreateUser}
-        onOpenChange={(open) => {
-          setShowCreateUser(open);
-          if (!open) {
-            resetCreateUserDialog();
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create User</DialogTitle>
-            <DialogDescription>
-              Enter email and optional display name. You will get an invitation link to share with the user.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="newUserEmail">Email</Label>
-              <Input
-                id="newUserEmail"
-                type="email"
-                value={newUserEmail}
-                onChange={(event) => setNewUserEmail(event.target.value)}
-                disabled={creatingUser}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="newUserName">Name (optional)</Label>
-              <Input
-                id="newUserName"
-                type="text"
-                value={newUserName}
-                onChange={(event) => setNewUserName(event.target.value)}
-                disabled={creatingUser}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowCreateUser(false)}
-              disabled={creatingUser}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={handleCreateUser}
-              disabled={creatingUser}
-            >
-              {creatingUser ? "Creating..." : "Create User"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={showRenameUser}
-        onOpenChange={(open) => {
-          setShowRenameUser(open);
-          if (!open) {
-            setRenameUserName("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename User</DialogTitle>
-            <DialogDescription>
-              Set a new display name for the selected user.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="renameUserName">Name</Label>
-            <Input
-              id="renameUserName"
-              type="text"
-              value={renameUserName}
-              onChange={(event) => setRenameUserName(event.target.value)}
-              disabled={updatingUser}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowRenameUser(false)}
-              disabled={updatingUser}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={handleRenameUser}
-              disabled={updatingUser}
-            >
-              {updatingUser ? "Saving..." : "Save Name"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={showChangePassword}
-        onOpenChange={(open) => {
-          setShowChangePassword(open);
-          if (!open) {
-            resetPasswordDialog();
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change Password</DialogTitle>
-            <DialogDescription>
-              Enter your current password and set a new one.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="currentPassword">Current Password</Label>
-              <Input
-                id="currentPassword"
-                type="password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                disabled={changingPassword}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="newPassword">New Password</Label>
-              <Input
-                id="newPassword"
-                type="password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                disabled={changingPassword}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm New Password</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                disabled={changingPassword}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowChangePassword(false)}
-              disabled={changingPassword}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={handleChangePassword}
-              disabled={changingPassword}
-            >
-              {changingPassword ? "Saving..." : "Save Password"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <div className="mt-6 flex flex-wrap justify-end gap-2">
         {showCancel && (

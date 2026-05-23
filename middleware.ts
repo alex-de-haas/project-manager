@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const AUTH_COOKIE_NAME = "pm_auth";
+import {
+  DOCKER_HOST_IDENTITY_HEADER,
+  requestHeadersWithTrustedHostIdentity,
+  verifyDockerHostIdentityToken,
+} from "@/lib/host-identity";
 
 const PUBLIC_PATHS = [
-  "/login",
-  "/invite",
-  "/api/auth/login",
-  "/api/auth/logout",
-  "/api/auth/session",
-  "/api/auth/bootstrap",
-  "/api/auth/invite",
+  "/api/health",
 ];
 
 const isPublicPath = (pathname: string) => {
@@ -20,78 +17,36 @@ const isPublicPath = (pathname: string) => {
   return false;
 };
 
-const DEVELOPMENT_AUTH_SECRET = "local-dev-auth-secret-change-in-production";
-
-const getAuthSecret = () => {
-  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
-  if (process.env.NODE_ENV === "production") return null;
-  return DEVELOPMENT_AUTH_SECRET;
-};
-
-const verifyToken = async (token: string | undefined): Promise<boolean> => {
-  if (!token) return false;
-  const [payload, signature] = token.split(".");
-  if (!payload || !signature) return false;
-  const authSecret = getAuthSecret();
-  if (!authSecret) return false;
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(authSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signed = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(payload)
-  );
-  const signedBase64 = btoa(
-    String.fromCharCode(...Array.from(new Uint8Array(signed)))
-  );
-  const expectedSignature = signedBase64
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/g, "");
-
-  if (expectedSignature !== signature) return false;
-
-  try {
-    const normalizedPayload = payload.replaceAll("-", "+").replaceAll("_", "/");
-    const padded = normalizedPayload + "=".repeat((4 - (normalizedPayload.length % 4 || 4)) % 4);
-    const json = atob(padded);
-    const parsed = JSON.parse(json) as { exp?: number };
-    return typeof parsed.exp === "number" && parsed.exp > Date.now();
-  } catch {
-    return false;
-  }
-};
-
 export async function middleware(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
-  const authToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-  const isAuthenticated = await verifyToken(authToken);
+  const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) {
-    if (pathname === "/login" && isAuthenticated) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
     return NextResponse.next();
   }
 
-  if (isAuthenticated) {
-    return NextResponse.next();
+  const claims = await verifyDockerHostIdentityToken(
+    request.headers.get(DOCKER_HOST_IDENTITY_HEADER)
+  );
+
+  if (claims) {
+    return NextResponse.next({
+      request: {
+        headers: requestHeadersWithTrustedHostIdentity(request.headers, claims),
+      },
+    });
   }
 
   if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Docker Host identity is required" },
+      { status: 401 }
+    );
   }
 
-  const loginUrl = new URL("/login", request.url);
-  const nextPath = `${pathname}${search}`;
-  loginUrl.searchParams.set("next", nextPath);
-  return NextResponse.redirect(loginUrl);
+  return new NextResponse("Docker Host identity is required", {
+    status: 401,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
 }
 
 export const config = {

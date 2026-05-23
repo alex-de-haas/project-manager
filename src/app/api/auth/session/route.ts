@@ -1,21 +1,11 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/db";
-import { getAuthenticatedUserId } from "@/lib/auth";
-import type { User } from "@/types";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = getAuthenticatedUserId(request);
-    if (!userId) {
-      return NextResponse.json({ authenticated: false }, { status: 401 });
-    }
-
-    const user = db
-      .prepare("SELECT id, name, email, is_admin, created_at FROM users WHERE id = ?")
-      .get(userId) as User | undefined;
-
+    const user = getAuthenticatedUser(request);
     if (!user) {
       return NextResponse.json({ authenticated: false }, { status: 401 });
     }

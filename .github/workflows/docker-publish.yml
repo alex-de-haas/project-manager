@@ -5,12 +5,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      publish_legacy:
-        description: Publish the one-time legacy backup tag
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -47,11 +41,11 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=sha
+            type=sha,format=short,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=legacy,enable=${{ github.event_name == 'workflow_dispatch' && inputs.publish_legacy }}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -62,3 +56,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Render Docker Host module metadata
+        run: node scripts/render-module-metadata.mjs --tag "sha-${GITHUB_SHA::7}" --output dist/module-metadata/metadata.json
+
+      - name: Upload Docker Host module metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-host-module-metadata
+          path: dist/module-metadata/metadata.json

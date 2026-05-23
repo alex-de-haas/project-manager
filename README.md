@@ -1,6 +1,6 @@
 # Project Manager
 
-Project Manager is a Next.js application for planning releases, tracking work, recording time, and coordinating project teams. It supports local task management and optional Azure DevOps integration for teams that want to keep delivery planning in sync with work items.
+Project Manager is a Docker Host module for planning releases, tracking work, recording time, and coordinating project teams. It supports local task management and optional Azure DevOps integration for teams that want to keep delivery planning in sync with work items.
 
 ## Overview
 
@@ -10,9 +10,9 @@ The application is organized around a few core workflows:
 - **Work management**: local tasks and bugs, task status changes, checklists, blockers, and completion rules that prevent closing work with unfinished checklist items.
 - **Release planning**: ordered releases, imported work items, child task visibility, release status tracking, and movement of work between releases.
 - **Day-offs**: personal and team day-off tracking with full-day and half-day support.
-- **Project administration**: email/password authentication, first-run admin setup, invitations, project switching, users, projects, and general settings.
+- **Project administration**: Docker Host identity, module administrator roles, project switching, projects, and general settings.
 - **Azure DevOps integration**: optional import, export, refresh, status sync, and release planning support for Azure DevOps work items.
-- **Database operations**: local SQLite storage with backup and restore support.
+- **Database operations**: local SQLite storage with JSON migration import, backup, and restore support.
 
 ## Tech Stack
 
@@ -29,6 +29,7 @@ The application is organized around a few core workflows:
 
 - Node.js 20.9 or newer
 - npm
+- Docker Host for authenticated module access
 
 ## Setup
 
@@ -38,28 +39,13 @@ Install dependencies:
 npm install
 ```
 
-Create `.env.local` to configure session security and generated invitation links:
-
-```bash
-AUTH_SECRET=replace-with-strong-random-secret
-APP_BASE_URL=http://localhost:3000
-```
-
-`AUTH_SECRET` is required for production. If it is missing in production, authentication fails closed; local development uses a development-only fallback.
-
 Start the development server:
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
-
-On first launch:
-
-1. Go to `/login`.
-2. Create the first admin user.
-3. Continue into the app with the newly created account.
+The application is host-only. Browser and API requests must be routed by Docker Host with a signed `X-Docker-Host-Identity` token. Direct requests without Docker Host identity return `401`, except for `/api/health`.
 
 ## Scripts
 
@@ -75,16 +61,17 @@ npm run lint
 - Main database: `data/time_tracker.db`
 - Backups: `data/backups/*.db`
 
-Use the Settings area in the app to manage database backups and restore from an existing backup.
+Use the Settings area in the app to import supported Project Manager migration JSON, manage database backups, and restore from an existing backup.
 
 ## Docker
 
-Build and run the app in Docker:
+Build the app image:
 
 ```bash
 docker build -t project-manager .
-docker run --rm -p 3000:3000 project-manager
 ```
+
+The source module metadata is available in `metadata.json`. CI renders an installable metadata artifact that points at the immutable `sha-<commit>` image tag pushed to GHCR. Persistent state is stored under `/app/data` and is intended to be mounted from Docker Host-managed module storage.
 
 ## Documentation
 
@@ -92,6 +79,7 @@ Feature documentation lives in the `docs` folder:
 
 - `docs/AZURE_DEVOPS_INTEGRATION.md`
 - `docs/BLOCKERS_FEATURE.md`
+- `docs/DOCKER_HOST_MODULE.md`
 - `docs/SETTINGS_FEATURE.md`
 - `docs/SONNER_USAGE.md`
 

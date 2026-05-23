@@ -2,140 +2,113 @@
 
 ## Description
 
-Project Manager will be migrated from a standalone, locally authenticated Next.js application into an authenticated Docker Host shell module. Docker Host will own authentication, user access, and module assignment. Project Manager will own only module-specific permissions, project configuration, user profile credentials, planning data, and time-management data.
+Project Manager is being converted into a Docker Host shell module only. Docker Host owns authentication, Host users, module assignment, and gateway access. Project Manager owns module-specific administrator rights, projects, project membership, planning data, time-management data, Azure DevOps settings, AI settings, and database backups.
 
-The existing production data does not need a full database migration because the current installation has effectively been used by one person. Before destructive schema and identity changes, the current app must provide a narrow JSON export that captures enough personal time data to re-import later under a Host-provided user account.
+There is no standalone mode and no local authentication fallback. A deployed module starts with empty Docker Host-managed storage and creates a fresh SQLite database from the current schema. Legacy local-auth migrations, local user invitations, local password flows, and legacy export flows are not part of the module runtime.
 
 The target module behavior is:
 
-- Host users are the only users. The app does not maintain a separate user directory.
-- The module stores module permissions for Host users, with only two roles: admin and user.
-- Admins can see Settings, manage module permissions, manage projects, and configure project/module settings.
+- Host users are the only users.
+- Requests require a signed Docker Host identity token, except for `/api/health`.
+- The token issuer must be `docker-host`, the audience must match `com.haas.project-manager`, and expired tokens are rejected.
+- The token `sub` is the stable Host user principal.
+- Project Manager maps Host users into local records for internal joins and module roles.
+- Module roles are limited to admin and user.
+- Admins can see Settings, manage module roles, manage projects, and configure settings.
 - Non-admin users can access Time Management, Planning, and Calendar pages.
-- Project settings hold project-level configuration such as Azure DevOps organization and project.
-- Each user stores their own Azure DevOps PAT in their profile for that organization/project.
-- LLM provider URL is a module-level/global setting. The selected model is global unless a later requirement needs per-project selection.
-- The app uses a top navigation menu suitable for Host shell embedding instead of its own sidebar.
 - Persistent module state lives under Docker Host-managed module storage.
+- JSON migration import remains available for importing supported Project Manager export files into the current Host user and active project.
 
 ## Milestones
 
-### Phase 0 - Add legacy personal data export
+### Phase 1 - Host-only identity
 
 **Status**: Completed
-
-Add a small export capability to the current standalone application before making identity, schema, or Host integration changes.
-
-Tasks:
-
-- Completed: Add an export button in Settings under Database.
-- Completed: Export a JSON file with a simple, stable structure for one legacy user and one legacy project.
-- Completed: Include task time data grouped by Azure DevOps numeric work item id and date.
-- Completed: Include day-offs in a separate list.
-- Completed: Keep authentication, user management, project management, DevOps settings, and Host module behavior unchanged in this phase.
-- Completed: Document the exported JSON structure in this planning document.
-
-Recommended JSON shape:
-
-```json
-{
-  "schemaVersion": "project-manager-legacy-export/v1",
-  "exportedAt": "2026-05-23T00:00:00.000Z",
-  "timeEntries": [
-    {
-      "workItemId": 12345,
-      "entries": [
-        {
-          "date": "2026-05-22",
-          "hours": 4
-        }
-      ]
-    }
-  ],
-  "dayOffs": [
-    {
-      "date": "2026-05-20",
-      "description": "Vacation",
-      "isHalfDay": false
-    }
-  ]
-}
-```
-
-Recommendation:
-
-- Keep the export intentionally narrow. Use `tasks.external_source = 'azure_devops'` and numeric `tasks.external_id` as the exported work item id.
-- Skip local-only tasks in the legacy export unless a later requirement says they must be preserved.
-- Export only the current authenticated user's data.
-- Keep this phase deployable on the existing standalone app so the JSON can be downloaded before the database reset.
-
-### Phase 1 - Define Host identity mode and remove standalone user ownership
-
-**Status**: Not Started
 
 Replace standalone application identity with Docker Host identity.
 
 Tasks:
 
-- Remove the temporary Docker image `legacy` publishing path after the standalone backup image has been created.
-- Add a Host authentication mode for module deployments.
-- Validate signed `X-Docker-Host-Identity` JWTs against Host JWKS.
-- Require issuer `docker-host`, audience equal to the module id, and non-expired tokens.
-- Use the Host token `sub` as the stable user principal.
-- Stop trusting client-controlled user selectors such as `x-user-id`, `userId`, and writable user cookies.
-- Disable or remove local login, bootstrap, invitations, password changes, and logout in Host mode.
-- Add a small local development identity fallback only if needed for standalone development.
+- Completed: Remove temporary legacy Docker image publishing.
+- Completed: Validate signed `X-Docker-Host-Identity` JWTs against Docker Host JWKS.
+- Completed: Require issuer `docker-host`, audience equal to the module id, and non-expired tokens.
+- Completed: Use Host token `sub` as the stable user principal through a local `host_user_id` mapping.
+- Completed: Remove local login, bootstrap, invitation, password change, and logout routes/pages.
+- Completed: Strip client-controlled identity headers before passing trusted Host identity to app routes.
+- Completed: Keep `/api/health` public for Docker Host readiness checks.
 
 Recommendation:
 
-- Do not attempt to map legacy local users. Reset the database for the Host module version and create module records from Host identities as users arrive.
+- Keep host-only behavior strict. Local development should use Docker Host developer mode or a configured Host JWKS source, not a standalone identity fallback.
 
-### Phase 2 - Add module-owned roles and scoped Host user directory integration
+### Phase 2 - Module roles and scoped Host users
 
-**Status**: Not Started
+**Status**: In Progress
 
-Keep Docker Host authorization separate from Project Manager module permissions.
+Keep Docker Host authorization separate from Project Manager permissions.
 
 Tasks:
 
-- Use Docker Host scoped directory API to list users assigned to this module.
-- Store module roles by Host user id, not by email.
-- Support exactly two module roles: admin and user.
-- Let admins assign or remove module admin rights from assigned Host users.
-- Show Settings only to module admins.
-- Keep all main work pages available to every assigned module user.
-- Define bootstrap behavior for the first module admin.
+- Completed: Store module administrator rights on local Host-backed user records.
+- Completed: Bootstrap module admin rights for the first Host user and for signed `host.admin` identities.
+- Completed: Restrict Settings UI and Settings APIs to module administrators.
+- Completed: Remove local user create/delete/rename behavior.
+- Remaining: Use the Docker Host scoped directory API to list users assigned to this module before they first open the app.
+- Remaining: Store and manage module roles directly by stable Host user id when scoped directory integration is available.
 
 Recommendation:
 
-- Use `host.admin` only for bootstrap or emergency administrative access. Persist normal module administration in module-owned storage.
+- Use `host.admin` for bootstrap and emergency access. Keep normal Project Manager permissions in module-owned storage.
 
-### Phase 3 - Reset and reshape persistence
+### Phase 3 - Fresh module database
 
-**Status**: Not Started
+**Status**: Completed
 
-Move from local user ownership to Host-user principals and module/project scoped storage.
+Create the module database from the current schema only.
 
 Tasks:
 
-- Replace local user directory assumptions with Host user references.
-- Decide which tables need `host_user_id` owner fields versus project-only fields.
-- Keep projects as module-owned records managed by module admins.
-- Keep project membership/assignment against Host user ids.
-- Move project settings to project-level storage.
-- Add global module settings for values that should not vary by user or project.
-- Add user profile settings for per-user secrets and personal preferences.
-- Add import support for the Phase 0 legacy JSON export under the currently authenticated Host user.
+- Completed: Remove legacy database migration ladder.
+- Completed: Remove local password and invitation tables/helpers.
+- Completed: Add `users.host_user_id` as the stable Host principal mapping.
+- Completed: Keep local integer user ids only as internal join keys.
+- Completed: Keep projects as module-owned records managed by module admins.
+- Completed: Keep project membership and work data scoped by project and Host-backed local user records.
+- Completed: Store database and backups under Docker Host module storage.
+- Completed: Keep JSON migration import for supported Project Manager export files.
 
 Recommendation:
 
-- Preserve local integer ids for internal joins where useful, but make Host user id the source of truth for user identity.
+- Treat the SQLite schema in `src/lib/db.ts` as the fresh install contract. Add future migrations only for future module schema changes, not for the removed standalone schema.
 
-### Phase 4 - Rework Azure DevOps integration
+### Phase 4 - Docker Host metadata and runtime contract
+
+**Status**: In Progress
+
+Package Project Manager as an installable Docker Host module.
+
+Tasks:
+
+- Completed: Add `metadata.json` with `schemaVersion: "0.2"`.
+- Completed: Use stable reverse-DNS module id `com.haas.project-manager`.
+- Completed: Declare one app container using port `3000`.
+- Completed: Add a public endpoint hint for the Host shell app entrypoint.
+- Completed: Add `ui` metadata with entrypoint path `/` and navigation paths for the main pages.
+- Completed: Add module storage mapping for `/app/data`.
+- Completed: Add CI metadata rendering for immutable `sha-<commit>` image tags.
+- Remaining: Publish the rendered metadata artifact at a stable direct JSON URL for Docker Host installation.
+- Remaining: Confirm Docker Host automatically injects internal origin, module id, and service token.
+- Remaining: Install the metadata through Docker Host developer mode or managed install flow.
+
+Recommendation:
+
+- Keep metadata strict. Schema `0.2` rejects unknown fields, so Host-owned credentials should not be modeled as administrator-entered settings unless Docker Host explicitly requires that.
+
+### Phase 5 - Azure DevOps settings
 
 **Status**: Not Started
 
-Split Azure DevOps project configuration from user credentials.
+Separate project configuration from user credentials.
 
 Tasks:
 
@@ -144,107 +117,89 @@ Tasks:
 - Use the current Host user's PAT for import, export, refresh, and status synchronization.
 - Block DevOps import/export/sync features when the current user has no PAT.
 - Keep manual task and time-management functionality available without a PAT.
-- Test that Azure DevOps changes are attributed to the PAT owner in Azure DevOps history.
 - Redact PAT values in all API responses and UI forms.
 
 Recommendation:
 
 - Store only `hasPat` in API responses. If secrets remain in SQLite, encrypt them with a module secret supplied by Docker Host settings.
 
-### Phase 5 - Rework LLM provider configuration
+### Phase 6 - AI provider configuration
 
 **Status**: Not Started
 
-Move AI provider configuration out of per-user/per-project settings.
+Move AI provider configuration to module-level settings.
 
 Tasks:
 
-- Add a global/module-level LLM provider base URL setting.
+- Add a global/module-level provider base URL setting.
 - Add a global selected model setting.
 - Replace loopback-only LM Studio assumptions with a configured provider URL that works from inside the module container.
-- Restrict LLM provider configuration to admins.
+- Restrict AI provider configuration to admins.
 - Keep checklist generation available only when the provider and model are configured.
 
 Recommendation:
 
-- Configure provider URL through Docker Host module settings when possible, then mirror only non-secret display/configuration state in the app database.
+- Configure provider URL through Docker Host module settings when possible, then mirror only non-secret display state in the app database.
 
-### Phase 6 - Replace app sidebar with Host-friendly top navigation
+### Phase 7 - Host-friendly navigation
 
 **Status**: Not Started
 
-Make the module UI fit inside Docker Host shell.
+Make the module UI fit inside the Docker Host shell.
 
 Tasks:
 
-- Remove the application sidebar.
-- Add top navigation for Time Management, Planning, Calendar, and Settings.
+- Replace the application sidebar with top navigation for Time Management, Planning, Calendar, and Settings.
 - Hide Settings for non-admin users.
-- Move project switching into the top bar or a compact project selector.
-- Add a user profile entry for personal settings such as Azure DevOps PAT and legacy data import.
-- Remove local logout behavior in Host mode.
+- Move project switching into the top bar or another compact project selector.
+- Add a user profile entry for personal settings such as Azure DevOps PAT.
 
 Recommendation:
 
 - Keep navigation paths stable so module `ui.navigation` metadata can point to the same pages.
 
-### Phase 7 - Add Docker Host module metadata and runtime contract
+### Phase 8 - Validation
 
-**Status**: Not Started
+**Status**: In Progress
 
-Package Project Manager as an installable Docker Host module.
-
-Tasks:
-
-- Add `metadata.json` with `schemaVersion: "0.2"`.
-- Use a stable reverse-DNS module id, for example `com.haas.project-manager`.
-- Declare one app container using the existing image and port `3000`.
-- Add a public endpoint hint for the Host shell app entrypoint.
-- Add `ui` metadata with entrypoint path `/` and navigation paths for the main pages.
-- Add module storage mapping for `/app/data`.
-- Add required Host-provided environment settings such as module id, Host internal origin, service token, auth mode, and secret keys.
-- Add a health endpoint that does not require browser cookies.
-
-Recommendation:
-
-- Keep metadata strict. Do not add unsupported fields because schema `0.2` rejects unknown fields.
-
-### Phase 8 - Validate module behavior
-
-**Status**: Not Started
-
-Verify the application as both an app and a Docker Host shell module.
+Verify the app as a production module.
 
 Tasks:
 
-- Run project lint/build checks after each implementation phase.
-- Build the production Docker image.
-- Install the module metadata through Docker Host developer mode or a local metadata URL.
-- Verify Host identity token validation, module audience validation, and rejection of unsigned identity headers.
-- Verify assigned Host users can access the app.
-- Verify non-admin users cannot access Settings APIs or Settings UI.
-- Verify admins can manage roles, projects, project settings, and global LLM settings.
-- Verify per-user Azure DevOps PAT behavior.
-- Verify legacy JSON import attaches time entries and day-offs to the logged-in Host user.
+- Completed: Run project lint/build checks for host-only identity and metadata changes.
+- Completed: Render module metadata with an immutable test image tag.
+- Completed: Build the production Docker image locally.
+- Completed: Smoke-test `/api/health` in the built container and verify normal page requests reject missing Host identity.
+- Completed: Add JSON migration import endpoint and Settings UI.
+- Remaining: Verify Host identity token validation with a real Docker Host-issued token.
+- Remaining: Verify assigned Host users can access the app through Docker Host.
+- Remaining: Verify non-admin users cannot access Settings APIs or Settings UI.
+- Remaining: Verify admins can manage roles, projects, project settings, and AI settings.
+- Remaining: Verify JSON migration import with a real exported file.
+- Remaining: Verify per-user Azure DevOps PAT behavior after Phase 5.
 
 Recommendation:
 
-- Treat Host identity validation as a release blocker. Do not consider the module migration complete while the app still accepts standalone session cookies or client-provided user ids in Host mode.
+- Treat Host identity validation and managed install testing as release blockers.
 
 ## Open Questions
 
-- Question: Should the legacy export include local-only tasks with no Azure DevOps work item id?
-  Answer: Current requirement only needs numeric work item ids, time by date, and day-offs.
-  Recommendation: Do not include local-only tasks in Phase 0 unless a concrete data-loss case appears before export.
+- Question: What stable direct URL should Docker Host use for the rendered module metadata artifact?
+  Answer: The CI workflow can render metadata with the immutable `sha-<commit>` image tag, but the final direct JSON publication location still needs to be chosen.
+  Recommendation: Publish the rendered artifact to a release asset or another immutable direct JSON URL. Do not commit build-specific image tags back into the source branch.
 
-- Question: Should selected LLM model be global or per project?
+- Question: What Docker Host internal origin and service token environment names are guaranteed for modules?
+  Answer: The implementation expects `DOCKER_HOST_INTERNAL_ORIGIN`, `DOCKER_HOST_MODULE_ID`, and `DOCKER_HOST_MODULE_SERVICE_TOKEN`, with `DOCKER_HOST_IDENTITY_JWKS_URL` available as an explicit JWKS override.
+  Recommendation: Verify these names against the target Docker Host version before managed install testing.
+
+- Question: Should selected AI model be global or per project?
   Answer: Current direction is global.
   Recommendation: Start global. Add per-project override only if different projects need different model behavior.
 
 - Question: Should Host users automatically receive access to all projects?
-  Answer: Host controls module access; Project Manager still needs project-level assignment.
+  Answer: Host controls module access, while Project Manager still controls project-level assignment.
   Recommendation: Keep project membership inside the module and let module admins assign Host users to projects.
 
-- Question: Should the app keep any standalone mode after Docker Host migration?
-  Answer: Docker Host will own production authentication.
-  Recommendation: Keep only a development-only identity shim if it materially speeds local development; do not ship it as the production path.
+- Question: Should module administrators be bootstrapped from the first Host user, Host administrators, or both?
+  Answer: Current implementation grants admin rights to the first Host user that opens the module and to users whose signed token has `hostRole: "host.admin"`.
+  Recommendation: Keep both for bootstrap, then manage normal module roles through scoped Host directory integration.
