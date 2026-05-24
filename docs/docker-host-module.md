@@ -1,14 +1,16 @@
 # Docker Host Module
 
-Project Manager runs as a Docker Host shell module. Docker Host owns authentication, module assignment, and access to the app. Project Manager uses the signed Host identity token to create or update local module user records and stores module-specific administrator rights in its own database.
+Project Manager runs as a Docker Host shell module. Docker Host owns authentication, module assignment, app discovery, and access to the app. Project Manager uses the signed Host identity token to create or update local module user records and stores module-specific administrator rights in its own database.
 
-There is no standalone mode. Direct browser or API access without Docker Host identity is rejected, except for the health endpoint.
+There is no standalone mode. Direct API access without Docker Host identity is rejected, except for the health and identity bootstrap endpoints. Direct browser access without Docker Host identity renders only the module identity bootstrap state and does not expose application data.
 
 ## User Access
 
 - Docker Host users are the only supported users.
 - Local login, invitations, password changes, and logout are disabled.
-- Requests must include a valid signed `X-Docker-Host-Identity` token issued by Docker Host.
+- Requests must include a valid signed Docker Host identity token issued by Docker Host.
+- Shell iframe traffic receives identity through the Docker Host `postMessage` bridge and exchanges it at `/api/auth/bootstrap` for an HttpOnly module-origin cookie.
+- Gateway and service/API traffic can still use the `X-Docker-Host-Identity` header.
 - The first Host user that opens the module becomes a module administrator. Host administrators also receive module administrator rights.
 - Settings are visible only to module administrators.
 - Module administrators can manage Project Manager roles for assigned Host users from the Docker Host scoped directory before those users first open the module.
@@ -20,7 +22,8 @@ There is no standalone mode. Direct browser or API access without Docker Host id
 - The workflow publishes rendered metadata as `metadata.json` on the `latest` GitHub release. Docker Host can install from `https://github.com/alex-de-haas/project-manager/releases/download/latest/metadata.json`.
 - The app container listens on port `3000`.
 - Persistent data is stored in `/app/data`.
-- `/api/health` checks database readiness and writable module storage without requiring browser cookies.
+- `/api/health` checks database readiness and writable module storage without requiring identity.
+- `/api/auth/bootstrap` verifies a Host-issued module identity token and stores it in a short-lived module cookie for direct-origin shell iframe traffic.
 
 ## Data
 
@@ -47,6 +50,8 @@ The main data groups are:
 - `DOCKER_HOST_MODULE_SERVICE_TOKEN` allows Project Manager to read the Docker Host scoped directory for users assigned to this module.
 - Docker Host should not forward Host session cookies to the module.
 - Project Manager trusts only the signed Host identity token after signature, issuer, audience, and expiration validation.
+- Direct-origin shell iframe traffic uses the `project_manager_module_identity` HttpOnly cookie after `/api/auth/bootstrap`; the cookie stores the signed Host token and is refreshed by the client bridge before token expiry.
+- The module UI must allow being framed by the Docker Host shell origin. Docker Host no longer rewrites Project Manager HTML, assets, RSC requests, or API calls through an embed proxy.
 
 ## Navigation
 

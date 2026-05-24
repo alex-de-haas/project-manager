@@ -1,6 +1,7 @@
 import { getDockerHostInternalOrigin, getModuleId } from "@/lib/module-runtime";
 
 export const DOCKER_HOST_IDENTITY_HEADER = "x-docker-host-identity";
+export const DOCKER_HOST_IDENTITY_COOKIE = "project_manager_module_identity";
 export const INTERNAL_HOST_USER_ID_HEADER = "x-project-manager-host-user-id";
 export const INTERNAL_HOST_USER_EMAIL_HEADER = "x-project-manager-host-user-email";
 export const INTERNAL_HOST_USER_NAME_HEADER = "x-project-manager-host-user-name";
@@ -237,6 +238,11 @@ export const requestHeadersWithTrustedHostIdentity = (
 ) => {
   const headers = new Headers(sourceHeaders);
   headers.delete("x-user-id");
+  for (const key of Array.from(headers.keys())) {
+    if (key.toLowerCase().startsWith("x-docker-host-")) {
+      headers.delete(key);
+    }
+  }
   headers.delete(INTERNAL_HOST_USER_ID_HEADER);
   headers.delete(INTERNAL_HOST_USER_EMAIL_HEADER);
   headers.delete(INTERNAL_HOST_USER_NAME_HEADER);

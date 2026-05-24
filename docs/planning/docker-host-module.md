@@ -9,7 +9,7 @@ There is no standalone mode and no local authentication fallback. A deployed mod
 The target module behavior is:
 
 - Host users are the only users.
-- Requests require a signed Docker Host identity token, except for `/api/health`.
+- Requests require a signed Docker Host identity token, except for `/api/health` and the direct-origin identity bootstrap endpoint.
 - The token issuer must be `docker-host`, the audience must match `com.haas.project-manager`, and expired tokens are rejected.
 - The token `sub` is the stable Host user principal.
 - Project Manager maps Host users into local records for internal joins and module roles.
@@ -33,7 +33,8 @@ Tasks:
 - Completed: Validate signed `X-Docker-Host-Identity` JWTs against Docker Host JWKS.
 - Completed: Require issuer `docker-host`, audience equal to the module id, and non-expired tokens.
 - Completed: Use Host token `sub` as the stable user principal through a local `host_user_id` mapping.
-- Completed: Remove local login, bootstrap, invitation, password change, and logout routes/pages.
+- Completed: Remove local login, invitation, password change, and logout routes/pages.
+- Completed: Add direct-origin shell iframe identity bootstrap for Docker Host `postMessage` tokens.
 - Completed: Strip client-controlled identity headers before passing trusted Host identity to app routes.
 - Completed: Keep `/api/health` public for Docker Host readiness checks.
 
@@ -169,13 +170,14 @@ Verify the app as a production module.
 Tasks:
 
 - Completed: Run project lint/build checks for host-only identity and metadata changes.
+- Completed: Adapt module UI identity to Docker Host direct-origin shell apps and remove the obsolete embed asset rewrite shim.
 - Completed: Render module metadata with an immutable test image tag.
 - Completed: Build the production Docker image locally.
 - Completed: Smoke-test `/api/health` in the built container and verify normal page requests reject missing Host identity.
 - Completed: Add JSON migration import endpoint and Settings UI.
 - Completed: Run lint/build checks for host-friendly top navigation changes.
 - Completed: Browser smoke-test top navigation with local signed Docker Host-style admin and non-admin identity tokens.
-- Remaining: Verify Host identity token validation with a real Docker Host-issued token.
+- Remaining: Verify direct-origin shell iframe bootstrap with a real Docker Host-issued token.
 - Remaining: Verify assigned Host users can access the app through Docker Host.
 - Remaining: Verify non-admin users cannot access Settings APIs or Settings UI inside a real Docker Host managed install.
 - Remaining: Verify admins can manage roles, projects, project settings, and AI settings.

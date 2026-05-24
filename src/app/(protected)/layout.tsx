@@ -16,7 +16,10 @@ export default async function ProtectedLayout({
 
   if (!hostIdentity) {
     return (
-      <div className="flex min-h-dvh items-center justify-center px-6 text-sm text-muted-foreground">
+      <div
+        data-project-manager-host-identity="missing"
+        className="flex min-h-dvh items-center justify-center px-6 text-sm text-muted-foreground"
+      >
         Docker Host identity is required.
       </div>
     );

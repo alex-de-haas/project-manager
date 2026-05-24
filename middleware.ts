@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  DOCKER_HOST_IDENTITY_COOKIE,
   DOCKER_HOST_IDENTITY_HEADER,
   requestHeadersWithTrustedHostIdentity,
   verifyDockerHostIdentityToken,
 } from "@/lib/host-identity";
 
 const PUBLIC_PATHS = [
+  "/api/auth/bootstrap",
   "/api/health",
 ];
 
@@ -17,6 +19,14 @@ const isPublicPath = (pathname: string) => {
   return false;
 };
 
+const isUnsafeMethod = (method: string) =>
+  !["GET", "HEAD", "OPTIONS"].includes(method);
+
+const isCrossSiteCookieMutation = (request: NextRequest, pathname: string) =>
+  pathname.startsWith("/api/") &&
+  isUnsafeMethod(request.method) &&
+  request.headers.get("sec-fetch-site") === "cross-site";
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -24,11 +34,22 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const claims = await verifyDockerHostIdentityToken(
-    request.headers.get(DOCKER_HOST_IDENTITY_HEADER)
-  );
+  const headerToken = request.headers.get(DOCKER_HOST_IDENTITY_HEADER)?.trim();
+  const cookieToken = request.cookies.get(DOCKER_HOST_IDENTITY_COOKIE)?.value?.trim();
+  const headerClaims = await verifyDockerHostIdentityToken(headerToken);
+  const cookieClaims = headerClaims
+    ? null
+    : await verifyDockerHostIdentityToken(cookieToken);
+  const claims = headerClaims ?? cookieClaims;
 
   if (claims) {
+    if (cookieClaims && isCrossSiteCookieMutation(request, pathname)) {
+      return NextResponse.json(
+        { error: "Cross-site module cookie requests are not allowed" },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.next({
       request: {
         headers: requestHeadersWithTrustedHostIdentity(request.headers, claims),
@@ -36,17 +57,14 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  if (pathname.startsWith("/api/")) {
+  if (pathname.startsWith("/api/") || !["GET", "HEAD"].includes(request.method)) {
     return NextResponse.json(
       { error: "Docker Host identity is required" },
       { status: 401 }
     );
   }
 
-  return new NextResponse("Docker Host identity is required", {
-    status: 401,
-    headers: { "content-type": "text/plain; charset=utf-8" },
-  });
+  return NextResponse.next();
 }
 
 export const config = {
