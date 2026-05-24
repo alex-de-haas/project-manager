@@ -16,7 +16,7 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN mkdir -p public .next/cache
-RUN --mount=type=cache,target=/app/.next/cache npm run build && node scripts/patch-next-docker-host-embed.mjs
+RUN --mount=type=cache,target=/app/.next/cache npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
