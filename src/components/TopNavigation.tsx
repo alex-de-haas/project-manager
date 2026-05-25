@@ -11,11 +11,10 @@ import {
   Menu,
   Rocket,
   Settings,
-  UserRound,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { UserAvatar, getUserAvatarColor } from "@/components/UserAvatar";
+import { getUserAvatarColor } from "@/components/UserAvatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -146,7 +145,7 @@ export default function TopNavigation({
           <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sideOffset={8} className="w-64">
+      <DropdownMenuContent align="end" sideOffset={8} className="w-64">
         <DropdownMenuLabel>Projects</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {projects.map((project) => {
@@ -239,41 +238,9 @@ export default function TopNavigation({
               {navItems.map((item) => renderNavLink(item))}
             </nav>
 
-            <div className="min-w-0 flex-1 md:hidden">{renderProjectSelector()}</div>
-
-            <div className="ml-auto hidden min-w-0 shrink items-center border-l pl-1 sm:flex">
+            <div className="ml-auto flex min-w-0 flex-1 items-center justify-end border-l pl-1 md:flex-none md:shrink">
               {renderProjectSelector()}
             </div>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="h-8 gap-2 rounded-md px-2 text-foreground hover:bg-muted"
-                  aria-label="Open user menu"
-                >
-                  <UserAvatar name={currentUser?.name} className="h-6 w-6 text-[10px]" />
-                  <span className="hidden max-w-36 truncate text-sm font-medium xl:inline">
-                    {currentUser?.name || "Current user"}
-                  </span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={8} className="w-64">
-                <DropdownMenuLabel>
-                  <span className="block truncate">{currentUser?.name || "Current user"}</span>
-                  <span className="block truncate text-xs font-normal text-muted-foreground">
-                    {currentUser?.email || "Docker Host user"}
-                  </span>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild className="gap-2">
-                  <Link href="/profile">
-                    <UserRound className="h-4 w-4" />
-                    <span>Profile</span>
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
       </div>
