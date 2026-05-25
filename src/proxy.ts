@@ -27,7 +27,7 @@ const isCrossSiteCookieMutation = (request: NextRequest, pathname: string) =>
   isUnsafeMethod(request.method) &&
   request.headers.get("sec-fetch-site") === "cross-site";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) {

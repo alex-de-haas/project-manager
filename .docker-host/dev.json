@@ -1,0 +1,24 @@
+{
+  "metadataFile": "../metadata.json",
+  "moduleCommand": "npm run dev",
+  "workingDirectory": "..",
+  "target": {
+    "id": "mdev_project_manager",
+    "hostname": "project-manager.localhost",
+    "portKey": "http",
+    "targetBaseUrl": "http://localhost:3000",
+    "policy": "assignedUsersOnly",
+    "identity": "required"
+  },
+  "users": [
+    {
+      "email": "admin@dev.com",
+      "displayName": "Dev Admin",
+      "role": "host.admin",
+      "assigned": true
+    }
+  ],
+  "directoryPolicy": {
+    "includeEmail": true
+  }
+}

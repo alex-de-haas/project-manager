@@ -53,6 +53,21 @@ The main data groups are:
 - Direct-origin shell iframe traffic uses the `project_manager_module_identity` HttpOnly cookie after `/api/auth/bootstrap`; the cookie stores the signed Host token and is refreshed by the client bridge before token expiry.
 - The module UI must allow being framed by the Docker Host shell origin. Docker Host no longer rewrites Project Manager HTML, assets, RSC requests, or API calls through an embed proxy.
 
+## Local Development
+
+Project Manager includes `.docker-host/dev.json` for Docker Host developer mode. Start the Next.js dev server on port `3000`, then link the module into the local Docker Host shell:
+
+```bash
+npm run dev
+docker-host dev up --manifest .docker-host/dev.json
+```
+
+When Docker Host runs on a non-default local URL, pass that URL explicitly:
+
+```bash
+docker-host dev up --manifest .docker-host/dev.json --host-url http://localhost:<host-port>
+```
+
 ## Navigation
 
 The module UI uses a Docker Host-friendly top navigation bar instead of an application sidebar. The stable navigation paths match the module metadata:

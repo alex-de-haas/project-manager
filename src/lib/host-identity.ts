@@ -77,31 +77,44 @@ const hasAudience = (audience: string | string[], expected: string) =>
 const sanitizeHeaderValue = (value: string | null | undefined) =>
   value?.replace(/[\r\n]/g, " ").trim() ?? "";
 
-const resolveJwksUrl = async (): Promise<string | null> => {
+const timeoutSignal = (timeoutMs: number) => {
+  if (typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(timeoutMs);
+  }
+
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
+};
+
+const uniqueUrls = (urls: string[]) => Array.from(new Set(urls));
+
+const resolveJwksUrls = async (): Promise<string[]> => {
   const configured = process.env.DOCKER_HOST_IDENTITY_JWKS_URL?.trim();
-  if (configured) return configured;
+  if (configured) return [configured];
 
   const origin = getDockerHostInternalOrigin();
-  if (!origin) return null;
+  if (!origin) return [];
 
+  const fallbackUrl = `${origin}/.well-known/docker-host/jwks.json`;
   const discoveryUrl = `${origin}/.well-known/docker-host/module-identity.json`;
   try {
     const response = await fetch(discoveryUrl, {
       cache: "no-store",
-      signal: AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(JWKS_FETCH_TIMEOUT_MS),
     });
     if (response.ok) {
       const data = (await response.json()) as { jwksUrl?: string; jwks_uri?: string };
       const discovered = data.jwksUrl || data.jwks_uri;
       if (discovered) {
-        return new URL(discovered, origin).toString();
+        return uniqueUrls([new URL(discovered, origin).toString(), fallbackUrl]);
       }
     }
   } catch {
     // Fall back to the documented JWKS path when discovery is unavailable.
   }
 
-  return `${origin}/.well-known/docker-host/jwks.json`;
+  return [fallbackUrl];
 };
 
 const fetchJwks = async (url: string): Promise<HostJsonWebKey[]> => {
@@ -112,7 +125,7 @@ const fetchJwks = async (url: string): Promise<HostJsonWebKey[]> => {
 
   const response = await fetch(url, {
     cache: "no-store",
-    signal: AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS),
+    signal: timeoutSignal(JWKS_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch Docker Host JWKS: ${response.status}`);
@@ -207,26 +220,38 @@ export const verifyDockerHostIdentityToken = async (
       return null;
     }
 
-    const jwksUrl = await resolveJwksUrl();
-    if (!jwksUrl) return null;
-
-    const jwk = selectVerificationKey(await fetchJwks(jwksUrl), header);
-    if (!jwk) return null;
-
-    const key = await importVerificationKey(jwk, header.alg);
     const verifyAlgorithm = getVerifyAlgorithm(header.alg);
-    if (!key || !verifyAlgorithm) return null;
+    if (!verifyAlgorithm) return null;
+
+    const jwksUrls = await resolveJwksUrls();
+    if (jwksUrls.length === 0) return null;
+
     const signature = base64UrlToBytes(encodedSignature) as BufferSource;
     const signedData = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`) as BufferSource;
 
-    const isValid = await crypto.subtle.verify(
-      verifyAlgorithm,
-      key,
-      signature,
-      signedData
-    );
+    for (const jwksUrl of jwksUrls) {
+      try {
+        const jwk = selectVerificationKey(await fetchJwks(jwksUrl), header);
+        if (!jwk) continue;
 
-    return isValid ? claims : null;
+        const key = await importVerificationKey(jwk, header.alg);
+        if (!key) continue;
+
+        const isValid = await crypto.subtle.verify(
+          verifyAlgorithm,
+          key,
+          signature,
+          signedData
+        );
+
+        if (isValid) return claims;
+      } catch {
+        // Try the next resolved JWKS URL. Docker Host dev runs can advertise
+        // a container-internal JWKS URL while the module runs on the host.
+      }
+    }
+
+    return null;
   } catch {
     return null;
   }

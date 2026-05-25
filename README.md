@@ -45,6 +45,18 @@ Start the development server:
 npm run dev
 ```
 
+Link the running app into Docker Host developer mode:
+
+```bash
+docker-host dev up --manifest .docker-host/dev.json
+```
+
+If Docker Host is already running on a specific local URL, pass it explicitly:
+
+```bash
+docker-host dev up --manifest .docker-host/dev.json --host-url http://localhost:<host-port>
+```
+
 The application is host-only. In the Docker Host shell, browser UI runs from the module's direct origin and receives a signed Host identity token through the Host `postMessage` bridge. The module exchanges that token at `/api/auth/bootstrap` for a short-lived HttpOnly cookie used by server-rendered pages and same-origin API calls. Gateway and service/API traffic can still use the signed `X-Docker-Host-Identity` header.
 
 Direct API requests without Docker Host identity return `401`, except for `/api/health` and `/api/auth/bootstrap`. Direct browser requests without identity render only the identity bootstrap state.
