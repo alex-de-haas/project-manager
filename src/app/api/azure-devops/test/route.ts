@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as azdev from 'azure-devops-node-api';
 import type { AzureDevOpsSettings } from '@/types';
 import { getAzureDevOpsProjectSettings, getAzureDevOpsUserPat } from '@/lib/azure-devops/settings';
+import { parseAzureDevOpsProjectUrl } from '@/lib/azure-devops/project-url';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 
 export async function POST(request: NextRequest) {
@@ -11,15 +12,18 @@ export async function POST(request: NextRequest) {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
-    const { organization, project, pat } = body as Partial<AzureDevOpsSettings>;
+    const { organization, project, projectUrl, pat } = body as Partial<AzureDevOpsSettings>;
+    const parsedProjectUrl = parseAzureDevOpsProjectUrl(projectUrl ?? "");
     const savedProjectSettings = getAzureDevOpsProjectSettings(projectId);
-    const effectiveOrganization = organization?.trim() || savedProjectSettings?.organization || "";
-    const effectiveProject = project?.trim() || savedProjectSettings?.project || "";
+    const effectiveOrganization =
+      parsedProjectUrl?.organization || organization?.trim() || savedProjectSettings?.organization || "";
+    const effectiveProject =
+      parsedProjectUrl?.project || project?.trim() || savedProjectSettings?.project || "";
     const effectivePat = pat?.trim() || getAzureDevOpsUserPat(userId) || "";
 
     if (!effectiveOrganization || !effectiveProject || !effectivePat) {
       return NextResponse.json(
-        { error: 'Organization, project, and PAT are required' },
+        { error: 'Azure DevOps project URL and PAT are required' },
         { status: 400 }
       );
     }

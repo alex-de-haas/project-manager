@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { parseAzureDevOpsProjectUrl } from "@/lib/azure-devops/project-url";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -181,8 +182,7 @@ export function GeneralSettingsForm({
   const [updatingReleaseId, setUpdatingReleaseId] = useState<number | null>(null);
 
   // Azure DevOps settings
-  const [organization, setOrganization] = useState("");
-  const [project, setProject] = useState("");
+  const [azureProjectUrlInput, setAzureProjectUrlInput] = useState("");
   const [pat, setPat] = useState("");
   const [hasAzurePat, setHasAzurePat] = useState(false);
 
@@ -226,16 +226,13 @@ export function GeneralSettingsForm({
     );
   }, [releases]);
 
-  const azureProjectUrl = useMemo(() => {
-    const trimmedOrganization = organization.trim();
-    const trimmedProject = project.trim();
-
-    if (!trimmedOrganization || !trimmedProject) {
-      return "";
-    }
-
-    return `https://dev.azure.com/${encodeURIComponent(trimmedOrganization)}/${encodeURIComponent(trimmedProject)}`;
-  }, [organization, project]);
+  const parsedAzureProject = useMemo(
+    () => parseAzureDevOpsProjectUrl(azureProjectUrlInput),
+    [azureProjectUrlInput]
+  );
+  const organization = parsedAzureProject?.organization ?? "";
+  const project = parsedAzureProject?.project ?? "";
+  const azureProjectUrl = parsedAzureProject?.projectUrl ?? "";
 
   const fetchModels = async (baseUrl: string) => {
     setLoadingModels(true);
@@ -407,8 +404,7 @@ export function GeneralSettingsForm({
             typeof data.value === "string"
               ? JSON.parse(data.value)
               : data.value;
-          setOrganization(settings.organization || "");
-          setProject(settings.project || "");
+          setAzureProjectUrlInput(settings.projectUrl || "");
           setHasAzurePat(Boolean(settings.hasPat));
           setPat("");
         }
@@ -779,8 +775,8 @@ export function GeneralSettingsForm({
   };
 
   const handleTestAzureConnection = async () => {
-    if (!organization || !project || (!pat && !hasAzurePat)) {
-      setMessage("Please fill in Azure DevOps organization, project, and personal PAT before testing");
+    if (!parsedAzureProject || (!pat && !hasAzurePat)) {
+      setMessage("Please enter a valid Azure DevOps project URL and personal PAT before testing");
       setMessageType("error");
       return;
     }
@@ -791,7 +787,7 @@ export function GeneralSettingsForm({
       const response = await fetch("/api/azure-devops/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organization, project, pat }),
+        body: JSON.stringify({ projectUrl: azureProjectUrlInput.trim(), pat }),
       });
 
       const data = await response.json();
@@ -862,13 +858,13 @@ export function GeneralSettingsForm({
       return;
     }
 
+    const trimmedAzureProjectUrl = azureProjectUrlInput.trim();
     const hasAnyAzureInput =
-      organization.trim().length > 0 ||
-      project.trim().length > 0 ||
+      trimmedAzureProjectUrl.length > 0 ||
       pat.trim().length > 0 ||
       hasAzurePat;
-    if (hasAnyAzureInput && (!organization.trim() || !project.trim())) {
-      setMessage("Azure DevOps organization and project are required when Azure DevOps is configured.");
+    if (hasAnyAzureInput && !parsedAzureProject) {
+      setMessage("A valid Azure DevOps project URL is required when Azure DevOps is configured.");
       setMessageType("error");
       return;
     }
@@ -907,7 +903,7 @@ export function GeneralSettingsForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             key: "azure_devops",
-            value: { organization, project, pat },
+            value: { projectUrl: trimmedAzureProjectUrl, pat },
           }),
         });
 
@@ -916,6 +912,7 @@ export function GeneralSettingsForm({
         }
         const azureData = await azureResponse.json().catch(() => null);
         if (azureData?.value) {
+          setAzureProjectUrlInput(azureData.value.projectUrl || trimmedAzureProjectUrl);
           setHasAzurePat(Boolean(azureData.value.hasPat));
           setPat("");
         }
@@ -1548,27 +1545,41 @@ export function GeneralSettingsForm({
 
         <TabsContent value="azure" className="space-y-4 mt-4">
           <div className="space-y-2">
-            <Label htmlFor="organization">Organization</Label>
+            <Label htmlFor="azureProjectUrl">Project URL</Label>
             <Input
-              id="organization"
+              id="azureProjectUrl"
               type="text"
-              value={organization}
-              onChange={(e) => setOrganization(e.target.value)}
-              placeholder="e.g., mycompany"
+              value={azureProjectUrlInput}
+              onChange={(e) => setAzureProjectUrlInput(e.target.value)}
+              placeholder="https://dev.azure.com/mycompany/MyProject"
             />
             <p className="text-xs text-muted-foreground">
-              From: https://dev.azure.com/[organization]
+              Paste the Azure DevOps project URL. Organization and project are parsed from this value.
             </p>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="project">Project</Label>
-            <Input
-              id="project"
-              type="text"
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
-              placeholder="e.g., MyProject"
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="azureOrganization">Organization</Label>
+              <Input
+                id="azureOrganization"
+                type="text"
+                value={organization}
+                readOnly
+                placeholder="Parsed from project URL"
+                className="bg-muted"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="azureProject">Project</Label>
+              <Input
+                id="azureProject"
+                type="text"
+                value={project}
+                readOnly
+                placeholder="Parsed from project URL"
+                className="bg-muted"
+              />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="pat">Personal Access Token (PAT)</Label>

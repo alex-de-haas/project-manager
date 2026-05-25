@@ -15,13 +15,14 @@ import {
 import {
   deleteAzureDevOpsUserPat,
   getAzureDevOpsPublicSettings,
+  normalizeAzureDevOpsProjectSettings,
   upsertAzureDevOpsProjectSettings,
   upsertAzureDevOpsUserPat,
 } from '@/lib/azure-devops/settings';
 
-const parseAzureDevOpsSettings = (value: string): AzureDevOpsSettings | null => {
+const parseAzureDevOpsSettings = (value: string): Partial<AzureDevOpsSettings> | null => {
   try {
-    return JSON.parse(value) as AzureDevOpsSettings;
+    return JSON.parse(value) as Partial<AzureDevOpsSettings>;
   } catch {
     return null;
   }
@@ -124,6 +125,7 @@ export async function POST(request: NextRequest) {
 
       const canManageCurrentProject = canManageProject(userId, projectId);
       const includesProjectSettings =
+        Object.prototype.hasOwnProperty.call(nextValue, "projectUrl") ||
         Object.prototype.hasOwnProperty.call(nextValue, "organization") ||
         Object.prototype.hasOwnProperty.call(nextValue, "project");
 
@@ -132,17 +134,15 @@ export async function POST(request: NextRequest) {
       }
 
       if (includesProjectSettings) {
-        const organization = nextValue.organization?.trim() ?? "";
-        const project = nextValue.project?.trim() ?? "";
-
-        if (!organization || !project) {
+        const projectSettings = normalizeAzureDevOpsProjectSettings(nextValue);
+        if (!projectSettings) {
           return NextResponse.json(
-            { error: "Organization and project are required" },
+            { error: "A valid Azure DevOps project URL is required" },
             { status: 400 }
           );
         }
 
-        upsertAzureDevOpsProjectSettings(projectId, { organization, project });
+        upsertAzureDevOpsProjectSettings(projectId, projectSettings);
       }
 
       if (typeof nextValue.pat === "string" && nextValue.pat.trim()) {

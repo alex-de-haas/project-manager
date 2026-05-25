@@ -1,21 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { buildAzureDevOpsProjectUrl } from "@/lib/azure-devops/project-url";
 
 interface AzureDevOpsPublicSettings {
   organization?: string;
   project?: string;
+  projectUrl?: string;
   hasPat?: boolean;
 }
 
 export function ProfileSettingsForm() {
   const [organization, setOrganization] = useState("");
   const [project, setProject] = useState("");
+  const [projectUrl, setProjectUrl] = useState("");
   const [pat, setPat] = useState("");
   const [hasPat, setHasPat] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -24,13 +27,6 @@ export function ProfileSettingsForm() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
-  const azureProjectUrl = useMemo(() => {
-    const trimmedOrganization = organization.trim();
-    const trimmedProject = project.trim();
-    if (!trimmedOrganization || !trimmedProject) return "";
-    return `https://dev.azure.com/${encodeURIComponent(trimmedOrganization)}/${encodeURIComponent(trimmedProject)}`;
-  }, [organization, project]);
-
   const loadSettings = async () => {
     setLoading(true);
     try {
@@ -38,8 +34,16 @@ export function ProfileSettingsForm() {
       if (response.ok) {
         const data = await response.json();
         const value = data.value as AzureDevOpsPublicSettings | undefined;
-        setOrganization(value?.organization || "");
-        setProject(value?.project || "");
+        const nextOrganization = value?.organization || "";
+        const nextProject = value?.project || "";
+        setOrganization(nextOrganization);
+        setProject(nextProject);
+        setProjectUrl(
+          value?.projectUrl ||
+            (nextOrganization && nextProject
+              ? buildAzureDevOpsProjectUrl(nextOrganization, nextProject)
+              : "")
+        );
         setHasPat(Boolean(value?.hasPat));
       }
     } finally {
@@ -149,9 +153,10 @@ export function ProfileSettingsForm() {
     <div className="space-y-5">
       <div className="space-y-2">
         <Label>Azure DevOps Project</Label>
+        <Input value={projectUrl || "Not configured"} readOnly className="bg-muted" />
         <div className="grid gap-2 sm:grid-cols-2">
-          <Input value={organization || "Not configured"} disabled />
-          <Input value={project || "Not configured"} disabled />
+          <Input value={organization || "Not configured"} readOnly className="bg-muted" />
+          <Input value={project || "Not configured"} readOnly className="bg-muted" />
         </div>
       </div>
 
@@ -189,9 +194,9 @@ export function ProfileSettingsForm() {
         >
           Remove PAT
         </Button>
-        {azureProjectUrl ? (
+        {projectUrl ? (
           <Button asChild variant="outline">
-            <a href={azureProjectUrl} target="_blank" rel="noreferrer">
+            <a href={projectUrl} target="_blank" rel="noreferrer">
               <ExternalLink className="h-4 w-4" />
               Open Project
             </a>

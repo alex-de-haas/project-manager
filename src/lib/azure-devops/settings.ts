@@ -1,6 +1,10 @@
 import * as azdev from "azure-devops-node-api";
 import { WorkItemTrackingApi } from "azure-devops-node-api/WorkItemTrackingApi";
 import db from "@/lib/db";
+import {
+  buildAzureDevOpsProjectUrl,
+  parseAzureDevOpsProjectUrl,
+} from "@/lib/azure-devops/project-url";
 import type { AzureDevOpsSettings, Settings } from "@/types";
 
 export const AZURE_DEVOPS_SETTINGS_KEY = "azure_devops";
@@ -9,7 +13,14 @@ export const AZURE_DEVOPS_PAT_CREDENTIAL_KEY = "azure_devops_pat";
 export interface AzureDevOpsPublicSettings {
   organization: string;
   project: string;
+  projectUrl: string;
   hasPat: boolean;
+}
+
+export interface AzureDevOpsProjectSettings {
+  organization: string;
+  project: string;
+  projectUrl: string;
 }
 
 export interface AzureDevOpsConnectionContext {
@@ -46,24 +57,47 @@ const readProjectSettingsRow = (projectId: number): Settings | undefined =>
     )
     .get(AZURE_DEVOPS_SETTINGS_KEY, projectId) as Settings | undefined;
 
+export const normalizeAzureDevOpsProjectSettings = (
+  settings: Partial<AzureDevOpsSettings>
+): AzureDevOpsProjectSettings | null => {
+  const projectUrl = settings.projectUrl?.trim() ?? "";
+  if (projectUrl) {
+    return parseAzureDevOpsProjectUrl(projectUrl);
+  }
+
+  const organization = settings.organization?.trim() ?? "";
+  const project = settings.project?.trim() ?? "";
+  if (!organization || !project) return null;
+
+  return {
+    organization,
+    project,
+    projectUrl: buildAzureDevOpsProjectUrl(organization, project),
+  };
+};
+
 export const getAzureDevOpsProjectSettings = (
   projectId: number
-): Pick<AzureDevOpsSettings, "organization" | "project"> | null => {
+): AzureDevOpsProjectSettings | null => {
   const row = readProjectSettingsRow(projectId);
   if (!row) return null;
 
   const settings = parseSettings(row.value);
   if (!settings) return null;
 
-  const organization = settings.organization?.trim() ?? "";
-  const project = settings.project?.trim() ?? "";
-  if (!organization || !project) return null;
+  const projectSettings = normalizeAzureDevOpsProjectSettings(settings);
+  if (!projectSettings) return null;
 
-  if (Object.prototype.hasOwnProperty.call(settings, "pat")) {
-    upsertAzureDevOpsProjectSettings(projectId, { organization, project });
+  if (
+    Object.prototype.hasOwnProperty.call(settings, "pat") ||
+    settings.organization !== projectSettings.organization ||
+    settings.project !== projectSettings.project ||
+    settings.projectUrl !== projectSettings.projectUrl
+  ) {
+    upsertAzureDevOpsProjectSettings(projectId, projectSettings);
   }
 
-  return { organization, project };
+  return projectSettings;
 };
 
 export const getAzureDevOpsUserPat = (userId: number): string | null => {
@@ -79,7 +113,7 @@ export const hasAzureDevOpsUserPat = (userId: number): boolean =>
 
 export const upsertAzureDevOpsProjectSettings = (
   projectId: number,
-  settings: Pick<AzureDevOpsSettings, "organization" | "project">
+  settings: AzureDevOpsProjectSettings
 ) => {
   db.prepare(`
     INSERT INTO project_settings (project_id, key, value, updated_at)
@@ -93,6 +127,7 @@ export const upsertAzureDevOpsProjectSettings = (
     JSON.stringify({
       organization: settings.organization.trim(),
       project: settings.project.trim(),
+      projectUrl: settings.projectUrl.trim(),
     })
   );
 };
@@ -150,18 +185,16 @@ export const getAzureDevOpsSettingsProblem = (
     };
   }
 
-  if (!settings.organization?.trim() || !settings.project?.trim()) {
+  const projectSettings = normalizeAzureDevOpsProjectSettings(settings);
+  if (!projectSettings) {
     return {
       status: "incomplete_project_settings",
-      message: "Azure DevOps settings incomplete. Please check organization and project.",
+      message: "Azure DevOps settings incomplete. Please check the project URL.",
     };
   }
 
   if (Object.prototype.hasOwnProperty.call(settings, "pat")) {
-    upsertAzureDevOpsProjectSettings(projectId, {
-      organization: settings.organization.trim(),
-      project: settings.project.trim(),
-    });
+    upsertAzureDevOpsProjectSettings(projectId, projectSettings);
   }
 
   if (!getAzureDevOpsUserPat(userId)) {
