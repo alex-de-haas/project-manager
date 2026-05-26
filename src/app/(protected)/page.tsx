@@ -69,6 +69,7 @@ import {
 } from "@/components/ui/dialog";
 import { Bug, ClipboardCheck, GripVertical, ListChecks, Clock3, Upload } from "lucide-react";
 import { ShieldAlert, Trash2, MoreVertical, TreePalm, Pencil, Filter } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -158,11 +159,22 @@ const getStatusTone = (status?: string | null) => {
   };
 };
 
+const getTaskTrackedHours = (task: TaskWithTimeEntries) =>
+  task.totalHoursTracked ??
+  Object.values(task.timeEntries).reduce((sum, hours) => sum + hours, 0);
+
+const hasOtherAssigneeNoTimeWarning = (task: TaskWithTimeEntries) =>
+  task.isAssignedToCurrentUser === false && getTaskTrackedHours(task) <= 0;
+
+const getAssignedUserLabel = (task: TaskWithTimeEntries) =>
+  task.assignedUserName || task.assignedUserEmail || "another user";
+
 interface SortableRowProps {
   id: number;
   children: React.ReactNode;
   rowClassName: string;
   dragHandleBgClassName: string;
+  isDragDisabled?: boolean;
 }
 
 interface TaskMetaRowProps {
@@ -379,7 +391,13 @@ function TaskMetaRow({
   );
 }
 
-function SortableRow({ id, children, rowClassName, dragHandleBgClassName }: SortableRowProps) {
+function SortableRow({
+  id,
+  children,
+  rowClassName,
+  dragHandleBgClassName,
+  isDragDisabled = false,
+}: SortableRowProps) {
   const {
     attributes,
     listeners,
@@ -387,7 +405,7 @@ function SortableRow({ id, children, rowClassName, dragHandleBgClassName }: Sort
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled: isDragDisabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -399,10 +417,14 @@ function SortableRow({ id, children, rowClassName, dragHandleBgClassName }: Sort
     <tr ref={setNodeRef} style={style} className={rowClassName}>
       <td className={`py-1.5 px-3 ${dragHandleBgClassName}`} style={{ width: "40px" }}>
         <div
-          {...attributes}
-          {...listeners}
-          className="cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-60 hover:opacity-100 transition-opacity"
-          title="Drag to reorder"
+          {...(isDragDisabled ? {} : attributes)}
+          {...(isDragDisabled ? {} : listeners)}
+          className={`transition-opacity ${
+            isDragDisabled
+              ? "opacity-0"
+              : "cursor-grab opacity-0 hover:opacity-100 active:cursor-grabbing group-hover:opacity-60"
+          }`}
+          title={isDragDisabled ? undefined : "Drag to reorder"}
         >
           <GripVertical className="w-4 h-4 text-muted-foreground" />
         </div>
@@ -504,10 +526,17 @@ export default function Home() {
   }, [currentDate, viewMode]);
 
   const fetchTasks = useCallback(
-    async (showLoader = false) => {
+    async (showLoader = false, includeUntrackedDelegated = false) => {
       try {
         if (showLoader) setLoading(true);
-        const response = await fetch(`/api/tasks?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`);
+        const params = new URLSearchParams({
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+        });
+        if (includeUntrackedDelegated) {
+          params.set("includeUntrackedDelegated", "true");
+        }
+        const response = await fetch(`/api/tasks?${params.toString()}`);
         if (!response.ok) throw new Error("Failed to fetch tasks");
         const data = await response.json();
         setTasks(data);
@@ -721,7 +750,7 @@ export default function Home() {
         const hasTimeInPeriod = Object.entries(task.timeEntries).some(
           ([date, hours]) => periodDateKeys.has(date) && hours > 0
         );
-        return hasTimeInPeriod;
+        return hasTimeInPeriod || hasOtherAssigneeNoTimeWarning(task);
       }
       
       return true;
@@ -1156,8 +1185,8 @@ export default function Home() {
       console.error("Error refreshing Azure DevOps tasks:", err);
       toast.error("An error occurred while refreshing tasks");
     } finally {
-      // Always fetch latest tasks from database
-      await fetchTasks();
+      // Always fetch latest tasks from database and include delegated no-time warnings.
+      await fetchTasks(false, true);
       setIsRefreshing(false);
     }
   };
@@ -1423,6 +1452,9 @@ export default function Home() {
                 // Check for blockers and get highest severity
                 const activeBlockers = task.blockers?.filter(b => !b.is_resolved) || [];
                 const hasBlockers = activeBlockers.length > 0;
+                const canManageTask = task.isAssignedToCurrentUser !== false;
+                const showAssignmentWarning = hasOtherAssigneeNoTimeWarning(task);
+                const assignedUserLabel = getAssignedUserLabel(task);
                 const highestSeverity = hasBlockers 
                   ? activeBlockers.reduce((max, b) => {
                       const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
@@ -1445,6 +1477,9 @@ export default function Home() {
                       case 'low':
                         return "group border-b border-border bg-blue-100 hover:bg-blue-200 dark:bg-blue-950 dark:hover:bg-blue-900";
                     }
+                  }
+                  if (showAssignmentWarning) {
+                    return "group border-b border-amber-200 bg-amber-50 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/50 dark:hover:bg-amber-950";
                   }
                   const status = task.status?.toLowerCase();
                   if (status === 'active') {
@@ -1469,6 +1504,9 @@ export default function Home() {
                         return "py-1.5 px-3 sticky left-[40px] bg-blue-100 group-hover:bg-blue-200 dark:bg-blue-950 dark:group-hover:bg-blue-900 z-10";
                     }
                   }
+                  if (showAssignmentWarning) {
+                    return "py-1.5 px-3 sticky left-[40px] bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950/50 dark:group-hover:bg-amber-950 z-10";
+                  }
                   const status = task.status?.toLowerCase();
                   if (status === 'active') {
                     return "py-1.5 px-3 sticky left-[40px] bg-blue-50 group-hover:bg-blue-100 dark:bg-blue-950 dark:group-hover:bg-blue-900 z-10";
@@ -1492,6 +1530,9 @@ export default function Home() {
                         return "sticky left-0 bg-blue-100 group-hover:bg-blue-200 dark:bg-blue-950 dark:group-hover:bg-blue-900 z-10";
                     }
                   }
+                  if (showAssignmentWarning) {
+                    return "sticky left-0 bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950/50 dark:group-hover:bg-amber-950 z-10";
+                  }
                   const status = task.status?.toLowerCase();
                   if (status === 'active') {
                     return "sticky left-0 bg-blue-50 group-hover:bg-blue-100 dark:bg-blue-950 dark:group-hover:bg-blue-900 z-10";
@@ -1507,6 +1548,7 @@ export default function Home() {
                     id={task.id}
                     rowClassName={getRowClass()}
                     dragHandleBgClassName={getDragHandleBgClass()}
+                    isDragDisabled={!canManageTask}
                   >
                     <td
                       className={getStickyBgClass()}
@@ -1516,6 +1558,23 @@ export default function Home() {
                       return (
                         <div className="flex items-start justify-between gap-2.5">
                           <div className="flex min-w-0 flex-1 gap-2">
+                            {showAssignmentWarning && (
+                              <TooltipProvider delayDuration={150}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span
+                                      className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                      aria-label={`Assigned to ${assignedUserLabel} with no tracked time`}
+                                    >
+                                      <TriangleAlert className="h-3.5 w-3.5" />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" align="start" className="max-w-xs">
+                                    Assigned to {assignedUserLabel}; no tracked time recorded.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
                             <span
                               className="mt-0.5 flex-shrink-0"
                               title={task.type === "bug" ? "Bug" : "Task"}
@@ -1583,7 +1642,8 @@ export default function Home() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-48">
-                              <DropdownMenuSub>
+                              {canManageTask && (
+                                <DropdownMenuSub>
                                 <DropdownMenuSubTrigger>
                                   <span>Change Status</span>
                                 </DropdownMenuSubTrigger>
@@ -1638,7 +1698,8 @@ export default function Home() {
                                   )}
                                 </DropdownMenuSubContent>
                               </DropdownMenuSub>
-                              {task.external_source !== "azure_devops" && (
+                              )}
+                              {canManageTask && task.external_source !== "azure_devops" && (
                                 <DropdownMenuItem
                                   onClick={() =>
                                     setEditingTask({
@@ -1654,7 +1715,7 @@ export default function Home() {
                                   </span>
                                 </DropdownMenuItem>
                               )}
-                              {task.external_source !== "azure_devops" && (
+                              {canManageTask && task.external_source !== "azure_devops" && (
                                 <DropdownMenuItem
                                   onClick={() =>
                                     setExportToDevOps({
@@ -1680,46 +1741,50 @@ export default function Home() {
                                   <span>View Tracked Time</span>
                                 </span>
                               </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  setShowBlockers({ taskId: task.id, taskTitle: task.title })
-                                }
-                              >
-                                <span className="flex items-center gap-2">
-                                  <ShieldAlert className="h-4 w-4" />
-                                  <span>Manage Blockers</span>
-                                  {hasBlockers && (
-                                    <Badge variant="outline" className="ml-auto h-5 px-1.5 text-xs">
-                                      {activeBlockers.length}
-                                    </Badge>
-                                  )}
-                                </span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  setShowChecklist({ taskId: task.id, taskTitle: task.title })
-                                }
-                              >
-                                <span className="flex items-center gap-2">
-                                  <ListChecks className="h-4 w-4" />
-                                  <span>Checklist</span>
-                                  {task.checklistSummary && task.checklistSummary.total > 0 && (
-                                    <Badge variant="outline" className="ml-auto h-5 px-1.5 text-xs">
-                                      {task.checklistSummary.completed}/{task.checklistSummary.total}
-                                    </Badge>
-                                  )}
-                                </span>
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleDeleteTask(task.id, task.title)}
-                                className="text-red-600 focus:bg-red-50 focus:text-red-600"
-                              >
-                                <span className="flex items-center gap-2">
-                                  <Trash2 className="h-4 w-4" />
-                                  <span>Delete Task</span>
-                                </span>
-                              </DropdownMenuItem>
+                              {canManageTask && (
+                                <>
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      setShowBlockers({ taskId: task.id, taskTitle: task.title })
+                                    }
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <ShieldAlert className="h-4 w-4" />
+                                      <span>Manage Blockers</span>
+                                      {hasBlockers && (
+                                        <Badge variant="outline" className="ml-auto h-5 px-1.5 text-xs">
+                                          {activeBlockers.length}
+                                        </Badge>
+                                      )}
+                                    </span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      setShowChecklist({ taskId: task.id, taskTitle: task.title })
+                                    }
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <ListChecks className="h-4 w-4" />
+                                      <span>Checklist</span>
+                                      {task.checklistSummary && task.checklistSummary.total > 0 && (
+                                        <Badge variant="outline" className="ml-auto h-5 px-1.5 text-xs">
+                                          {task.checklistSummary.completed}/{task.checklistSummary.total}
+                                        </Badge>
+                                      )}
+                                    </span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => handleDeleteTask(task.id, task.title)}
+                                    className="text-red-600 focus:bg-red-50 focus:text-red-600"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <Trash2 className="h-4 w-4" />
+                                      <span>Delete Task</span>
+                                    </span>
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
@@ -1746,6 +1811,9 @@ export default function Home() {
                             return { bg: 'bg-blue-100 dark:bg-blue-950', hover: 'group-hover:bg-blue-200 dark:group-hover:bg-blue-900' };
                         }
                       }
+                      if (showAssignmentWarning) {
+                        return { bg: 'bg-amber-50 dark:bg-amber-950/50', hover: 'group-hover:bg-amber-100 dark:group-hover:bg-amber-950' };
+                      }
                       const status = task.status?.toLowerCase();
                       if (status === 'active') {
                         return { bg: 'bg-blue-50 dark:bg-blue-950', hover: 'group-hover:bg-blue-100 dark:group-hover:bg-blue-900' };
@@ -1769,9 +1837,16 @@ export default function Home() {
                     return (
                       <td
                         key={day.key}
-                        className={`py-1.5 px-3 text-center cursor-pointer ${cellClass}`}
+                        className={`py-1.5 px-3 text-center ${
+                          canManageTask ? "cursor-pointer" : "cursor-not-allowed"
+                        } ${cellClass}`}
                         onClick={() =>
-                          !isEditing && handleCellClick(task.id, day.key, hours)
+                          !isEditing && canManageTask && handleCellClick(task.id, day.key, hours)
+                        }
+                        title={
+                          canManageTask
+                            ? undefined
+                            : `Assigned to ${assignedUserLabel}. Only the assignee can track time.`
                         }
                         style={{ minWidth: "84px", width: "84px" }}
                       >
@@ -1804,7 +1879,8 @@ export default function Home() {
                           highestSeverity === 'high' ? 'bg-orange-100 group-hover:bg-orange-200 dark:bg-orange-950 dark:group-hover:bg-orange-900' :
                           highestSeverity === 'medium' ? 'bg-yellow-100 group-hover:bg-yellow-200 dark:bg-yellow-950 dark:group-hover:bg-yellow-900' :
                           'bg-blue-100 group-hover:bg-blue-200 dark:bg-blue-950 dark:group-hover:bg-blue-900'
-                        : task.status?.toLowerCase() === 'active' ? 'bg-blue-50 group-hover:bg-blue-100 dark:bg-blue-950 dark:group-hover:bg-blue-900' :
+                        : showAssignmentWarning ? 'bg-amber-50 group-hover:bg-amber-100 dark:bg-amber-950/50 dark:group-hover:bg-amber-950' :
+                          task.status?.toLowerCase() === 'active' ? 'bg-blue-50 group-hover:bg-blue-100 dark:bg-blue-950 dark:group-hover:bg-blue-900' :
                           task.status?.toLowerCase() === 'resolved' || task.status?.toLowerCase() === 'closed' ? 'bg-green-50 group-hover:bg-green-100 dark:bg-green-950 dark:group-hover:bg-green-900' :
                           'bg-background dark:bg-card group-hover:bg-muted dark:group-hover:bg-muted'
                     }`}

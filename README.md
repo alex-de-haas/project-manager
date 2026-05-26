@@ -6,7 +6,7 @@ Project Manager is a Docker Host module for planning releases, tracking work, re
 
 The application is organized around a few core workflows:
 
-- **Time tracking**: weekly and monthly views, inline time entry editing, totals by day and work item, status filtering, and Excel export.
+- **Time tracking**: weekly and monthly views, inline time entry editing, totals by day and work item, status filtering, untracked delegated work warnings, and Excel export.
 - **Work management**: local tasks and bugs, task status changes, checklists, blockers, and completion rules that prevent closing work with unfinished checklist items.
 - **Release planning**: ordered releases, imported work items, child task visibility, release status tracking, and movement of work between releases.
 - **Day-offs**: personal and team day-off tracking with full-day and half-day support.
@@ -97,6 +97,8 @@ Persistent state is stored under `/app/data` and is intended to be mounted from 
 
 Feature documentation lives in the `docs` folder:
 
+- `docs/root.md`
+- `docs/features/time-tracking.md`
 - `docs/azure-devops-integration.md`
 - `docs/blockers-feature.md`
 - `docs/docker-host-module.md`

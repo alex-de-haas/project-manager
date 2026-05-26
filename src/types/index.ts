@@ -25,6 +25,9 @@ export interface TimeEntry {
 export interface TaskWithTimeEntries extends Task {
   timeEntries: Record<string, number>; // date -> hours
   totalHoursTracked?: number;
+  assignedUserName?: string | null;
+  assignedUserEmail?: string | null;
+  isAssignedToCurrentUser?: boolean;
   blockers?: Blocker[];
   checklistSummary?: {
     total: number;

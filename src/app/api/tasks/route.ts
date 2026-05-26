@@ -16,6 +16,11 @@ interface TimeEntryTotal {
   total_hours: number;
 }
 
+type TaskRow = Task & {
+  assignedUserName?: string | null;
+  assignedUserEmail?: string | null;
+};
+
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -24,6 +29,8 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month'); // Format: YYYY-MM
     const startDateParam = searchParams.get('startDate'); // Format: YYYY-MM-DD
     const endDateParam = searchParams.get('endDate'); // Format: YYYY-MM-DD
+    const includeUntrackedDelegated =
+      searchParams.get('includeUntrackedDelegated') === 'true';
 
     let startDate: string;
     let endDate: string;
@@ -45,13 +52,41 @@ export async function GET(request: NextRequest) {
     // - It was created before or during the period AND
     // - It was either not completed yet OR completed during or after the period start
     const tasks = db.prepare(`
-      SELECT * FROM tasks 
-      WHERE user_id = ?
-        AND project_id = ?
-        AND DATE(created_at) <= ?
-        AND (completed_at IS NULL OR DATE(completed_at) >= ?)
-      ORDER BY COALESCE(display_order, 999999), created_at ASC
-    `).all(userId, projectId, endDate, startDate) as Task[];
+      SELECT
+        t.*,
+        u.name AS assignedUserName,
+        u.email AS assignedUserEmail
+      FROM tasks t
+      LEFT JOIN users u ON u.id = t.user_id
+      WHERE t.project_id = ?
+        AND DATE(t.created_at) <= ?
+        AND (t.completed_at IS NULL OR DATE(t.completed_at) >= ?)
+        AND (
+          t.user_id = ?
+          OR (
+            ? = 1
+            AND t.user_id <> ?
+            AND NOT EXISTS (
+              SELECT 1
+              FROM time_entries all_te
+              WHERE all_te.task_id = t.id
+                AND all_te.hours > 0
+            )
+          )
+        )
+      ORDER BY
+        CASE WHEN t.user_id = ? THEN 0 ELSE 1 END,
+        COALESCE(t.display_order, 999999),
+        t.created_at ASC
+    `).all(
+      projectId,
+      endDate,
+      startDate,
+      userId,
+      includeUntrackedDelegated ? 1 : 0,
+      userId,
+      userId
+    ) as TaskRow[];
 
     // Fetch time entries for the specified month
     const timeEntries = db.prepare(
@@ -117,6 +152,9 @@ export async function GET(request: NextRequest) {
         ...task,
         timeEntries: entries,
         totalHoursTracked: timeEntryTotalMap.get(task.id) ?? 0,
+        assignedUserName: task.assignedUserName ?? null,
+        assignedUserEmail: task.assignedUserEmail ?? null,
+        isAssignedToCurrentUser: task.user_id === userId,
         blockers: taskBlockers,
         checklistSummary,
       };
