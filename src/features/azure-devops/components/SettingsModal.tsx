@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { parseAzureDevOpsProjectUrl } from "@/lib/azure-devops/project-url";
 
 interface SettingsModalProps {
@@ -34,6 +34,18 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   useEffect(() => {
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    if (!message) return;
+
+    if (messageType === "success") {
+      toast.success(message);
+    } else {
+      toast.error(message);
+    }
+
+    setMessage("");
+  }, [message, messageType]);
 
   const parsedProjectUrl = parseAzureDevOpsProjectUrl(projectUrl);
   const organization = parsedProjectUrl?.organization ?? "";
@@ -81,15 +93,15 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
       if (response.ok) {
         setMessage(
-          `✓ Connection successful! Found project: ${data.project.name}`
+          `Connection successful. Found project: ${data.project.name}`
         );
         setMessageType("success");
       } else {
-        setMessage(`✗ Connection failed: ${data.error || "Unknown error"}`);
+        setMessage(`Connection failed: ${data.error || "Unknown error"}`);
         setMessageType("error");
       }
     } catch (err) {
-      setMessage("✗ Connection failed: Network error");
+      setMessage("Connection failed: Network error");
       setMessageType("error");
     } finally {
       setTesting(false);
@@ -125,13 +137,13 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         setPat("");
       }
 
-      setMessage("✓ Settings saved successfully!");
+      setMessage("Settings saved successfully.");
       setMessageType("success");
       setTimeout(() => {
         onClose();
       }, 1500);
     } catch (err) {
-      setMessage("✗ Failed to save settings");
+      setMessage("Failed to save settings");
       setMessageType("error");
     } finally {
       setSaving(false);
@@ -205,19 +217,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   : "Create a PAT at: User Settings -> Personal access tokens -> New Token."}
               </p>
             </div>
-
-            {message && (
-              <Alert
-                variant={messageType === "success" ? "default" : "destructive"}
-                className={
-                  messageType === "success"
-                    ? "bg-green-50 border-green-200"
-                    : ""
-                }
-              >
-                <AlertDescription>{message}</AlertDescription>
-              </Alert>
-            )}
 
             <div className="flex gap-2 justify-between pt-4">
               <Button

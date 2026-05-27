@@ -5,19 +5,94 @@ import db from "@/lib/db";
 import type { Project } from "@/types";
 import { getRequestUserId } from "@/lib/user-context";
 import { getProjectsForUser } from "@/lib/projects";
+import { requireAdminUser } from "@/lib/authorization";
+import {
+  clearDefaultProjectReferences,
+  getDefaultProjectIdForUser,
+} from "@/lib/default-project";
+import {
+  AZURE_DEVOPS_SETTINGS_KEY,
+  getAzureDevOpsProjectSettings,
+  normalizeAzureDevOpsProjectSettings,
+  upsertAzureDevOpsProjectSettings,
+} from "@/lib/azure-devops/settings";
 
-const canManageProject = (userId: number, projectOwnerUserId: number): boolean => {
-  if (userId === projectOwnerUserId) return true;
-  const currentUser = db
-    .prepare("SELECT is_admin FROM users WHERE id = ?")
-    .get(userId) as { is_admin?: number } | undefined;
-  return currentUser?.is_admin === 1;
+const parseMemberUserIds = (value: unknown): number[] =>
+  Array.isArray(value)
+    ? value
+        .map((item: unknown) => Number(item))
+        .filter((item: number) => Number.isInteger(item) && item > 0)
+    : [];
+
+const getProjectResponse = (projectId: number) => {
+  const project = db
+    .prepare("SELECT * FROM projects WHERE id = ?")
+    .get(projectId) as Project | undefined;
+  if (!project) return null;
+
+  const members = db
+    .prepare("SELECT user_id FROM project_members WHERE project_id = ? ORDER BY user_id ASC")
+    .all(projectId) as Array<{ user_id: number }>;
+
+  return {
+    ...project,
+    member_user_ids: members.map((member) => member.user_id),
+    azure_devops: getAzureDevOpsProjectSettings(projectId),
+  };
+};
+
+const replaceProjectMembers = (
+  projectId: number,
+  memberUserIds: number[],
+  addedByUserId: number
+) => {
+  const unique = Array.from(new Set(memberUserIds));
+  db.prepare("DELETE FROM project_members WHERE project_id = ?").run(projectId);
+  const insert = db.prepare(
+    "INSERT INTO project_members (project_id, user_id, added_by_user_id) VALUES (?, ?, ?)"
+  );
+
+  for (const memberId of unique) {
+    const user = db
+      .prepare("SELECT id, is_admin FROM users WHERE id = ?")
+      .get(memberId) as { id: number; is_admin: number } | undefined;
+    if (user && user.is_admin !== 1) {
+      insert.run(projectId, memberId, addedByUserId);
+    }
+  }
+};
+
+const applyAzureProjectUrl = (projectId: number, value: unknown) => {
+  if (value === undefined) return;
+
+  const projectUrl = typeof value === "string" ? value.trim() : "";
+  if (!projectUrl) {
+    db.prepare("DELETE FROM project_settings WHERE project_id = ? AND key = ?").run(
+      projectId,
+      AZURE_DEVOPS_SETTINGS_KEY
+    );
+    return;
+  }
+
+  const settings = normalizeAzureDevOpsProjectSettings({ projectUrl, pat: "" });
+  if (!settings) {
+    throw new Error("A valid Azure DevOps project URL is required");
+  }
+
+  upsertAzureDevOpsProjectSettings(projectId, settings);
 };
 
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
-    return NextResponse.json(getProjectsForUser(userId));
+    const defaultProjectId = getDefaultProjectIdForUser(userId);
+    return NextResponse.json(
+      getProjectsForUser(userId).map((project) => ({
+        ...project,
+        azure_devops: getAzureDevOpsProjectSettings(project.id),
+        is_default: project.id === defaultProjectId,
+      }))
+    );
   } catch (error) {
     console.error("Database error:", error);
     return NextResponse.json({ error: "Failed to fetch projects" }, { status: 500 });
@@ -26,12 +101,25 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = getRequestUserId(request);
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+    const userId = admin.userId;
     const body = await request.json();
     const name = String(body?.name ?? "").trim();
+    const memberUserIds = parseMemberUserIds(body?.memberUserIds);
 
     if (!name) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 });
+    }
+    if (
+      typeof body?.azureProjectUrl === "string" &&
+      body.azureProjectUrl.trim() &&
+      !normalizeAzureDevOpsProjectSettings({ projectUrl: body.azureProjectUrl, pat: "" })
+    ) {
+      return NextResponse.json(
+        { error: "A valid Azure DevOps project URL is required" },
+        { status: 400 }
+      );
     }
 
     const duplicate = db
@@ -45,16 +133,16 @@ export async function POST(request: NextRequest) {
       .prepare("INSERT INTO projects (user_id, name, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)")
       .run(userId, name);
     const projectId = Number(inserted.lastInsertRowid);
-    db.prepare(
-      "INSERT OR IGNORE INTO project_members (project_id, user_id, added_by_user_id) VALUES (?, ?, ?)"
-    ).run(projectId, userId, userId);
+    replaceProjectMembers(projectId, memberUserIds, userId);
+    applyAzureProjectUrl(projectId, body?.azureProjectUrl);
 
-    const project = db
-      .prepare("SELECT * FROM projects WHERE id = ? AND user_id = ?")
-      .get(projectId, userId) as Project | undefined;
+    const project = getProjectResponse(projectId);
 
     return NextResponse.json(project, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message === "A valid Azure DevOps project URL is required") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error("Database error:", error);
     return NextResponse.json({ error: "Failed to create project" }, { status: 500 });
   }
@@ -62,14 +150,14 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const userId = getRequestUserId(request);
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
+    const userId = admin.userId;
     const body = await request.json();
     const projectId = Number(body?.id);
     const name = body?.name !== undefined ? String(body?.name).trim() : undefined;
-    const memberUserIds = Array.isArray(body?.memberUserIds)
-      ? body.memberUserIds
-          .map((value: unknown) => Number(value))
-          .filter((value: number) => Number.isInteger(value) && value > 0)
+    const memberUserIds = body?.memberUserIds !== undefined
+      ? parseMemberUserIds(body.memberUserIds)
       : undefined;
 
     if (!Number.isInteger(projectId) || projectId <= 0) {
@@ -83,12 +171,18 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    if (!canManageProject(userId, project.user_id)) {
-      return NextResponse.json({ error: "Only project owner or admin can manage assignments" }, { status: 403 });
-    }
-
     if (name !== undefined && !name) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 });
+    }
+    if (
+      typeof body?.azureProjectUrl === "string" &&
+      body.azureProjectUrl.trim() &&
+      !normalizeAzureDevOpsProjectSettings({ projectUrl: body.azureProjectUrl, pat: "" })
+    ) {
+      return NextResponse.json(
+        { error: "A valid Azure DevOps project URL is required" },
+        { status: 400 }
+      );
     }
 
     if (name !== undefined) {
@@ -104,40 +198,16 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (memberUserIds !== undefined) {
-      const transaction = db.transaction((projectMemberIds: number[]) => {
-        const unique = Array.from(new Set(projectMemberIds));
-        if (!unique.includes(project.user_id)) {
-          unique.push(project.user_id);
-        }
-
-        db.prepare("DELETE FROM project_members WHERE project_id = ?").run(projectId);
-        const insert = db.prepare(
-          "INSERT INTO project_members (project_id, user_id, added_by_user_id) VALUES (?, ?, ?)"
-        );
-        for (const memberId of unique) {
-          const exists = db
-            .prepare("SELECT id FROM users WHERE id = ?")
-            .get(memberId) as { id: number } | undefined;
-          if (exists) {
-            insert.run(projectId, memberId, userId);
-          }
-        }
-      });
-      transaction(memberUserIds);
+      replaceProjectMembers(projectId, memberUserIds, userId);
     }
 
-    const updated = db
-      .prepare("SELECT * FROM projects WHERE id = ?")
-      .get(projectId) as Project | undefined;
-    const members = db
-      .prepare("SELECT user_id FROM project_members WHERE project_id = ? ORDER BY user_id ASC")
-      .all(projectId) as Array<{ user_id: number }>;
+    applyAzureProjectUrl(projectId, body?.azureProjectUrl);
 
-    return NextResponse.json({
-      ...updated,
-      member_user_ids: members.map((member) => member.user_id),
-    });
+    return NextResponse.json(getProjectResponse(projectId));
   } catch (error) {
+    if (error instanceof Error && error.message === "A valid Azure DevOps project URL is required") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error("Database error:", error);
     return NextResponse.json({ error: "Failed to update project" }, { status: 500 });
   }
@@ -145,7 +215,8 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const userId = getRequestUserId(request);
+    const admin = requireAdminUser(request);
+    if ("response" in admin) return admin.response;
     const projectId = Number(request.nextUrl.searchParams.get("id"));
 
     if (!Number.isInteger(projectId) || projectId <= 0) {
@@ -158,47 +229,13 @@ export async function DELETE(request: NextRequest) {
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
-    if (!canManageProject(userId, project.user_id)) {
-      return NextResponse.json({ error: "Only project owner or admin can delete this project" }, { status: 403 });
-    }
-
-    const projectCount = db
-      .prepare("SELECT COUNT(*) as total FROM projects WHERE user_id = ?")
-      .get(project.user_id) as { total: number };
-    if (projectCount.total <= 1) {
-      return NextResponse.json({ error: "At least one owned project must remain" }, { status: 400 });
-    }
-
-    const refs = db
-      .prepare(`
-        SELECT
-          (SELECT COUNT(*) FROM tasks WHERE project_id = ?) as tasks_count,
-          (SELECT COUNT(*) FROM releases WHERE project_id = ?) as releases_count,
-          (SELECT COUNT(*) FROM project_settings WHERE project_id = ?) as project_settings_count
-      `)
-      .get(projectId, projectId, projectId) as {
-        tasks_count: number;
-        releases_count: number;
-        project_settings_count: number;
-      };
-
-    if (
-      refs.tasks_count > 0 ||
-      refs.releases_count > 0 ||
-      refs.project_settings_count > 0
-    ) {
-      return NextResponse.json(
-        { error: "Cannot delete a project that still contains data" },
-        { status: 400 }
-      );
-    }
-
     const result = db
       .prepare("DELETE FROM projects WHERE id = ?")
       .run(projectId);
     if (result.changes === 0) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
+    clearDefaultProjectReferences(projectId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

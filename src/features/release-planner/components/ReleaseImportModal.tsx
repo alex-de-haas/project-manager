@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { AzureDevOpsWorkItem } from "@/types";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +15,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -67,12 +67,12 @@ export default function ReleaseImportModal({
         setAppliedFilter(trimmedSearch);
       } else {
         setMessage(
-          `Error: Failed to fetch user stories: ${data.error || "Unknown error"}`
+          `Failed to fetch user stories: ${data.error || "Unknown error"}`
         );
         setMessageType("error");
       }
     } catch (err) {
-      setMessage("Error: Failed to fetch user stories: Network error");
+      setMessage("Failed to fetch user stories: Network error");
       setMessageType("error");
     } finally {
       setLoading(false);
@@ -82,6 +82,20 @@ export default function ReleaseImportModal({
   useEffect(() => {
     fetchWorkItems("", 20);
   }, [fetchWorkItems]);
+
+  useEffect(() => {
+    if (!message) return;
+
+    if (messageType === "success") {
+      toast.success(message);
+    } else if (messageType === "error") {
+      toast.error(message);
+    } else {
+      toast.info(message);
+    }
+
+    setMessage("");
+  }, [message, messageType]);
 
   const handleSearch = () => {
     fetchWorkItems(filterText, Number(pageSize));
@@ -142,7 +156,7 @@ export default function ReleaseImportModal({
 
       if (response.ok) {
         setMessage(
-          `Success: Imported ${data.imported} user story(s)${
+          `Imported ${data.imported} user story(s)${
             data.skipped > 0
               ? `, skipped ${data.skipped} (already exists)`
               : ""
@@ -153,11 +167,11 @@ export default function ReleaseImportModal({
           onSuccess();
         }, 1500);
       } else {
-        setMessage(`Error: Import failed: ${data.error || "Unknown error"}`);
+        setMessage(`Import failed: ${data.error || "Unknown error"}`);
         setMessageType("error");
       }
     } catch (err) {
-      setMessage("Error: Import failed: Network error");
+      setMessage("Import failed: Network error");
       setMessageType("error");
     } finally {
       setImporting(false);
@@ -312,21 +326,6 @@ export default function ReleaseImportModal({
             <div className="text-sm text-muted-foreground">
               {selectedIds.size} user story(s) selected
             </div>
-          )}
-
-          {message && (
-            <Alert
-              variant={messageType === "error" ? "destructive" : "default"}
-              className={
-                messageType === "success"
-                  ? "bg-green-50 border-green-200"
-                  : messageType === "info"
-                  ? "bg-blue-50 border-blue-200"
-                  : ""
-              }
-            >
-              <AlertDescription>{message}</AlertDescription>
-            </Alert>
           )}
 
           <DialogFooter>

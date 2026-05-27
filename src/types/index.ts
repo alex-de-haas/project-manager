@@ -53,10 +53,6 @@ export interface AzureDevOpsSettings {
   hasPat?: boolean;
 }
 
-export interface GeneralSettings {
-  default_day_length: number;
-}
-
 export interface AiProviderSettings {
   baseUrl: string;
   model: string;

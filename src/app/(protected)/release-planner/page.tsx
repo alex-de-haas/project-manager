@@ -94,11 +94,13 @@ interface AppUser {
   id: number;
   name: string;
   email?: string | null;
+  is_admin?: number | null;
 }
 
 interface AppProject {
   id: number;
   member_user_ids?: number[];
+  is_default?: boolean;
 }
 
 interface ExistingChildTask {
@@ -338,22 +340,26 @@ export default function ReleaseTrackingPage() {
           return;
         }
 
-        const projects = (await projectsResponse.json()) as AppProject[];
-        const users = (await usersResponse.json()) as AppUser[];
-
-        const cookieProjectId = getCookieValue("pm_project_id");
-        const activeProject =
-          projects.find((project) => String(project.id) === cookieProjectId) ??
-          projects[0];
-
-        const memberIds = new Set(activeProject?.member_user_ids ?? []);
-        const members = users.filter((user) => memberIds.has(user.id));
-        setProjectUsers(members);
-
         const sessionData = sessionResponse.ok
           ? ((await sessionResponse.json()) as { user?: { id: number } })
           : null;
         const sessionUserId = sessionData?.user?.id;
+        const projects = (await projectsResponse.json()) as AppProject[];
+        const users = (await usersResponse.json()) as AppUser[];
+
+        const cookieProjectId = getCookieValue("pm_project_id");
+        const cookieUserId = getCookieValue("pm_project_user_id");
+        const defaultProject = projects.find((project) => project.is_default);
+        const activeProject =
+          cookieUserId === String(sessionUserId)
+            ? projects.find((project) => String(project.id) === cookieProjectId) ??
+              defaultProject ??
+              projects[0]
+            : defaultProject ?? projects[0];
+
+        const memberIds = new Set(activeProject?.member_user_ids ?? []);
+        const members = users.filter((user) => user.is_admin || memberIds.has(user.id));
+        setProjectUsers(members);
 
         const defaultUserId =
           members.find((member) => member.id === sessionUserId)?.id ??

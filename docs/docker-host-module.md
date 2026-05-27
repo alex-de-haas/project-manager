@@ -17,13 +17,15 @@ There is no standalone mode. Direct API access without Docker Host identity is r
 
 ## Module Packaging
 
-- Source module metadata is defined in `metadata.json`.
+- Source module metadata is defined in `metadata.json` using schema `0.3` image-backed services.
+- Local process development metadata is defined in `metadata.dev.json`.
 - The checked-in metadata is a template. The Docker publish workflow renders installable metadata with the immutable `sha-<commit>` image tag for the image it just pushed.
 - The workflow publishes rendered metadata as `metadata.json` on the `latest` GitHub release. Docker Host can install from `https://github.com/alex-de-haas/project-manager/releases/download/latest/metadata.json`.
 - The app container listens on port `3000`.
 - Persistent data is stored in `/app/data`.
 - `/api/health` checks database readiness and writable module storage without requiring identity.
 - `/api/auth/bootstrap` verifies a Host-issued module identity token and stores it in a short-lived module cookie for direct-origin shell iframe traffic.
+- The iframe bridge compares each new Host token identity with the currently rendered module identity and immediately re-bootstraps and reloads when the Docker Host account changes.
 
 ## Data
 
@@ -31,7 +33,7 @@ The module uses SQLite for application data. Docker Host should mount module-own
 
 The database is created from the current schema when the module starts with empty storage. Previous local-auth schemas are not migrated.
 
-A one-time JSON import is available in Settings for migration data. It imports the supported Project Manager JSON export format into the current Docker Host user and active project.
+A one-time JSON import is available in Profile settings for migration data. It imports the supported Project Manager JSON export format into the current Docker Host user and active project.
 
 The main data groups are:
 
@@ -51,14 +53,20 @@ The main data groups are:
 - Docker Host should not forward Host session cookies to the module.
 - Project Manager trusts only the signed Host identity token after signature, issuer, audience, and expiration validation.
 - Direct-origin shell iframe traffic uses the `project_manager_module_identity` HttpOnly cookie after `/api/auth/bootstrap`; the cookie stores the signed Host token and is refreshed by the client bridge before token expiry.
+- The client bridge stores only a non-secret identity fingerprint in `sessionStorage` so it can detect Host account switches before the old HttpOnly module cookie expires.
 - The module UI must allow being framed by the Docker Host shell origin. Docker Host no longer rewrites Project Manager HTML, assets, RSC requests, or API calls through an embed proxy.
 
 ## Local Development
 
-Project Manager includes `.docker-host/dev.json` for Docker Host developer mode. Start the Next.js dev server on port `3000`, then link the module into the local Docker Host shell:
+Project Manager includes `metadata.dev.json` for Docker Host developer mode. From the repository root, run:
 
 ```bash
-npm run dev
+docker-host dev up
+```
+
+The dev metadata starts the Next.js app on local port `3100` and links the public `http` endpoint through Docker Host. Use `.docker-host/dev.json` when the local loop should also seed the development Host user, assignment, and scoped directory email policy:
+
+```bash
 docker-host dev up --manifest .docker-host/dev.json
 ```
 
@@ -77,6 +85,6 @@ The module UI uses a Docker Host-friendly top navigation bar instead of an appli
 - Calendar: `/day-offs`
 - Settings: `/settings`
 
-Settings navigation is rendered only for Project Manager module administrators. Project switching lives in the top bar as a compact selector, and personal settings such as a user's Azure DevOps PAT are available from the profile entry in the user menu.
+Settings navigation is rendered for all assigned module users. Non-admin users see only Profile settings, while Project Manager module administrators also see project, role, release, backup, and AI provider settings. Project switching lives in the top bar as a compact selector.
 
 The module currently renders in the light theme by default. Future Docker Host theme integration should replace the hardcoded light theme with a Host-provided theme signal.

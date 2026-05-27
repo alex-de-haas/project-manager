@@ -25,12 +25,26 @@ if (!tag || !outputPath) {
 const metadataPath = path.join(process.cwd(), "metadata.json");
 const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
 
-for (const container of metadata.containers ?? []) {
-  if (repository && container?.image?.repository) {
-    container.image.repository = repository;
+const updateImage = (image) => {
+  if (!image || typeof image !== "object") {
+    return;
   }
-  if (container?.image?.tag) {
-    container.image.tag = tag;
+
+  if (repository && image.repository) {
+    image.repository = repository;
+  }
+  if (image.tag) {
+    image.tag = tag;
+  }
+};
+
+for (const container of metadata.containers ?? []) {
+  updateImage(container?.image);
+}
+
+for (const service of metadata.services ?? []) {
+  if (service?.source?.type === "image") {
+    updateImage(service.source.image);
   }
 }
 

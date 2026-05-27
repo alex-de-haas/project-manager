@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +14,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DayOff } from "@/types";
 
@@ -43,13 +43,26 @@ export function DayOffsModal({
   const [messageType, setMessageType] = useState<"success" | "error">(
     "success"
   );
+  const [pendingDeleteDayOff, setPendingDeleteDayOff] = useState<DayOff | null>(null);
+
+  useEffect(() => {
+    if (!message) return;
+
+    if (messageType === "success") {
+      toast.success(message);
+    } else {
+      toast.error(message);
+    }
+
+    setMessage("");
+  }, [message, messageType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!date) return;
     if (isRangeMode && !endDate) return;
     if (isRangeMode && endDate < date) {
-      setMessage("✗ End date must be after start date");
+      setMessage("End date must be after start date");
       setMessageType("error");
       return;
     }
@@ -96,7 +109,7 @@ export function DayOffsModal({
         }
 
         setMessage(
-          `✓ Added ${addedCount} day-off(s)${
+          `Added ${addedCount} day-off(s)${
             skippedCount > 0 ? `, skipped ${skippedCount} (already exists)` : ""
           }`
         );
@@ -114,7 +127,7 @@ export function DayOffsModal({
           throw new Error(data.error || "Failed to create day-off");
         }
 
-        setMessage("✓ Day-off added successfully!");
+        setMessage("Day-off added successfully.");
         setMessageType("success");
       }
 
@@ -126,7 +139,7 @@ export function DayOffsModal({
         onSuccess();
       }, 1000);
     } catch (err: any) {
-      setMessage(`✗ ${err.message}`);
+      setMessage(err instanceof Error ? err.message : "Failed to create day-off");
       setMessageType("error");
     } finally {
       setSubmitting(false);
@@ -153,7 +166,7 @@ export function DayOffsModal({
       console.error(err);
       setImportFileName("");
       setImportFileContent("");
-      setMessage("✗ Failed to read the selected ICS file");
+      setMessage("Failed to read the selected ICS file");
       setMessageType("error");
     }
   };
@@ -165,13 +178,13 @@ export function DayOffsModal({
     const hasFile = importFileContent.trim().length > 0;
 
     if (!hasUrl && !hasFile) {
-      setMessage("✗ Provide either a calendar URL or an ICS file");
+      setMessage("Provide either a calendar URL or an ICS file");
       setMessageType("error");
       return;
     }
 
     if (hasUrl && hasFile) {
-      setMessage("✗ Use either a calendar URL or an ICS file, not both");
+      setMessage("Use either a calendar URL or an ICS file, not both");
       setMessageType("error");
       return;
     }
@@ -195,7 +208,7 @@ export function DayOffsModal({
       }
 
       setMessage(
-        `✓ Imported ${data.added} holiday(s)${
+        `Imported ${data.added} holiday(s)${
           data.skipped > 0 ? `, skipped ${data.skipped} existing date(s)` : ""
         }`
       );
@@ -208,7 +221,7 @@ export function DayOffsModal({
         onSuccess();
       }, 1000);
     } catch (err: any) {
-      setMessage(`✗ ${err.message}`);
+      setMessage(err instanceof Error ? err.message : "Failed to import ICS calendar");
       setMessageType("error");
     } finally {
       setSubmitting(false);
@@ -216,8 +229,6 @@ export function DayOffsModal({
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this day-off?")) return;
-
     try {
       const response = await fetch(`/api/day-offs?id=${id}`, {
         method: "DELETE",
@@ -225,28 +236,30 @@ export function DayOffsModal({
 
       if (!response.ok) throw new Error("Failed to delete day-off");
 
-      setMessage("✓ Day-off deleted successfully!");
+      setPendingDeleteDayOff(null);
+      setMessage("Day-off deleted successfully.");
       setMessageType("success");
       setTimeout(() => {
         onSuccess();
       }, 1000);
     } catch (err) {
-      setMessage("✗ Failed to delete day-off");
+      setMessage("Failed to delete day-off");
       setMessageType("error");
     }
   };
 
   return (
-    <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px]">
-        <DialogHeader>
-          <DialogTitle>Manage Day-Offs</DialogTitle>
-          <DialogDescription>
-            Add holidays, vacations, or other non-working days
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={true} onOpenChange={onClose}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Manage Day-Offs</DialogTitle>
+            <DialogDescription>
+              Add holidays, vacations, or other non-working days
+            </DialogDescription>
+          </DialogHeader>
 
-        <Tabs
+          <Tabs
           value={activeTab}
           onValueChange={(value) => {
             setActiveTab(value as "manual" | "import");
@@ -433,17 +446,6 @@ export function DayOffsModal({
           </TabsContent>
         </Tabs>
 
-        {message && (
-          <Alert
-            variant={messageType === "success" ? "default" : "destructive"}
-            className={
-              messageType === "success" ? "border-green-200 bg-green-50" : ""
-            }
-          >
-            <AlertDescription>{message}</AlertDescription>
-          </Alert>
-        )}
-
         {currentDayOffs.length > 0 && (
           <div className="space-y-2 mt-4">
             <h3 className="font-semibold text-sm text-gray-700">
@@ -468,7 +470,7 @@ export function DayOffsModal({
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 text-red-600 hover:text-red-800 hover:bg-red-50"
-                    onClick={() => handleDelete(dayOff.id)}
+                    onClick={() => setPendingDeleteDayOff(dayOff)}
                     title="Delete day-off"
                   >
                     ✕
@@ -479,12 +481,64 @@ export function DayOffsModal({
           </div>
         )}
 
-        <DialogFooter>
-          <Button type="button" onClick={onClose} variant="secondary">
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button type="button" onClick={onClose} variant="secondary">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingDeleteDayOff)}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteDayOff(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete day-off</DialogTitle>
+            <DialogDescription>
+              Delete this day-off from your calendar. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingDeleteDayOff ? (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">
+              <div className="font-medium">
+                {format(new Date(pendingDeleteDayOff.date), "EEE, MMM dd, yyyy")}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                {pendingDeleteDayOff.is_half_day ? "Half day" : "Full day"}
+                {pendingDeleteDayOff.description ? ` - ${pendingDeleteDayOff.description}` : ""}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingDeleteDayOff(null)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (pendingDeleteDayOff) {
+                  void handleDelete(pendingDeleteDayOff.id);
+                }
+              }}
+              disabled={submitting}
+            >
+              Delete day-off
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

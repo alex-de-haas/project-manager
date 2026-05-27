@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +14,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface ParentWorkItem {
@@ -51,11 +51,11 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
       if (response.ok) {
         setParentWorkItems(data.parentWorkItems || []);
       } else {
-        setMessage(`✗ Failed to fetch parent work items: ${data.error || "Unknown error"}`);
+        setMessage(`Failed to fetch parent work items: ${data.error || "Unknown error"}`);
         setMessageType("error");
       }
     } catch (err) {
-      setMessage("✗ Failed to fetch parent work items: Network error");
+      setMessage("Failed to fetch parent work items: Network error");
       setMessageType("error");
     } finally {
       setLoading(false);
@@ -65,6 +65,20 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
   useEffect(() => {
     void fetchParentWorkItems();
   }, [fetchParentWorkItems]);
+
+  useEffect(() => {
+    if (!message) return;
+
+    if (messageType === "success") {
+      toast.success(message);
+    } else if (messageType === "error") {
+      toast.error(message);
+    } else {
+      toast.info(message);
+    }
+
+    setMessage("");
+  }, [message, messageType]);
 
   const filteredWorkItems = useMemo(() => {
     const searchText = filterText.trim().toLowerCase();
@@ -96,17 +110,17 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
       const data = await response.json();
 
       if (response.ok) {
-        setMessage(data.message || `✓ Successfully exported to Azure DevOps`);
+        setMessage(data.message || "Successfully exported to Azure DevOps");
         setMessageType("success");
         setTimeout(() => {
           onSuccess();
         }, 1500);
       } else {
-        setMessage(`✗ Export failed: ${data.error || "Unknown error"}`);
+        setMessage(`Export failed: ${data.error || "Unknown error"}`);
         setMessageType("error");
       }
     } catch (err) {
-      setMessage("✗ Export failed: Network error");
+      setMessage("Export failed: Network error");
       setMessageType("error");
     } finally {
       setExporting(false);
@@ -250,20 +264,6 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
             </div>
           )}
 
-          {message && (
-            <Alert
-              variant={messageType === "error" ? "destructive" : "default"}
-              className={
-                messageType === "success"
-                  ? "border-green-500 bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400"
-                  : messageType === "info"
-                  ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-400"
-                  : ""
-              }
-            >
-              <AlertDescription>{message}</AlertDescription>
-            </Alert>
-          )}
         </div>
         <DialogFooter>
           <Button

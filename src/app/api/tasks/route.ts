@@ -202,8 +202,20 @@ export async function POST(request: NextRequest) {
       }
 
       const isProjectMember = db
-        .prepare('SELECT 1 as ok FROM project_members WHERE project_id = ? AND user_id = ?')
-        .get(projectId, parsedTargetUserId) as { ok: number } | undefined;
+        .prepare(`
+          SELECT 1 as ok
+          FROM users u
+          WHERE u.id = ?
+            AND (
+              u.is_admin = 1
+              OR EXISTS (
+                SELECT 1
+                FROM project_members pm
+                WHERE pm.project_id = ? AND pm.user_id = u.id
+              )
+            )
+        `)
+        .get(parsedTargetUserId, projectId) as { ok: number } | undefined;
 
       if (!isProjectMember) {
         return NextResponse.json(

@@ -2,11 +2,17 @@
 
 ## Overview
 
-Settings provide a central place to configure application behavior, module roles, project administration, Azure DevOps project connectivity, AI provider settings, and database maintenance.
+Settings provide a central place to configure personal profile preferences and credentials, module roles, project administration, Azure DevOps project connectivity, AI provider settings, and database backups.
 
-## General Settings
+All assigned module users can open Settings. Non-admin users see only the Profile tab. Project Manager administrators see Profile plus the administrative tabs for projects, releases, module roles, backups, and AI provider settings.
 
-General settings control defaults used throughout the app. The current working-day length setting is used when calculating expected hours and comparing planned time against recorded time.
+## Profile Settings
+
+Profile settings are scoped to the current Host user and active Project Manager project. Each user sets their own default day length for each project before using the time tracker. This value is used when calculating expected hours and comparing planned time against recorded time.
+
+Profile also stores the current user's Azure DevOps Personal Access Token. The profile page shows the active project's Azure DevOps organization and project when that integration is configured, but project-level Azure DevOps settings are managed from the Projects tab by administrators.
+
+JSON import lives in Profile because imported time entries and day-offs are scoped to the current Host user and active project. It imports the supported Project Manager JSON export format, matches time entries by Azure DevOps work item ID, and creates missing work items as Azure DevOps-linked local tasks for the current user.
 
 ## Module Roles
 
@@ -18,21 +24,25 @@ Local user creation, invitations, password changes, and logout are not part of t
 
 ## Project Management
 
-Project settings support multiple projects in the same module installation. Users can belong to projects, switch between projects, and keep project-specific work separated.
+Project settings support multiple projects in the same module installation. A fresh Project Manager install starts with no project; administrators create projects explicitly from Settings.
 
-Project membership is managed inside Project Manager and is separate from Docker Host module assignment. A Host user must be assigned to the module by Docker Host before Project Manager can show or assign that user in project settings.
+The Projects tab lists all projects and provides an Add new project action. Project creation and editing use a dialog with the project name, optional Azure DevOps project URL, and explicit access checkboxes for non-admin users.
 
-## Database Maintenance
+Project membership is managed inside Project Manager and is separate from Docker Host module assignment. A Host user must be assigned to the module by Docker Host before Project Manager can show or assign that user in project settings. Project Manager administrators automatically have access to every project and do not need explicit project membership.
 
-Database maintenance tools allow administrators to import Project Manager JSON migration files, create backups, view existing backups, delete backups that are no longer needed, and restore the application from a selected backup.
+Each Host user can set a personal default project. The default project is selected when there is no valid active project for that user, including after the Docker Host identity changes in the embedded module frame. The active project cookie is scoped with the current Project Manager user id so a project selected by one Host user is not reused for another Host user.
+
+Administrators can delete any project, including the final remaining project. Deleting a project also removes its project-scoped data through database cascades.
+
+## Backups
+
+The Backups tab allows administrators to create database snapshot files and review existing backup files in a table. Each backup row has an actions menu for restoring from that backup or deleting the backup file.
 
 The module creates its SQLite database from the current fresh schema when it starts with empty storage. Legacy local-auth database migrations and local-auth export flows are not part of the Docker Host module.
 
-JSON import remains available for migration into a fresh module. It imports the supported Project Manager JSON export format into the current Docker Host user and active project. Time entries are matched by Azure DevOps work item ID, and missing work items are created as Azure DevOps-linked local tasks.
-
 ## Azure DevOps Settings
 
-Azure DevOps settings let a module administrator connect a Project Manager project to an Azure DevOps organization and project. Each Host user stores their own Personal Access Token in Profile, and users can test the connection with their personal credential.
+Azure DevOps project settings are configured from the project create/edit dialog. A module administrator can connect a Project Manager project to an Azure DevOps organization and project by pasting the Azure DevOps project URL. Each Host user stores their own Personal Access Token in Profile, and users can test the connection with their personal credential.
 
 These settings enable Azure DevOps import, export, refresh, and status synchronization features elsewhere in the app.
 
@@ -48,18 +58,18 @@ Checklist generation is available only after both the provider base URL and mode
 
 ## Typical Workflow
 
-1. Open Settings from the sidebar.
-2. Review general app defaults.
-3. Configure Azure DevOps if the project uses it.
-4. Open Profile and save a personal Azure DevOps PAT if you use Azure DevOps features.
-5. Review assigned Docker Host users and module administrator roles.
-6. Manage projects and project membership.
-7. Import migration JSON if needed.
+1. Open Settings from the top navigation.
+2. Open Projects and create the project explicitly.
+3. Configure the project's Azure DevOps URL if the project uses Azure DevOps.
+4. Open Profile and set your default day length for the active project.
+5. Save a personal Azure DevOps PAT if you use Azure DevOps features.
+6. Import migration JSON from Profile if needed.
+7. Review assigned Docker Host users and module administrator roles.
 8. Create a database backup before major operational changes.
 
 ## Operational Notes
 
-- Access to Settings requires a valid Docker Host identity and Project Manager administrator rights.
-- Access to Profile requires a valid Docker Host identity and is available to all assigned module users.
+- Access to Settings requires a valid Docker Host identity. Administrative tabs require Project Manager administrator rights.
+- Access to Profile is available to all assigned module users from Settings.
 - Keep Azure DevOps tokens current and scoped to the permissions needed by the team.
 - Create backups before restoring data or making broad administrative changes.

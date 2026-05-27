@@ -8,7 +8,7 @@ The Azure DevOps integration connects Project Manager with Azure DevOps work ite
 
 - Configure the Azure DevOps project URL. Project Manager parses the organization and project from the URL and shows them as read-only values.
 - Store each user's Azure DevOps Personal Access Token separately.
-- Test the Azure DevOps connection before saving settings.
+- Test the Azure DevOps connection from the current user's Profile after saving a personal token.
 - Import work items assigned to the current user.
 - Import specific work items by ID.
 - Avoid duplicate imports for work items that are already linked.
@@ -27,9 +27,10 @@ The Azure DevOps integration connects Project Manager with Azure DevOps work ite
 1. Create a Personal Access Token in Azure DevOps.
 2. Give the token access to work items.
 3. Open Settings in Project Manager as a module administrator.
-4. Enter the Azure DevOps project URL for the active Project Manager project. Project Manager supports URLs such as `https://dev.azure.com/{organization}/{project}` and parses the organization and project from that URL.
-5. Open Profile and save your personal token.
-6. Test the connection.
+4. Create or edit the Project Manager project from the Projects tab.
+5. Enter the Azure DevOps project URL in the project dialog. Project Manager supports URLs such as `https://dev.azure.com/{organization}/{project}` and parses the organization and project from that URL.
+6. Open Profile and save your personal token.
+7. Test the connection.
 
 For status updates and exported tasks, the token needs work item write access. Read-only tokens can still support read-focused workflows such as import and refresh.
 

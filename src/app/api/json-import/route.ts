@@ -2,8 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import { requireAdminUser } from "@/lib/authorization";
-import { getRequestProjectId } from "@/lib/user-context";
+import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
 
 interface JsonImportEntry {
   date?: unknown;
@@ -116,11 +115,15 @@ const getOrCreateTaskForWorkItem = (
 
 export async function POST(request: NextRequest) {
   try {
-    const admin = requireAdminUser(request);
-    if ("response" in admin) return admin.response;
-
-    const userId = admin.userId;
+    const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
+    if (projectId <= 0) {
+      return NextResponse.json(
+        { error: "Select or create a project before importing JSON data." },
+        { status: 400 }
+      );
+    }
+
     const payload = (await request.json()) as JsonImportPayload;
 
     if (payload.schemaVersion !== SUPPORTED_SCHEMA_VERSION) {

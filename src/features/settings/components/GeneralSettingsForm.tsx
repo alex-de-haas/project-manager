@@ -3,19 +3,30 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Release } from "@/types";
 import { CheckCircle2, ExternalLink, GripVertical, MoreHorizontal } from "lucide-react";
+import { Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { parseAzureDevOpsProjectUrl } from "@/lib/azure-devops/project-url";
+import { ProfileSettingsForm } from "@/features/settings/components/ProfileSettingsForm";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -25,6 +36,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   DndContext,
   closestCenter,
@@ -44,6 +63,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 interface GeneralSettingsFormProps {
+  isAdmin?: boolean;
   onCancel?: () => void;
   onSaved?: () => void;
   showCancel?: boolean;
@@ -69,19 +89,16 @@ interface AppProject {
   id: number;
   name: string;
   member_user_ids?: number[];
+  is_default?: boolean;
+  azure_devops?: {
+    organization: string;
+    project: string;
+    projectUrl: string;
+  } | null;
 }
 
 interface ApiError {
   error?: string;
-}
-
-interface JsonImportResponse {
-  imported?: {
-    timeEntries?: number;
-    dayOffs?: number;
-    tasksCreated?: number;
-    tasksMatched?: number;
-  };
 }
 
 interface SortableReleaseRowProps {
@@ -155,14 +172,14 @@ function SortableReleaseRow({
 }
 
 export function GeneralSettingsForm({
+  isAdmin = true,
   onCancel,
   onSaved,
   showCancel = false,
 }: GeneralSettingsFormProps) {
-  // General settings
-  const [defaultDayLength, setDefaultDayLength] = useState("8");
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState("profile");
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [activeUserId, setActiveUserId] = useState("");
   const [hostDirectoryStatus, setHostDirectoryStatus] = useState("");
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -171,20 +188,21 @@ export function GeneralSettingsForm({
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [creatingProject, setCreatingProject] = useState(false);
   const [updatingProject, setUpdatingProject] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
+  const [settingDefaultProjectId, setSettingDefaultProjectId] = useState<number | null>(null);
   const [activeProjectId, setActiveProjectId] = useState("");
-  const [projectMemberUserIds, setProjectMemberUserIds] = useState<Set<number>>(new Set());
-  const [savingProjectMembers, setSavingProjectMembers] = useState(false);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
+  const [projectFormName, setProjectFormName] = useState("");
+  const [projectFormAzureUrl, setProjectFormAzureUrl] = useState("");
+  const [projectFormMemberUserIds, setProjectFormMemberUserIds] = useState<Set<number>>(new Set());
+  const [projectPendingDelete, setProjectPendingDelete] = useState<AppProject | null>(null);
   const [releases, setReleases] = useState<Release[]>([]);
   const [loadingReleases, setLoadingReleases] = useState(true);
   const [releaseName, setReleaseName] = useState("");
   const [creatingRelease, setCreatingRelease] = useState(false);
   const [updatingReleaseId, setUpdatingReleaseId] = useState<number | null>(null);
-
-  // Azure DevOps settings
-  const [azureProjectUrlInput, setAzureProjectUrlInput] = useState("");
-  const [pat, setPat] = useState("");
-  const [hasAzurePat, setHasAzurePat] = useState(false);
+  const [releasePendingRename, setReleasePendingRename] = useState<Release | null>(null);
+  const [releaseRenameValue, setReleaseRenameValue] = useState("");
 
   // AI provider settings
   const [aiProviderBaseUrl, setAiProviderBaseUrl] = useState("");
@@ -197,13 +215,13 @@ export function GeneralSettingsForm({
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [deletingBackup, setDeletingBackup] = useState(false);
   const [restoringBackup, setRestoringBackup] = useState(false);
-  const [jsonImportFile, setJsonImportFile] = useState<File | null>(null);
-  const [importingJson, setImportingJson] = useState(false);
-  const [selectedBackup, setSelectedBackup] = useState("");
+  const [pendingBackupAction, setPendingBackupAction] = useState<{
+    action: "restore" | "delete";
+    fileName: string;
+  } | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [testingAiProvider, setTestingAiProvider] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">(
@@ -226,13 +244,12 @@ export function GeneralSettingsForm({
     );
   }, [releases]);
 
-  const parsedAzureProject = useMemo(
-    () => parseAzureDevOpsProjectUrl(azureProjectUrlInput),
-    [azureProjectUrlInput]
+  const parsedProjectFormAzureProject = useMemo(
+    () => parseAzureDevOpsProjectUrl(projectFormAzureUrl),
+    [projectFormAzureUrl]
   );
-  const organization = parsedAzureProject?.organization ?? "";
-  const project = parsedAzureProject?.project ?? "";
-  const azureProjectUrl = parsedAzureProject?.projectUrl ?? "";
+  const formAzureOrganization = parsedProjectFormAzureProject?.organization ?? "";
+  const formAzureProject = parsedProjectFormAzureProject?.project ?? "";
 
   const fetchModels = async (baseUrl: string) => {
     setLoadingModels(true);
@@ -271,8 +288,10 @@ export function GeneralSettingsForm({
       setUsers(data);
       if (sessionResponse.ok) {
         const sessionData = (await sessionResponse.json()) as { user?: AppUser };
+        setCurrentUserId(sessionData.user?.id ?? null);
         setActiveUserId(sessionData.user?.id ? String(sessionData.user.id) : "");
       } else {
+        setCurrentUserId(null);
         setActiveUserId("");
       }
     } catch (err) {
@@ -307,7 +326,15 @@ export function GeneralSettingsForm({
   };
 
   const setProjectCookie = (projectId: string) => {
+    if (!projectId) {
+      document.cookie = "pm_project_id=; path=/; max-age=0; samesite=lax";
+      document.cookie = "pm_project_user_id=; path=/; max-age=0; samesite=lax";
+      return;
+    }
     document.cookie = `pm_project_id=${encodeURIComponent(projectId)}; path=/; max-age=31536000; samesite=lax`;
+    if (currentUserId) {
+      document.cookie = `pm_project_user_id=${encodeURIComponent(String(currentUserId))}; path=/; max-age=31536000; samesite=lax`;
+    }
   };
 
   const loadProjects = async () => {
@@ -321,16 +348,19 @@ export function GeneralSettingsForm({
       const data = (await response.json()) as AppProject[];
       setProjects(data);
       const cookieProjectId = readCookie("pm_project_id");
+      const defaultProject = data.find((project) => project.is_default);
       const selectedId = data.some((project) => String(project.id) === cookieProjectId)
         ? cookieProjectId
+        : defaultProject
+        ? String(defaultProject.id)
         : data[0]
-          ? String(data[0].id)
-          : "";
+        ? String(data[0].id)
+        : "";
       setActiveProjectId(selectedId);
-      const selectedProject = data.find((project) => String(project.id) === selectedId);
-      setProjectMemberUserIds(new Set(selectedProject?.member_user_ids ?? []));
       if (selectedId && selectedId !== cookieProjectId) {
         setProjectCookie(selectedId);
+      } else if (!selectedId && cookieProjectId) {
+        setProjectCookie("");
       }
     } catch (err) {
       setMessage("Failed to load projects.");
@@ -341,6 +371,27 @@ export function GeneralSettingsForm({
   };
 
   useEffect(() => {
+    if (!message) return;
+
+    if (messageType === "success") {
+      toast.success(message);
+    } else {
+      toast.error(message);
+    }
+
+    setMessage("");
+  }, [message, messageType]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setLoading(false);
+      setLoadingUsers(false);
+      setLoadingProjects(false);
+      setLoadingBackups(false);
+      setLoadingReleases(false);
+      return;
+    }
+
     loadUsers();
     loadProjects();
     loadSettings();
@@ -348,14 +399,7 @@ export function GeneralSettingsForm({
     loadReleases();
     // load* functions are intentionally run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const selected = projects.find((project) => String(project.id) === activeProjectId);
-    if (selected) {
-      setProjectMemberUserIds(new Set(selected.member_user_ids ?? []));
-    }
-  }, [projects, activeProjectId]);
+  }, [isAdmin]);
 
   const loadBackups = async () => {
     setLoadingBackups(true);
@@ -367,12 +411,6 @@ export function GeneralSettingsForm({
 
       const data = (await response.json()) as DatabaseBackupFile[];
       setBackups(data);
-      setSelectedBackup((currentSelected) => {
-        if (currentSelected && data.some((backup) => backup.fileName === currentSelected)) {
-          return currentSelected;
-        }
-        return data[0]?.fileName ?? "";
-      });
     } catch (err) {
       setMessage("Failed to load database backups.");
       setMessageType("error");
@@ -384,32 +422,6 @@ export function GeneralSettingsForm({
   const loadSettings = async () => {
     setLoading(true);
     try {
-      // Load general settings
-      const generalResponse = await fetch(
-        "/api/settings?key=default_day_length"
-      );
-      if (generalResponse.ok) {
-        const data = await generalResponse.json();
-        if (data.value) {
-          setDefaultDayLength(data.value);
-        }
-      }
-
-      // Load Azure DevOps settings
-      const azureResponse = await fetch("/api/settings?key=azure_devops");
-      if (azureResponse.ok) {
-        const data = await azureResponse.json();
-        if (data.value) {
-          const settings =
-            typeof data.value === "string"
-              ? JSON.parse(data.value)
-              : data.value;
-          setAzureProjectUrlInput(settings.projectUrl || "");
-          setHasAzurePat(Boolean(settings.hasPat));
-          setPat("");
-        }
-      }
-
       // Load AI provider settings
       const aiProviderResponse = await fetch("/api/settings?key=ai_provider");
       if (aiProviderResponse.ok) {
@@ -473,88 +485,104 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleCreateProject = async () => {
-    const trimmed = newProjectName.trim();
+  const openCreateProjectDialog = () => {
+    setEditingProjectId(null);
+    setProjectFormName("");
+    setProjectFormAzureUrl("");
+    setProjectFormMemberUserIds(new Set());
+    setProjectDialogOpen(true);
+  };
+
+  const openEditProjectDialog = (project: AppProject) => {
+    setEditingProjectId(project.id);
+    setProjectFormName(project.name);
+    setProjectFormAzureUrl(project.azure_devops?.projectUrl ?? "");
+    setProjectFormMemberUserIds(new Set(project.member_user_ids ?? []));
+    setProjectDialogOpen(true);
+  };
+
+  const toggleProjectFormMember = (
+    userId: number,
+    checked: boolean | "indeterminate"
+  ) => {
+    setProjectFormMemberUserIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(userId);
+      } else {
+        next.delete(userId);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveProject = async () => {
+    const trimmed = projectFormName.trim();
     if (!trimmed) {
       setMessage("Project name is required.");
       setMessageType("error");
       return;
     }
 
-    setCreatingProject(true);
+    const trimmedAzureProjectUrl = projectFormAzureUrl.trim();
+    if (trimmedAzureProjectUrl && !parsedProjectFormAzureProject) {
+      setMessage("A valid Azure DevOps project URL is required.");
+      setMessageType("error");
+      return;
+    }
+
+    const editing = editingProjectId !== null;
+    if (editing) {
+      setUpdatingProject(true);
+    } else {
+      setCreatingProject(true);
+    }
+
     try {
+      const payload = {
+        ...(editing ? { id: editingProjectId } : {}),
+        name: trimmed,
+        memberUserIds: Array.from(projectFormMemberUserIds),
+        azureProjectUrl: trimmedAzureProjectUrl,
+      };
       const response = await fetch("/api/projects", {
-        method: "POST",
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
+        body: JSON.stringify(payload),
       });
       const data = (await response.json().catch(() => ({}))) as ApiError & AppProject;
       if (!response.ok) {
-        throw new Error(data.error || "Failed to create project.");
+        throw new Error(data.error || (editing ? "Failed to update project." : "Failed to create project."));
       }
 
-      setNewProjectName("");
+      setProjectDialogOpen(false);
       await loadProjects();
-      setActiveProjectId(String(data.id));
-      setProjectCookie(String(data.id));
-      setMessage(`Project "${trimmed}" created.`);
+      if (!editing && data.id) {
+        setActiveProjectId(String(data.id));
+        setProjectCookie(String(data.id));
+      }
+      setMessage(editing ? `Project "${trimmed}" updated.` : `Project "${trimmed}" created.`);
       setMessageType("success");
-      window.location.reload();
+      window.setTimeout(() => window.location.reload(), 600);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to create project.";
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : editingProjectId
+            ? "Failed to update project."
+            : "Failed to create project.";
       setMessage(errorMessage);
       setMessageType("error");
     } finally {
       setCreatingProject(false);
-    }
-  };
-
-  const handleRenameProject = async () => {
-    const selected = projects.find((project) => String(project.id) === activeProjectId);
-    if (!selected) return;
-
-    const nextName = window.prompt("Rename project", selected.name);
-    if (!nextName) return;
-
-    const trimmed = nextName.trim();
-    if (!trimmed || trimmed === selected.name) return;
-
-    setUpdatingProject(true);
-    try {
-      const response = await fetch("/api/projects", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selected.id, name: trimmed }),
-      });
-      const data = (await response.json().catch(() => ({}))) as ApiError;
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to rename project.");
-      }
-
-      await loadProjects();
-      setMessage(`Project renamed to "${trimmed}".`);
-      setMessageType("success");
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to rename project.";
-      setMessage(errorMessage);
-      setMessageType("error");
-    } finally {
       setUpdatingProject(false);
     }
   };
 
-  const handleDeleteProject = async () => {
-    const selected = projects.find((project) => String(project.id) === activeProjectId);
-    if (!selected) return;
-
-    const confirmed = window.confirm(
-      `Delete project "${selected.name}"? The project must be empty before deletion.`
-    );
-    if (!confirmed) return;
-
+  const handleDeleteProject = async (project: AppProject) => {
     setUpdatingProject(true);
     try {
-      const response = await fetch(`/api/projects?id=${selected.id}`, {
+      const response = await fetch(`/api/projects?id=${project.id}`, {
         method: "DELETE",
       });
       const data = (await response.json().catch(() => ({}))) as ApiError;
@@ -563,8 +591,16 @@ export function GeneralSettingsForm({
       }
 
       await loadProjects();
-      setMessage(`Project "${selected.name}" deleted.`);
+      setProjectPendingDelete(null);
+      if (String(project.id) === activeProjectId) {
+        const remaining = projects.filter((item) => item.id !== project.id);
+        const nextProjectId = remaining[0] ? String(remaining[0].id) : "";
+        setActiveProjectId(nextProjectId);
+        setProjectCookie(nextProjectId);
+      }
+      setMessage(`Project "${project.name}" deleted.`);
       setMessageType("success");
+      window.setTimeout(() => window.location.reload(), 600);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to delete project.";
       setMessage(errorMessage);
@@ -576,57 +612,45 @@ export function GeneralSettingsForm({
 
   const handleSwitchProject = (projectId: string) => {
     setActiveProjectId(projectId);
-    const selectedProject = projects.find((item) => String(item.id) === projectId);
-    setProjectMemberUserIds(new Set(selectedProject?.member_user_ids ?? []));
     setProjectCookie(projectId);
     window.location.reload();
   };
 
-  const toggleProjectMember = (userId: number, checked: boolean | "indeterminate") => {
-    setProjectMemberUserIds((prev) => {
-      const next = new Set(prev);
-      if (checked) {
-        next.add(userId);
-      } else {
-        next.delete(userId);
-      }
-      return next;
-    });
-  };
-
-  const handleSaveProjectMembers = async () => {
-    const selected = projects.find((project) => String(project.id) === activeProjectId);
-    if (!selected) return;
-
-    setSavingProjectMembers(true);
+  const handleSetDefaultProject = async (project: AppProject) => {
+    setSettingDefaultProjectId(project.id);
     try {
-      const response = await fetch("/api/projects", {
-        method: "PATCH",
+      const response = await fetch("/api/projects/default", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: selected.id,
-          memberUserIds: Array.from(projectMemberUserIds),
-        }),
+        body: JSON.stringify({ projectId: project.id }),
       });
       const data = (await response.json().catch(() => ({}))) as ApiError;
       if (!response.ok) {
-        throw new Error(data.error || "Failed to save project members.");
+        throw new Error(data.error || "Failed to set default project.");
       }
 
-      await loadProjects();
-      setMessage("Project members saved.");
+      setProjects((prev) =>
+        prev.map((item) => ({ ...item, is_default: item.id === project.id }))
+      );
+      setMessage(`Default project set to "${project.name}".`);
       setMessageType("success");
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to save project members.";
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to set default project.";
       setMessage(errorMessage);
       setMessageType("error");
     } finally {
-      setSavingProjectMembers(false);
+      setSettingDefaultProjectId(null);
     }
   };
 
   const handleCreateRelease = async () => {
     const trimmed = releaseName.trim();
+    if (!activeProjectId) {
+      setMessage("Create a project before adding releases.");
+      setMessageType("error");
+      return;
+    }
     if (!trimmed) {
       setMessage("Release name is required.");
       setMessageType("error");
@@ -665,18 +689,32 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleRenameRelease = async (release: Release) => {
-    const nextName = window.prompt("Rename release", release.name);
-    if (!nextName) return;
-    const trimmed = nextName.trim();
-    if (!trimmed || trimmed === release.name) return;
+  const handleRenameRelease = (release: Release) => {
+    setReleasePendingRename(release);
+    setReleaseRenameValue(release.name);
+  };
 
-    setUpdatingReleaseId(release.id);
+  const handleSaveReleaseRename = async () => {
+    if (!releasePendingRename) return;
+
+    const trimmed = releaseRenameValue.trim();
+    if (!trimmed) {
+      setMessage("Release name is required.");
+      setMessageType("error");
+      return;
+    }
+    if (trimmed === releasePendingRename.name) {
+      setReleasePendingRename(null);
+      setReleaseRenameValue("");
+      return;
+    }
+
+    setUpdatingReleaseId(releasePendingRename.id);
     try {
       const response = await fetch("/api/releases", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: release.id, name: trimmed }),
+        body: JSON.stringify({ id: releasePendingRename.id, name: trimmed }),
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as ApiError;
@@ -684,8 +722,12 @@ export function GeneralSettingsForm({
       }
 
       setReleases((prev) =>
-        prev.map((item) => (item.id === release.id ? { ...item, name: trimmed } : item))
+        prev.map((item) =>
+          item.id === releasePendingRename.id ? { ...item, name: trimmed } : item
+        )
       );
+      setReleasePendingRename(null);
+      setReleaseRenameValue("");
       setMessage(`Release renamed to "${trimmed}".`);
       setMessageType("success");
     } catch (err) {
@@ -774,41 +816,6 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleTestAzureConnection = async () => {
-    if (!parsedAzureProject || (!pat && !hasAzurePat)) {
-      setMessage("Please enter a valid Azure DevOps project URL and personal PAT before testing");
-      setMessageType("error");
-      return;
-    }
-
-    setTesting(true);
-    setMessage("");
-    try {
-      const response = await fetch("/api/azure-devops/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectUrl: azureProjectUrlInput.trim(), pat }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setMessage(
-          `Success: Connection successful. Found project: ${data.project.name}`
-        );
-        setMessageType("success");
-      } else {
-        setMessage(`Error: Connection failed: ${data.error || "Unknown error"}`);
-        setMessageType("error");
-      }
-    } catch (err) {
-      setMessage("Error: Connection failed: Network error");
-      setMessageType("error");
-    } finally {
-      setTesting(false);
-    }
-  };
-
   const handleTestAiProviderConnection = async () => {
     if (!aiProviderBaseUrl.trim()) {
       setMessage("Please enter the AI provider base URL");
@@ -850,25 +857,6 @@ export function GeneralSettingsForm({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate default day length
-    const dayLengthNum = parseFloat(defaultDayLength);
-    if (isNaN(dayLengthNum) || dayLengthNum <= 0 || dayLengthNum > 24) {
-      setMessage("Default day length must be between 0 and 24 hours");
-      setMessageType("error");
-      return;
-    }
-
-    const trimmedAzureProjectUrl = azureProjectUrlInput.trim();
-    const hasAnyAzureInput =
-      trimmedAzureProjectUrl.length > 0 ||
-      pat.trim().length > 0 ||
-      hasAzurePat;
-    if (hasAnyAzureInput && !parsedAzureProject) {
-      setMessage("A valid Azure DevOps project URL is required when Azure DevOps is configured.");
-      setMessageType("error");
-      return;
-    }
-
     const trimmedAiProviderBaseUrl = aiProviderBaseUrl.trim();
     const trimmedAiProviderModel = aiProviderModel.trim();
     const hasAnyAiProviderInput =
@@ -882,42 +870,6 @@ export function GeneralSettingsForm({
     setSaving(true);
     setMessage("");
     try {
-      // Save general settings
-      const generalResponse = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          key: "default_day_length",
-          value: defaultDayLength,
-        }),
-      });
-
-      if (!generalResponse.ok) {
-        throw new Error("Failed to save general settings");
-      }
-
-      if (hasAnyAzureInput) {
-        // Save Azure DevOps settings
-        const azureResponse = await fetch("/api/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            key: "azure_devops",
-            value: { projectUrl: trimmedAzureProjectUrl, pat },
-          }),
-        });
-
-        if (!azureResponse.ok) {
-          throw new Error("Failed to save Azure DevOps settings");
-        }
-        const azureData = await azureResponse.json().catch(() => null);
-        if (azureData?.value) {
-          setAzureProjectUrlInput(azureData.value.projectUrl || trimmedAzureProjectUrl);
-          setHasAzurePat(Boolean(azureData.value.hasPat));
-          setPat("");
-        }
-      }
-
       if (hasAnyAiProviderInput) {
         const aiProviderResponse = await fetch("/api/settings", {
           method: "POST",
@@ -987,7 +939,6 @@ export function GeneralSettingsForm({
       }
 
       await loadBackups();
-      setSelectedBackup(data.fileName);
       setMessage(`Database backup created: ${data.fileName}`);
       setMessageType("success");
     } catch (err) {
@@ -999,29 +950,16 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleRestoreBackup = async () => {
-    if (!selectedBackup) {
-      setMessage("Please select a backup file to restore.");
-      setMessageType("error");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Restore database from ${selectedBackup}? This will replace current data in this database.`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+  const restoreBackup = async (fileName: string) => {
     setRestoringBackup(true);
+    setPendingBackupAction(null);
     setMessage("");
 
     try {
       const response = await fetch("/api/database/restore", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: selectedBackup }),
+        body: JSON.stringify({ fileName }),
       });
       const data = await response.json();
 
@@ -1029,7 +967,7 @@ export function GeneralSettingsForm({
         throw new Error(data.error || "Failed to restore backup");
       }
 
-      setMessage(`Database restored from ${selectedBackup}. Refresh to see updated data.`);
+      setMessage(`Database restored from ${fileName}. Refresh to see updated data.`);
       setMessageType("success");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to restore database backup.";
@@ -1040,27 +978,14 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleDeleteBackup = async () => {
-    if (!selectedBackup) {
-      setMessage("Please select a backup file to delete.");
-      setMessageType("error");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Delete backup ${selectedBackup}? This cannot be undone.`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
+  const deleteBackup = async (fileName: string) => {
     setDeletingBackup(true);
+    setPendingBackupAction(null);
     setMessage("");
 
     try {
       const response = await fetch(
-        `/api/database/backups?fileName=${encodeURIComponent(selectedBackup)}`,
+        `/api/database/backups?fileName=${encodeURIComponent(fileName)}`,
         { method: "DELETE" }
       );
       const data = await response.json();
@@ -1069,9 +994,8 @@ export function GeneralSettingsForm({
         throw new Error(data.error || "Failed to delete backup");
       }
 
-      const deletedFile = selectedBackup;
       await loadBackups();
-      setMessage(`Backup deleted: ${deletedFile}`);
+      setMessage(`Backup deleted: ${fileName}`);
       setMessageType("success");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to delete database backup.";
@@ -1082,86 +1006,38 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleImportJson = async () => {
-    if (!jsonImportFile) {
-      setMessage("Please select a JSON import file.");
-      setMessageType("error");
-      return;
-    }
-
-    setImportingJson(true);
-    setMessage("");
-
-    try {
-      const parsed = JSON.parse(await jsonImportFile.text());
-      const response = await fetch("/api/json-import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed),
-      });
-      const data = (await response.json().catch(() => ({}))) as ApiError & JsonImportResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to import JSON data.");
-      }
-
-      const imported = data.imported ?? {};
-      setMessage(
-        `JSON import completed: ${imported.timeEntries ?? 0} time entries, ${
-          imported.dayOffs ?? 0
-        } day-offs, ${imported.tasksCreated ?? 0} tasks created, ${
-          imported.tasksMatched ?? 0
-        } tasks matched.`
-      );
-      setMessageType("success");
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to import JSON data.";
-      setMessage(errorMessage);
-      setMessageType("error");
-    } finally {
-      setImportingJson(false);
-    }
-  };
-
-  const handleDeleteAzurePat = async () => {
-    setSaving(true);
-    setMessage("");
-
-    try {
-      const response = await fetch("/api/settings?key=azure_devops&credential=pat", {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to remove Azure DevOps PAT.");
-      }
-
-      setPat("");
-      setHasAzurePat(false);
-      setMessage("Azure DevOps personal PAT removed.");
-      setMessageType("success");
-    } catch {
-      setMessage("Failed to remove Azure DevOps PAT.");
-      setMessageType("error");
-    } finally {
-      setSaving(false);
-    }
-  };
+  const adminUsers = users.filter((user) => user.is_admin);
+  const assignableUsers = users.filter((user) => !user.is_admin);
+  const editingProject = editingProjectId
+    ? projects.find((project) => project.id === editingProjectId)
+    : null;
 
   return loading ? (
     <div className="text-center py-8">Loading settings...</div>
+  ) : !isAdmin ? (
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid h-auto w-full grid-cols-1">
+        <TabsTrigger value="profile">Profile</TabsTrigger>
+      </TabsList>
+      <TabsContent value="profile" className="mt-4">
+        <ProfileSettingsForm />
+      </TabsContent>
+    </Tabs>
   ) : (
     <form onSubmit={handleSave}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-7">
-          <TabsTrigger value="general">General</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+          <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="projects">Projects</TabsTrigger>
           <TabsTrigger value="releases">Releases</TabsTrigger>
           <TabsTrigger value="users">Module Roles</TabsTrigger>
-          <TabsTrigger value="database">Database</TabsTrigger>
-          <TabsTrigger value="azure">Azure DevOps</TabsTrigger>
+          <TabsTrigger value="backups">Backups</TabsTrigger>
           <TabsTrigger value="ai">AI Provider</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="profile" className="mt-4">
+          <ProfileSettingsForm />
+        </TabsContent>
 
         <TabsContent value="users" className="space-y-4 mt-4">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
@@ -1264,125 +1140,293 @@ export function GeneralSettingsForm({
           </div>
         </TabsContent>
 
-        <TabsContent value="general" className="space-y-4 mt-4">
-          <div className="space-y-2">
-            <Label htmlFor="defaultDayLength">Default Day Length (hours)</Label>
-            <Input
-              id="defaultDayLength"
-              type="number"
-              min="0.5"
-              max="24"
-              step="0.5"
-              value={defaultDayLength}
-              onChange={(e) => setDefaultDayLength(e.target.value)}
-              placeholder="8"
-              required
-            />
-            <p className="text-xs text-muted-foreground">
-              Set the default number of hours in a working day (used for
-              calculations)
-            </p>
-          </div>
-        </TabsContent>
-
         <TabsContent value="projects" className="space-y-4 mt-4">
-          <div className="space-y-2">
-            <Label htmlFor="activeProject">Active Project</Label>
-            <Select
-              value={activeProjectId}
-              onValueChange={handleSwitchProject}
-              disabled={loadingProjects || projects.length === 0 || updatingProject || creatingProject}
-            >
-              <SelectTrigger id="activeProject">
-                <SelectValue placeholder={loadingProjects ? "Loading projects..." : "Select project"} />
-              </SelectTrigger>
-              <SelectContent>
-                {projects.map((project) => (
-                  <SelectItem key={project.id} value={String(project.id)}>
-                    {project.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Switching project refreshes the app and scopes time tracking, release planner, and DevOps settings.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="newProjectName">Create Project</Label>
-            <div className="flex gap-2">
-              <Input
-                id="newProjectName"
-                value={newProjectName}
-                onChange={(event) => setNewProjectName(event.target.value)}
-                placeholder="e.g., Mobile App"
-              />
-              <Button
-                type="button"
-                onClick={handleCreateProject}
-                disabled={creatingProject || updatingProject}
-              >
-                {creatingProject ? "Creating..." : "Create"}
-              </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <Label>Projects</Label>
+              <p className="text-xs text-muted-foreground">
+                Administrators can open every project automatically. Explicit access is used for non-admin users.
+              </p>
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant="outline"
-              onClick={handleRenameProject}
-              disabled={!activeProjectId || updatingProject || creatingProject}
+              onClick={openCreateProjectDialog}
+              disabled={creatingProject || updatingProject || loadingUsers}
             >
-              Rename project
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={handleDeleteProject}
-              disabled={!activeProjectId || projects.length <= 1 || updatingProject || creatingProject}
-            >
-              Delete project
+              <Plus className="h-4 w-4" />
+              Add new project
             </Button>
           </div>
 
-          <div className="space-y-2 rounded-md border p-3">
-            <Label>Assigned Users</Label>
-            <p className="text-xs text-muted-foreground">
-              Assigned users can access this project&apos;s Release Planner and Azure DevOps settings.
-            </p>
-            {loadingUsers ? (
-              <p className="text-sm text-muted-foreground">Loading users...</p>
-            ) : users.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No users available.</p>
+          <div className="space-y-2">
+            {loadingProjects ? (
+              <p className="rounded-md border p-3 text-sm text-muted-foreground">Loading projects...</p>
+            ) : projects.length === 0 ? (
+              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                No projects yet. Create a project to enable project-scoped tasks, releases, and Azure DevOps integration.
+              </div>
             ) : (
               <div className="space-y-2">
-                {users.map((user) => (
-                  <label
-                    key={`project-member-${user.id}`}
-                    className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5"
-                  >
-                    <Checkbox
-                      checked={projectMemberUserIds.has(user.id)}
-                      onCheckedChange={(checked) => toggleProjectMember(user.id, checked)}
-                      disabled={!activeProjectId || updatingProject || savingProjectMembers}
-                    />
-                    <span className="text-sm">{user.name}</span>
-                    <span className="text-xs text-muted-foreground">{user.email || "No email"}</span>
-                  </label>
-                ))}
+                {projects.map((project) => {
+                  const memberIds = new Set(project.member_user_ids ?? []);
+                  const projectMembers = users.filter((user) => memberIds.has(user.id));
+                  const isActiveProject = String(project.id) === activeProjectId;
+
+                  return (
+                    <div
+                      key={project.id}
+                      className="rounded-md border bg-background p-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-sm font-medium">{project.name}</h3>
+                            {isActiveProject ? (
+                              <Badge variant="secondary" className="h-5 px-2 text-[10px]">
+                                Active
+                              </Badge>
+                            ) : null}
+                            {project.is_default ? (
+                              <Badge variant="outline" className="h-5 px-2 text-[10px]">
+                                Default
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {project.azure_devops
+                              ? `Azure DevOps: ${project.azure_devops.organization} / ${project.azure_devops.project}`
+                              : "Azure DevOps is not configured."}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {projectMembers.length === 0
+                              ? "No explicit non-admin users assigned."
+                              : `Assigned users: ${projectMembers.map((user) => user.name).join(", ")}`}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                aria-label={`Actions for ${project.name}`}
+                                disabled={updatingProject || creatingProject || settingDefaultProjectId !== null}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onSelect={() => handleSwitchProject(String(project.id))}
+                                disabled={isActiveProject}
+                              >
+                                Use project
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => void handleSetDefaultProject(project)}
+                                disabled={Boolean(project.is_default)}
+                              >
+                                <Star className="mr-2 h-4 w-4" />
+                                {settingDefaultProjectId === project.id
+                                  ? "Setting..."
+                                  : project.is_default
+                                    ? "Default project"
+                                    : "Set default"}
+                              </DropdownMenuItem>
+                              {project.azure_devops?.projectUrl ? (
+                                <DropdownMenuItem asChild>
+                                  <a
+                                    href={project.azure_devops.projectUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    <ExternalLink className="mr-2 h-4 w-4" />
+                                    Open Azure DevOps
+                                  </a>
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem disabled>
+                                  <ExternalLink className="mr-2 h-4 w-4" />
+                                  Open Azure DevOps
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onSelect={() => openEditProjectDialog(project)}
+                                disabled={loadingUsers}
+                              >
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Edit project
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => setProjectPendingDelete(project)}
+                                className="text-red-600 focus:bg-red-50 focus:text-red-600"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete project
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleSaveProjectMembers}
-              disabled={!activeProjectId || loadingUsers || savingProjectMembers || updatingProject}
-            >
-              {savingProjectMembers ? "Saving..." : "Save assignments"}
-            </Button>
           </div>
+
+          <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{editingProject ? "Edit project" : "Add new project"}</DialogTitle>
+                <DialogDescription>
+                  Configure the project name, optional Azure DevOps project URL, and explicit access for non-admin users.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="projectFormName">Project name</Label>
+                  <Input
+                    id="projectFormName"
+                    value={projectFormName}
+                    onChange={(event) => setProjectFormName(event.target.value)}
+                    placeholder="e.g., Mobile App"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="projectFormAzureUrl">Azure DevOps project URL</Label>
+                  <Input
+                    id="projectFormAzureUrl"
+                    value={projectFormAzureUrl}
+                    onChange={(event) => setProjectFormAzureUrl(event.target.value)}
+                    placeholder="https://dev.azure.com/mycompany/MyProject"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to keep this project local-only. PAT credentials are configured per user in Profile.
+                  </p>
+                  {projectFormAzureUrl.trim() ? (
+                    parsedProjectFormAzureProject ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Input value={formAzureOrganization} readOnly className="bg-muted" />
+                        <Input value={formAzureProject} readOnly className="bg-muted" />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-destructive">
+                        Enter a URL like https://dev.azure.com/organization/project.
+                      </p>
+                    )
+                  ) : null}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>User access</Label>
+                  {adminUsers.length > 0 ? (
+                    <div className="space-y-1 rounded-md border bg-muted/40 p-2">
+                      {adminUsers.map((user) => (
+                        <div
+                          key={`project-admin-${user.id}`}
+                          className="flex items-center justify-between gap-2 text-sm"
+                        >
+                          <span className="truncate">{user.name}</span>
+                          <Badge variant="secondary" className="h-5 px-2 text-[10px]">
+                            Admin access
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {loadingUsers ? (
+                    <p className="text-sm text-muted-foreground">Loading users...</p>
+                  ) : assignableUsers.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No non-admin users are available for explicit project access.
+                    </p>
+                  ) : (
+                    <div className="max-h-56 space-y-2 overflow-auto rounded-md border p-2">
+                      {assignableUsers.map((user) => (
+                        <label
+                          key={`project-form-member-${user.id}`}
+                          className="flex items-center gap-2 rounded-md bg-background px-2 py-1.5"
+                        >
+                          <Checkbox
+                            checked={projectFormMemberUserIds.has(user.id)}
+                            onCheckedChange={(checked) => toggleProjectFormMember(user.id, checked)}
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm">{user.name}</span>
+                          <span className="max-w-[11rem] truncate text-xs text-muted-foreground">
+                            {user.email || "No email"}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setProjectDialogOpen(false)}
+                  disabled={creatingProject || updatingProject}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSaveProject}
+                  disabled={creatingProject || updatingProject}
+                >
+                  {creatingProject || updatingProject ? "Saving..." : "Save project"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={Boolean(projectPendingDelete)}
+            onOpenChange={(open) => {
+              if (!open) {
+                setProjectPendingDelete(null);
+              }
+            }}
+          >
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Delete project</DialogTitle>
+                <DialogDescription>
+                  Delete &quot;{projectPendingDelete?.name}&quot; and all of its tasks, releases, day-offs, and settings. This cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setProjectPendingDelete(null)}
+                  disabled={updatingProject}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    if (projectPendingDelete) {
+                      void handleDeleteProject(projectPendingDelete);
+                    }
+                  }}
+                  disabled={updatingProject}
+                >
+                  {updatingProject ? "Deleting..." : "Delete project"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         <TabsContent value="releases" className="space-y-4 mt-4">
@@ -1398,7 +1442,7 @@ export function GeneralSettingsForm({
               <Button
                 type="button"
                 onClick={handleCreateRelease}
-                disabled={creatingRelease}
+                disabled={creatingRelease || !activeProjectId}
               >
                 {creatingRelease ? "Creating..." : "Create release"}
               </Button>
@@ -1437,198 +1481,163 @@ export function GeneralSettingsForm({
               </SortableContext>
             </DndContext>
           )}
+
+          <Dialog
+            open={Boolean(releasePendingRename)}
+            onOpenChange={(open) => {
+              if (!open) {
+                setReleasePendingRename(null);
+                setReleaseRenameValue("");
+              }
+            }}
+          >
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Rename release</DialogTitle>
+                <DialogDescription>
+                  Update the release name used in planning and settings.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-2">
+                <Label htmlFor="releaseRenameValue">Release name</Label>
+                <Input
+                  id="releaseRenameValue"
+                  value={releaseRenameValue}
+                  onChange={(event) => setReleaseRenameValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleSaveReleaseRename();
+                    }
+                  }}
+                />
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setReleasePendingRename(null);
+                    setReleaseRenameValue("");
+                  }}
+                  disabled={updatingReleaseId !== null}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleSaveReleaseRename()}
+                  disabled={updatingReleaseId !== null}
+                >
+                  {updatingReleaseId !== null ? "Renaming..." : "Rename release"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
-        <TabsContent value="database" className="space-y-4 mt-4">
-          <div className="space-y-3 rounded-lg border p-4">
+        <TabsContent value="backups" className="space-y-4 mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-1">
-              <Label htmlFor="jsonImportFile">JSON Data Import</Label>
+              <Label>Backups</Label>
               <p className="text-xs text-muted-foreground">
-                Import a Project Manager migration JSON file into the current Host user and active project.
+                Create database snapshots and restore or remove existing backup files.
               </p>
             </div>
-
-            <div className="space-y-2">
-              <Input
-                id="jsonImportFile"
-                type="file"
-                accept="application/json,.json"
-                onChange={(event) => setJsonImportFile(event.target.files?.[0] ?? null)}
-                disabled={importingJson || saving}
-              />
-              <p className="text-xs text-muted-foreground">
-                Time entries are matched by Azure DevOps work item ID. Missing work items are created as local Azure DevOps-linked tasks.
-              </p>
-            </div>
-
             <Button
               type="button"
-              variant="outline"
-              onClick={handleImportJson}
-              disabled={!jsonImportFile || importingJson || saving}
+              onClick={handleCreateBackup}
+              disabled={creatingBackup || deletingBackup || saving || restoringBackup}
             >
-              {importingJson ? "Importing..." : "Import JSON"}
+              {creatingBackup ? "Creating..." : "Create Backup"}
             </Button>
           </div>
 
-          <div className="space-y-3 rounded-lg border p-4">
-            <div className="space-y-1">
-              <Label htmlFor="databaseBackupSelect">Database Backups</Label>
-              <p className="text-xs text-muted-foreground">
-                Create separate snapshot files and restore from them when needed.
-              </p>
-            </div>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Backup file</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Size</TableHead>
+                  <TableHead className="w-12 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingBackups ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                      Loading backups...
+                    </TableCell>
+                  </TableRow>
+                ) : backups.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-sm text-muted-foreground">
+                      No backup files found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  backups.map((backup) => {
+                    const actionsDisabled =
+                      creatingBackup || deletingBackup || restoringBackup || saving;
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleCreateBackup}
-                disabled={creatingBackup || deletingBackup || saving || restoringBackup}
-              >
-                {creatingBackup ? "Creating Backup..." : "Create Backup"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={loadBackups}
-                disabled={loadingBackups || creatingBackup || deletingBackup || restoringBackup || saving}
-              >
-                {loadingBackups ? "Refreshing..." : "Refresh Backups"}
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <Select
-                value={selectedBackup}
-                onValueChange={setSelectedBackup}
-                disabled={loadingBackups || backups.length === 0 || creatingBackup || deletingBackup || restoringBackup}
-              >
-                <SelectTrigger id="databaseBackupSelect">
-                  <SelectValue placeholder={loadingBackups ? "Loading backups..." : "Select backup file"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {backups.map((backup) => (
-                    <SelectItem key={backup.fileName} value={backup.fileName}>
-                      {backup.fileName} ({formatBackupSize(backup.sizeBytes)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {backups.length === 0
-                  ? "No backup files found."
-                  : `Latest backup: ${new Date(backups[0].createdAt).toLocaleString()}`}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleDeleteBackup}
-                disabled={!selectedBackup || deletingBackup || restoringBackup || creatingBackup || saving}
-              >
-                {deletingBackup ? "Deleting..." : "Delete Selected Backup"}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleRestoreBackup}
-                disabled={!selectedBackup || restoringBackup || deletingBackup || creatingBackup || saving}
-              >
-                {restoringBackup ? "Restoring..." : "Restore Selected Backup"}
-              </Button>
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="azure" className="space-y-4 mt-4">
-          <div className="space-y-2">
-            <Label htmlFor="azureProjectUrl">Project URL</Label>
-            <Input
-              id="azureProjectUrl"
-              type="text"
-              value={azureProjectUrlInput}
-              onChange={(e) => setAzureProjectUrlInput(e.target.value)}
-              placeholder="https://dev.azure.com/mycompany/MyProject"
-            />
-            <p className="text-xs text-muted-foreground">
-              Paste the Azure DevOps project URL. Organization and project are parsed from this value.
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="azureOrganization">Organization</Label>
-              <Input
-                id="azureOrganization"
-                type="text"
-                value={organization}
-                readOnly
-                placeholder="Parsed from project URL"
-                className="bg-muted"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="azureProject">Project</Label>
-              <Input
-                id="azureProject"
-                type="text"
-                value={project}
-                readOnly
-                placeholder="Parsed from project URL"
-                className="bg-muted"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="pat">Personal Access Token (PAT)</Label>
-            <Input
-              id="pat"
-              type="password"
-              value={pat}
-              onChange={(e) => setPat(e.target.value)}
-              placeholder={hasAzurePat ? "Personal PAT saved" : "Enter your Azure DevOps PAT"}
-            />
-            <p className="text-xs text-muted-foreground">
-              {hasAzurePat
-                ? "Leave blank to keep the saved personal PAT."
-                : "Create a PAT at: User Settings -> Personal access tokens -> New Token."}
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button
-              type="button"
-              onClick={handleTestAzureConnection}
-              disabled={testing || saving}
-              variant="outline"
-              className="flex-1 border-blue-600 text-blue-600 hover:bg-blue-50"
-            >
-              {testing ? "Testing..." : "Test Connection"}
-            </Button>
-            {azureProjectUrl ? (
-              <Button asChild variant="outline" className="flex-1">
-                <a href={azureProjectUrl} target="_blank" rel="noreferrer">
-                  <ExternalLink className="h-4 w-4" />
-                  Open Project
-                </a>
-              </Button>
-            ) : (
-              <Button type="button" variant="outline" disabled className="flex-1">
-                <ExternalLink className="h-4 w-4" />
-                Open Project
-              </Button>
-            )}
-            <Button
-              type="button"
-              onClick={handleDeleteAzurePat}
-              disabled={!hasAzurePat || saving}
-              variant="outline"
-              className="flex-1"
-            >
-              Remove PAT
-            </Button>
+                    return (
+                      <TableRow key={backup.fileName}>
+                        <TableCell className="font-medium">
+                          <span className="break-all">{backup.fileName}</span>
+                        </TableCell>
+                        <TableCell>
+                          {new Date(backup.createdAt).toLocaleString()}
+                        </TableCell>
+                        <TableCell>{formatBackupSize(backup.sizeBytes)}</TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                aria-label={`Actions for backup ${backup.fileName}`}
+                                disabled={actionsDisabled}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  setPendingBackupAction({
+                                    action: "restore",
+                                    fileName: backup.fileName,
+                                  })
+                                }
+                              >
+                                Restore from backup
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  setPendingBackupAction({
+                                    action: "delete",
+                                    fileName: backup.fileName,
+                                  })
+                                }
+                                className="text-red-600 focus:bg-red-50 focus:text-red-600"
+                              >
+                                Delete backup
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
           </div>
         </TabsContent>
 
@@ -1703,36 +1712,85 @@ export function GeneralSettingsForm({
         </TabsContent>
       </Tabs>
 
-      {message && (
-        <Alert
-          variant={messageType === "success" ? "default" : "destructive"}
-          className={
-            messageType === "success"
-              ? "mt-4 border-green-300 bg-green-50 text-green-950 dark:border-green-800 dark:bg-green-950/40 dark:text-green-100"
-              : "mt-4"
-          }
-        >
-          <AlertDescription>
-            {message}
-          </AlertDescription>
-        </Alert>
-      )}
+      <Dialog
+        open={Boolean(pendingBackupAction)}
+        onOpenChange={(open) => {
+          if (!open) setPendingBackupAction(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {pendingBackupAction?.action === "restore"
+                ? "Restore database backup"
+                : "Delete database backup"}
+            </DialogTitle>
+            <DialogDescription>
+              {pendingBackupAction?.action === "restore"
+                ? "Restoring replaces the current database contents with the selected backup."
+                : "Deleting removes the selected backup file permanently."}
+            </DialogDescription>
+          </DialogHeader>
 
-      <div className="mt-6 flex flex-wrap justify-end gap-2">
-        {showCancel && (
-          <Button
-            type="button"
-            onClick={() => onCancel?.()}
-            disabled={saving}
-            variant="secondary"
-          >
-            Cancel
-          </Button>
-        )}
-        <Button type="submit" disabled={saving}>
-          {saving ? "Saving..." : "Save Settings"}
-        </Button>
-      </div>
+          {pendingBackupAction ? (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm font-medium">
+              {pendingBackupAction.fileName}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingBackupAction(null)}
+              disabled={restoringBackup || deletingBackup}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (!pendingBackupAction) return;
+                if (pendingBackupAction.action === "restore") {
+                  void restoreBackup(pendingBackupAction.fileName);
+                } else {
+                  void deleteBackup(pendingBackupAction.fileName);
+                }
+              }}
+              disabled={restoringBackup || deletingBackup}
+            >
+              {pendingBackupAction?.action === "restore"
+                ? restoringBackup
+                  ? "Restoring..."
+                  : "Restore backup"
+                : deletingBackup
+                  ? "Deleting..."
+                  : "Delete backup"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {(showCancel || activeTab === "ai") ? (
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          {showCancel && (
+            <Button
+              type="button"
+              onClick={() => onCancel?.()}
+              disabled={saving}
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+          )}
+          {activeTab === "ai" ? (
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save Settings"}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </form>
   );
 }

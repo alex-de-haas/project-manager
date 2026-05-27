@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -61,9 +62,10 @@ export function WorkItemModal({ task, onClose, onSuccess }: WorkItemModalProps) 
 
       if (!response.ok) throw new Error(`Failed to ${isEditMode ? "update" : "create"} task`);
 
+      toast.success(`Task ${isEditMode ? "updated" : "created"}.`);
       onSuccess();
     } catch (err) {
-      alert(`Failed to ${isEditMode ? "update" : "create"} task`);
+      toast.error(`Failed to ${isEditMode ? "update" : "create"} task.`);
       console.error(err);
     } finally {
       setSubmitting(false);

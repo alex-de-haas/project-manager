@@ -439,7 +439,9 @@ export default function Home() {
   const [dayOffs, setDayOffs] = useState<DayOff[]>([]);
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [defaultDayLength, setDefaultDayLength] = useState(8);
+  const [defaultDayLength, setDefaultDayLength] = useState<number | null>(null);
+  const [defaultDayLengthLoading, setDefaultDayLengthLoading] = useState(true);
+  const expectedDayLength = defaultDayLength ?? 0;
   
   // Initialize state from localStorage
   const [currentDate, setCurrentDate] = useState(() => {
@@ -468,6 +470,7 @@ export default function Home() {
   const [showBlockers, setShowBlockers] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showChecklist, setShowChecklist] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showTimeEntries, setShowTimeEntries] = useState<{ taskId: number; taskTitle: string } | null>(null);
+  const [pendingDeleteTask, setPendingDeleteTask] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [pendingNoTimeStatusChange, setPendingNoTimeStatusChange] = useState<{
     taskId: number;
     taskTitle: string;
@@ -659,19 +662,25 @@ export default function Home() {
     fetchDayOffs();
   }, [fetchDayOffs]);
 
-  // Fetch default day length setting
+  // Fetch the current user's work-day length for the active project.
   useEffect(() => {
     const fetchDefaultDayLength = async () => {
       try {
         const response = await fetch("/api/settings?key=default_day_length");
         if (response.ok) {
           const data = await response.json();
-          if (data.value) {
-            setDefaultDayLength(parseFloat(data.value));
-          }
+          const parsed = Number(data.value);
+          setDefaultDayLength(
+            Number.isFinite(parsed) && parsed >= 0.5 && parsed <= 24 ? parsed : null
+          );
+        } else {
+          setDefaultDayLength(null);
         }
       } catch (err) {
         console.error("Failed to load default day length:", err);
+        setDefaultDayLength(null);
+      } finally {
+        setDefaultDayLengthLoading(false);
       }
     };
     fetchDefaultDayLength();
@@ -883,12 +892,12 @@ export default function Home() {
       }
 
       if (day.isDayOff) {
-        return sum + (day.isHalfDay ? defaultDayLength / 2 : 0);
+        return sum + (day.isHalfDay ? expectedDayLength / 2 : 0);
       }
 
-      return sum + defaultDayLength;
+      return sum + expectedDayLength;
     }, 0);
-  }, [viewMode, calendarDays, defaultDayLength]);
+  }, [viewMode, calendarDays, expectedDayLength]);
 
   // Calculate cumulative overwork time for each day (incrementing from start of month)
   const cumulativeOverwork = useMemo(
@@ -900,14 +909,14 @@ export default function Home() {
         const expectedHours = day.isWeekend
           ? 0
           : day.isDayOff
-          ? (day.isHalfDay ? defaultDayLength / 2 : 0)
-          : defaultDayLength;
+          ? (day.isHalfDay ? expectedDayLength / 2 : 0)
+          : expectedDayLength;
         const dailyDifference = actualHours - expectedHours;
         cumulative += dailyDifference;
         return cumulative;
       });
     },
-    [calendarDays, allTotalHoursByDay, defaultDayLength]
+    [calendarDays, allTotalHoursByDay, expectedDayLength]
   );
 
   const toggleStatusVisibility = (status: string) => {
@@ -1031,15 +1040,7 @@ export default function Home() {
     }
   };
 
-  const handleDeleteTask = async (taskId: number, taskTitle: string) => {
-    if (
-      !confirm(
-        `Are you sure you want to delete the task "${taskTitle}"? This will also delete all associated time entries.`
-      )
-    ) {
-      return;
-    }
-
+  const handleDeleteTask = async (taskId: number) => {
     try {
       const response = await fetch(`/api/tasks?id=${taskId}`, {
         method: "DELETE",
@@ -1048,6 +1049,7 @@ export default function Home() {
       if (!response.ok) throw new Error("Failed to delete task");
 
       await fetchTasks();
+      setPendingDeleteTask(null);
       toast.success("Task deleted successfully");
     } catch (err) {
       toast.error("Failed to delete task");
@@ -1227,7 +1229,7 @@ export default function Home() {
     }
   };
 
-  if (initialLoading) {
+  if (initialLoading || defaultDayLengthLoading) {
     return (
       <div className="h-full overflow-auto p-6">
         <Card>
@@ -1241,6 +1243,26 @@ export default function Home() {
               <Skeleton className="h-9 w-full" />
               <Skeleton className="h-32 w-full" />
             </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (defaultDayLength === null) {
+    return (
+      <div className="h-full overflow-auto p-6">
+        <Card>
+          <CardHeader>
+            <h1 className="text-2xl font-semibold">Work schedule required</h1>
+            <p className="text-sm text-muted-foreground">
+              Set your default day length in Profile before using the time tracker for this project.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <a href="/settings">Open Profile Settings</a>
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -1775,7 +1797,7 @@ export default function Home() {
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
-                                    onClick={() => handleDeleteTask(task.id, task.title)}
+                                    onClick={() => setPendingDeleteTask({ taskId: task.id, taskTitle: task.title })}
                                     className="text-red-600 focus:bg-red-50 focus:text-red-600"
                                   >
                                     <span className="flex items-center gap-2">
@@ -2012,6 +2034,50 @@ export default function Home() {
               <span>{trackedTimeTotal > 0 ? formatTimeDisplay(trackedTimeTotal) : "0:00"}</span>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingDeleteTask)}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteTask(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete task</DialogTitle>
+            <DialogDescription>
+              Delete this task and all associated time entries. This cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingDeleteTask ? (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm font-medium">
+              {pendingDeleteTask.taskTitle}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingDeleteTask(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (pendingDeleteTask) {
+                  void handleDeleteTask(pendingDeleteTask.taskId);
+                }
+              }}
+            >
+              Delete task
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

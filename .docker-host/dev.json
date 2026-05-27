@@ -1,12 +1,15 @@
 {
-  "metadataFile": "../metadata.json",
+  "metadataFile": "../metadata.dev.json",
   "moduleCommand": "npm run dev",
   "workingDirectory": "..",
+  "environment": {
+    "PORT": "3100"
+  },
   "target": {
     "id": "mdev_project_manager",
     "hostname": "project-manager.localhost",
     "portKey": "http",
-    "targetBaseUrl": "http://localhost:3000",
+    "localPort": 3100,
     "policy": "assignedUsersOnly",
     "identity": "required"
   },

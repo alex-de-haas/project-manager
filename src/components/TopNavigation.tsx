@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -11,7 +11,9 @@ import {
   Menu,
   Rocket,
   Settings,
+  Star,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { getUserAvatarColor } from "@/components/UserAvatar";
@@ -26,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const PROJECT_COOKIE_NAME = "pm_project_id";
+const PROJECT_USER_COOKIE_NAME = "pm_project_user_id";
 
 interface NavItem {
   label: string;
@@ -51,6 +54,7 @@ interface TopNavigationProps {
   initialUser?: AppUser | null;
   initialProjects?: AppProject[];
   initialActiveProjectId?: string;
+  initialDefaultProjectId?: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -73,7 +77,6 @@ const NAV_ITEMS: NavItem[] = [
     label: "Settings",
     href: "/settings",
     icon: Settings,
-    adminOnly: true,
   },
 ];
 
@@ -92,9 +95,11 @@ export default function TopNavigation({
   initialUser = null,
   initialProjects = [],
   initialActiveProjectId = "",
+  initialDefaultProjectId = "",
 }: TopNavigationProps) {
   const pathname = usePathname();
   const [activeProjectId, setActiveProjectId] = useState<string>(initialActiveProjectId);
+  const [defaultProjectId, setDefaultProjectId] = useState<string>(initialDefaultProjectId);
   const currentUser = initialUser;
   const projects = initialProjects;
   const isAdmin = Boolean(currentUser?.is_admin);
@@ -112,12 +117,50 @@ export default function TopNavigation({
     [isAdmin, pathname]
   );
 
+  const writeProjectCookies = (projectId: string) => {
+    if (!currentUser?.id || !projectId) {
+      document.cookie = `${PROJECT_COOKIE_NAME}=; path=/; max-age=0; samesite=lax`;
+      document.cookie = `${PROJECT_USER_COOKIE_NAME}=; path=/; max-age=0; samesite=lax`;
+      return;
+    }
+
+    document.cookie = `${PROJECT_COOKIE_NAME}=${encodeURIComponent(projectId)}; path=/; max-age=31536000; samesite=lax`;
+    document.cookie = `${PROJECT_USER_COOKIE_NAME}=${encodeURIComponent(String(currentUser.id))}; path=/; max-age=31536000; samesite=lax`;
+  };
+
   const handleProjectChange = (value: string) => {
     if (!value || value === activeProjectId) return;
 
     setActiveProjectId(value);
-    document.cookie = `${PROJECT_COOKIE_NAME}=${encodeURIComponent(value)}; path=/; max-age=31536000; samesite=lax`;
+    writeProjectCookies(value);
     window.location.reload();
+  };
+
+  useEffect(() => {
+    writeProjectCookies(activeProjectId);
+    // Keep the server-side project cookie owner in sync with the rendered host user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId, currentUser?.id]);
+
+  const handleSetDefaultProject = async (projectId: string) => {
+    if (!projectId) return;
+
+    try {
+      const response = await fetch("/api/projects/default", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: Number(projectId) }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to set default project");
+      }
+
+      setDefaultProjectId(projectId);
+      toast.success("Default project updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to set default project");
+    }
   };
 
   const renderProjectSelector = () => (
@@ -151,6 +194,7 @@ export default function TopNavigation({
         {projects.map((project) => {
           const projectId = String(project.id);
           const isActive = projectId === activeProjectId;
+          const isDefault = projectId === defaultProjectId;
 
           return (
             <DropdownMenuItem
@@ -169,10 +213,33 @@ export default function TopNavigation({
                 {getProjectInitials(project.name)}
               </div>
               <span className="flex-1 truncate">{project.name}</span>
+              {isDefault ? (
+                <Star className="h-4 w-4 fill-amber-400 text-amber-500" />
+              ) : null}
               <Check className={cn("h-4 w-4", isActive ? "opacity-100" : "opacity-0")} />
             </DropdownMenuItem>
           );
         })}
+        {projects.length === 0 ? (
+          <DropdownMenuItem disabled>No projects available</DropdownMenuItem>
+        ) : null}
+        {projects.length > 0 ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={!activeProjectId || activeProjectId === defaultProjectId}
+              onSelect={() => void handleSetDefaultProject(activeProjectId)}
+              className="gap-2"
+            >
+              <Star className="h-4 w-4" />
+              <span>
+                {activeProjectId === defaultProjectId
+                  ? "Current project is default"
+                  : "Set current as default"}
+              </span>
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
