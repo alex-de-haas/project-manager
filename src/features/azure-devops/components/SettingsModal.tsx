@@ -92,8 +92,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       const data = await response.json();
 
       if (response.ok) {
+        const patUser =
+          data.authenticatedUser?.displayName || data.authenticatedUser?.uniqueName;
         setMessage(
-          `Connection successful. Found project: ${data.project.name}`
+          `Connection successful. Found project: ${data.project.name}${
+            patUser ? `. PAT user: ${patUser}` : ""
+          }`
         );
         setMessageType("success");
       } else {

@@ -1,5 +1,6 @@
 import * as azdev from "azure-devops-node-api";
 import { WorkItemTrackingApi } from "azure-devops-node-api/WorkItemTrackingApi";
+import type { Identity } from "azure-devops-node-api/interfaces/IdentitiesInterfaces";
 import db from "@/lib/db";
 import {
   buildAzureDevOpsProjectUrl,
@@ -28,6 +29,12 @@ export interface AzureDevOpsConnectionContext {
   orgUrl: string;
   connection: azdev.WebApi;
   witApi: WorkItemTrackingApi;
+}
+
+export interface AzureDevOpsAuthenticatedUser {
+  id: string | null;
+  displayName: string | null;
+  uniqueName: string | null;
 }
 
 export type AzureDevOpsConfigStatus =
@@ -232,6 +239,65 @@ export const getAzureDevOpsSettingsForUser = (
 export const isAzureDevOpsConfigProblem = (
   value: AzureDevOpsSettings | AzureDevOpsConfigProblem
 ): value is AzureDevOpsConfigProblem => "status" in value;
+
+const readIdentityProperty = (
+  identity: Identity,
+  propertyName: string
+): string | null => {
+  if (!identity.properties || typeof identity.properties !== "object") {
+    return null;
+  }
+
+  const properties = identity.properties as Record<string, unknown>;
+  const property = properties[propertyName];
+
+  if (typeof property === "string") {
+    return property.trim() || null;
+  }
+
+  if (!property || typeof property !== "object") {
+    return null;
+  }
+
+  const propertyObject = property as Record<string, unknown>;
+  const value = propertyObject.$value ?? propertyObject.value;
+
+  return typeof value === "string" ? value.trim() || null : null;
+};
+
+const normalizeAzureDevOpsIdentity = (
+  identity?: Identity
+): AzureDevOpsAuthenticatedUser | null => {
+  if (!identity) return null;
+
+  const displayName =
+    identity.providerDisplayName?.trim() ||
+    identity.customDisplayName?.trim() ||
+    readIdentityProperty(identity, "DisplayName") ||
+    readIdentityProperty(identity, "Account") ||
+    null;
+  const uniqueName =
+    readIdentityProperty(identity, "Account") ||
+    readIdentityProperty(identity, "Mail") ||
+    readIdentityProperty(identity, "PreferredEmailAddress") ||
+    identity.socialDescriptor?.trim() ||
+    null;
+
+  return {
+    id: identity.id?.trim() || null,
+    displayName,
+    uniqueName,
+  };
+};
+
+export const getAzureDevOpsAuthenticatedUser = async (
+  connection: azdev.WebApi
+): Promise<AzureDevOpsAuthenticatedUser | null> => {
+  const connectionData = await connection.connect();
+  return normalizeAzureDevOpsIdentity(
+    connectionData.authenticatedUser ?? connectionData.authorizedUser
+  );
+};
 
 export const createAzureDevOpsConnectionContext = async (
   settings: AzureDevOpsSettings

@@ -225,7 +225,13 @@ export function ProfileSettingsForm() {
         throw new Error(data.error || data.details || "Connection failed.");
       }
 
-      setMessage(`Connection successful. Found project: ${data.project.name}`);
+      const patUser =
+        data.authenticatedUser?.displayName || data.authenticatedUser?.uniqueName;
+      setMessage(
+        `Connection successful. Found project: ${data.project.name}${
+          patUser ? `. PAT user: ${patUser}` : ""
+        }`
+      );
       setMessageType("success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Connection failed.");

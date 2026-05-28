@@ -8,8 +8,8 @@ The Azure DevOps integration connects Project Manager with Azure DevOps work ite
 
 - Configure the Azure DevOps project URL. Project Manager parses the organization and project from the URL and shows them as read-only values.
 - Store each user's Azure DevOps Personal Access Token separately.
-- Test the Azure DevOps connection from the current user's Profile after saving a personal token.
-- Import work items assigned to the current user.
+- Test the Azure DevOps connection from the current user's Profile after saving a personal token, including the Azure DevOps identity resolved from that token.
+- Import work items assigned to the Azure DevOps user represented by the current user's PAT.
 - Import specific work items by ID.
 - Avoid duplicate imports for work items that are already linked.
 - Show which tasks are linked to Azure DevOps.
@@ -36,9 +36,11 @@ For status updates and exported tasks, the token needs work item write access. R
 
 Saved tokens are personal credentials. Project Manager stores each Host user's PAT separately and uses only the current Host user's PAT for import, export, refresh, and status synchronization. API responses expose only whether the current user has a saved PAT.
 
+Assigned work item import does not depend on the Host user's email address. Project Manager sends Azure DevOps WIQL with the `@Me` macro, so Azure DevOps resolves the assignee from the PAT-authenticated request identity.
+
 ## Importing Work Items
 
-Users can import all assigned work items or provide a specific list of work item IDs. Imported work items become tasks or bugs in Project Manager and keep a link to their Azure DevOps source.
+Users can import all assigned work items or provide a specific list of work item IDs. Assigned imports use the saved PAT identity, not the local Project Manager user email. Imported work items become tasks or bugs in Project Manager and keep a link to their Azure DevOps source.
 
 Imported items can be used in time tracking, task lists, blockers, checklists, and release planning.
 
@@ -66,7 +68,7 @@ Release planning can import Azure DevOps user stories and related work items int
 
 ### No Work Items Are Found
 
-- Confirm that relevant work items are assigned to the expected user.
+- Confirm that relevant work items are assigned to the Azure DevOps user shown by the connection test for the saved PAT.
 - Check that manually entered work item IDs are correct.
 - Verify that the token can read those work items.
 
