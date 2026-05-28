@@ -189,8 +189,6 @@ export default function TopNavigation({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="w-64">
-        <DropdownMenuLabel>Projects</DropdownMenuLabel>
-        <DropdownMenuSeparator />
         {projects.map((project) => {
           const projectId = String(project.id);
           const isActive = projectId === activeProjectId;
@@ -223,20 +221,16 @@ export default function TopNavigation({
         {projects.length === 0 ? (
           <DropdownMenuItem disabled>No projects available</DropdownMenuItem>
         ) : null}
-        {projects.length > 0 ? (
+        {projects.length > 0 && activeProjectId !== defaultProjectId ? (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              disabled={!activeProjectId || activeProjectId === defaultProjectId}
+              disabled={!activeProjectId}
               onSelect={() => void handleSetDefaultProject(activeProjectId)}
               className="gap-2"
             >
               <Star className="h-4 w-4" />
-              <span>
-                {activeProjectId === defaultProjectId
-                  ? "Current project is default"
-                  : "Set current as default"}
-              </span>
+              <span>Set current as default</span>
             </DropdownMenuItem>
           </>
         ) : null}
