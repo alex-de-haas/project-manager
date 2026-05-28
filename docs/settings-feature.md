@@ -12,7 +12,7 @@ Profile settings are scoped to the current Host user and active Project Manager 
 
 Profile also stores the current user's Azure DevOps Personal Access Token. The profile page shows the active project's Azure DevOps organization and project when that integration is configured, but project-level Azure DevOps settings are managed from the Projects tab by administrators.
 
-JSON import lives in Profile because imported time entries and day-offs are scoped to the current Host user and active project. It imports the supported Project Manager JSON export format, matches time entries by Azure DevOps work item ID, and creates missing work items as Azure DevOps-linked local tasks for the current user.
+JSON import lives in Profile because imported time entries and days off are scoped to the current Host user and active project. It imports the supported Project Manager JSON export format, matches time entries by Azure DevOps work item ID, and creates missing work items as Azure DevOps-linked local tasks for the current user.
 
 ## Project Management
 

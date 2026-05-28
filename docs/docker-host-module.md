@@ -42,7 +42,7 @@ The main data groups are:
 - Projects, project membership, and project settings.
 - Module-level settings, including AI provider base URL and selected model.
 - Per-user credentials such as Azure DevOps Personal Access Tokens.
-- Tasks, time entries, day-offs, blockers, and checklist items.
+- Tasks, time entries, days off, blockers, and checklist items.
 - Releases, release work items, and release work item children.
 - Module backup files under `/app/data/backups`.
 

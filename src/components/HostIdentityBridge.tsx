@@ -211,8 +211,12 @@ export function HostIdentityBridge() {
     }
 
     const guardedFetch: typeof window.fetch = async (input, init) => {
+      if (disposed) {
+        return originalFetch(input, init);
+      }
+
       const shouldGuard = shouldGuardApiFetch(input, init);
-      const retryInput = cloneRetryInput(input);
+      const retryInput = shouldGuard ? cloneRetryInput(input) : null;
 
       if (shouldGuard && identityNeedsRefresh()) {
         const refreshed = await ensureFreshIdentity();
@@ -342,13 +346,11 @@ function shouldGuardApiFetch(input: FetchInput, init: FetchInit) {
     return false;
   }
 
-  const method = getFetchMethod(input, init);
-  return method !== "GET" || identityEndpointMayBeExpired();
-}
+  if (!isSafelyRetryableFetch(input, init)) {
+    return false;
+  }
 
-function identityEndpointMayBeExpired() {
-  const expiresAtMs = getStoredTokenExpiresAtMs();
-  return !expiresAtMs || expiresAtMs - Date.now() <= bootstrapRefreshSkewMs;
+  return true;
 }
 
 function getFetchUrl(input: FetchInput) {
@@ -392,13 +394,27 @@ function isRequest(input: FetchInput): input is Request {
   return typeof Request !== "undefined" && input instanceof Request;
 }
 
+function isSafelyRetryableFetch(input: FetchInput, init: FetchInit) {
+  const method = getFetchMethod(input, init);
+  if (method === "GET" || method === "HEAD") {
+    return true;
+  }
+
+  return !fetchHasBody(input, init);
+}
+
+function fetchHasBody(input: FetchInput, init: FetchInit) {
+  if (init && "body" in init && init.body !== undefined && init.body !== null) {
+    return true;
+  }
+
+  return isRequest(input) && input.body !== null;
+}
+
 function identityRefreshRequiredResponse() {
   return new Response(
     JSON.stringify({
-      error: {
-        code: "docker_host_identity_refresh_required",
-        message: "Docker Host identity refresh is required.",
-      },
+      error: "Docker Host identity refresh is required.",
     }),
     {
       status: 401,

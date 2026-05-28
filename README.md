@@ -9,7 +9,7 @@ The application is organized around a few core workflows:
 - **Time tracking**: weekly and monthly views, inline time entry editing, totals by day and work item, status filtering, untracked delegated work warnings, and Excel export.
 - **Work management**: local tasks and bugs, task status changes, checklists, blockers, and completion rules that prevent closing work with unfinished checklist items.
 - **Release planning**: ordered releases, imported work items, child task visibility, release status tracking, and movement of work between releases.
-- **Day-offs**: personal and team day-off tracking with full-day and half-day support.
+- **Days off**: personal and team day off tracking with full-day and half-day support.
 - **Project administration**: Docker Host identity, host-admin settings access, project switching, projects, and per-project user access.
 - **Azure DevOps integration**: optional import, export, refresh, status sync, and release planning support for Azure DevOps work items.
 - **Database operations**: local SQLite storage with JSON migration import, backup, and restore support.

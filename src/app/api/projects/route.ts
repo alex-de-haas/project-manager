@@ -17,12 +17,31 @@ import {
   upsertAzureDevOpsProjectSettings,
 } from "@/lib/azure-devops/settings";
 
-const parseMemberUserIds = (value: unknown): number[] =>
-  Array.isArray(value)
-    ? value
-        .map((item: unknown) => Number(item))
-        .filter((item: number) => Number.isInteger(item) && item > 0)
-    : [];
+type ParsedMemberUserIds = {
+  memberUserIds: number[];
+  error: string | null;
+};
+
+const parseMemberUserIds = (value: unknown): ParsedMemberUserIds => {
+  if (value === undefined) {
+    return { memberUserIds: [], error: null };
+  }
+
+  if (!Array.isArray(value)) {
+    return { memberUserIds: [], error: "memberUserIds must be an array of user IDs" };
+  }
+
+  const memberUserIds: number[] = [];
+  for (const item of value) {
+    const memberId = Number(item);
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      return { memberUserIds: [], error: "memberUserIds must contain positive integer user IDs" };
+    }
+    memberUserIds.push(memberId);
+  }
+
+  return { memberUserIds: Array.from(new Set(memberUserIds)), error: null };
+};
 
 const getProjectResponse = (projectId: number) => {
   const project = db
@@ -46,20 +65,39 @@ const replaceProjectMembers = (
   memberUserIds: number[],
   addedByUserId: number
 ) => {
-  const unique = Array.from(new Set(memberUserIds));
   db.prepare("DELETE FROM project_members WHERE project_id = ?").run(projectId);
   const insert = db.prepare(
     "INSERT INTO project_members (project_id, user_id, added_by_user_id) VALUES (?, ?, ?)"
   );
 
-  for (const memberId of unique) {
-    const user = db
-      .prepare("SELECT id, is_admin FROM users WHERE id = ?")
-      .get(memberId) as { id: number; is_admin: number } | undefined;
-    if (user && user.is_admin !== 1) {
-      insert.run(projectId, memberId, addedByUserId);
-    }
+  for (const memberId of memberUserIds) {
+    insert.run(projectId, memberId, addedByUserId);
   }
+};
+
+const validateProjectMemberUserIds = (memberUserIds: number[]): string | null => {
+  if (memberUserIds.length === 0) {
+    return null;
+  }
+
+  const placeholders = memberUserIds.map(() => "?").join(", ");
+  const users = db
+    .prepare(`SELECT id, is_admin FROM users WHERE id IN (${placeholders})`)
+    .all(...memberUserIds) as Array<{ id: number; is_admin: number }>;
+  const foundUserIds = new Set(users.map((user) => user.id));
+  const missingUserIds = memberUserIds.filter((memberId) => !foundUserIds.has(memberId));
+  if (missingUserIds.length > 0) {
+    return "Project member users must exist";
+  }
+
+  const adminUserIds = users
+    .filter((user) => user.is_admin === 1)
+    .map((user) => user.id);
+  if (adminUserIds.length > 0) {
+    return "Host administrators already have project access and cannot be assigned as project members";
+  }
+
+  return null;
 };
 
 const applyAzureProjectUrl = (projectId: number, value: unknown) => {
@@ -106,7 +144,15 @@ export async function POST(request: NextRequest) {
     const userId = admin.userId;
     const body = await request.json();
     const name = String(body?.name ?? "").trim();
-    const memberUserIds = parseMemberUserIds(body?.memberUserIds);
+    const parsedMemberUserIds = parseMemberUserIds(body?.memberUserIds);
+    if (parsedMemberUserIds.error) {
+      return NextResponse.json({ error: parsedMemberUserIds.error }, { status: 400 });
+    }
+    const memberUserIds = parsedMemberUserIds.memberUserIds;
+    const memberValidationError = validateProjectMemberUserIds(memberUserIds);
+    if (memberValidationError) {
+      return NextResponse.json({ error: memberValidationError }, { status: 400 });
+    }
 
     if (!name) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 });
@@ -123,8 +169,8 @@ export async function POST(request: NextRequest) {
     }
 
     const duplicate = db
-      .prepare("SELECT id FROM projects WHERE user_id = ? AND lower(name) = lower(?)")
-      .get(userId, name) as { id: number } | undefined;
+      .prepare("SELECT id FROM projects WHERE lower(name) = lower(?)")
+      .get(name) as { id: number } | undefined;
     if (duplicate) {
       return NextResponse.json({ error: "A project with this name already exists" }, { status: 409 });
     }
@@ -156,9 +202,19 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const projectId = Number(body?.id);
     const name = body?.name !== undefined ? String(body?.name).trim() : undefined;
-    const memberUserIds = body?.memberUserIds !== undefined
+    const parsedMemberUserIds = body?.memberUserIds !== undefined
       ? parseMemberUserIds(body.memberUserIds)
-      : undefined;
+      : null;
+    if (parsedMemberUserIds?.error) {
+      return NextResponse.json({ error: parsedMemberUserIds.error }, { status: 400 });
+    }
+    const memberUserIds = parsedMemberUserIds?.memberUserIds;
+    if (memberUserIds !== undefined) {
+      const memberValidationError = validateProjectMemberUserIds(memberUserIds);
+      if (memberValidationError) {
+        return NextResponse.json({ error: memberValidationError }, { status: 400 });
+      }
+    }
 
     if (!Number.isInteger(projectId) || projectId <= 0) {
       return NextResponse.json({ error: "Valid project ID is required" }, { status: 400 });
@@ -187,8 +243,8 @@ export async function PATCH(request: NextRequest) {
 
     if (name !== undefined) {
       const duplicate = db
-        .prepare("SELECT id FROM projects WHERE user_id = ? AND lower(name) = lower(?) AND id != ?")
-        .get(project.user_id, name, projectId) as { id: number } | undefined;
+        .prepare("SELECT id FROM projects WHERE lower(name) = lower(?) AND id != ?")
+        .get(name, projectId) as { id: number } | undefined;
       if (duplicate) {
         return NextResponse.json({ error: "A project with this name already exists" }, { status: 409 });
       }

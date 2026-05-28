@@ -150,7 +150,7 @@ export function ProfileSettingsForm() {
       setMessage(
         `JSON import completed: ${imported.timeEntries ?? 0} time entries, ${
           imported.dayOffs ?? 0
-        } day-offs, ${imported.tasksCreated ?? 0} tasks created, ${
+        } days off, ${imported.tasksCreated ?? 0} tasks created, ${
           imported.tasksMatched ?? 0
         } tasks matched.`
       );

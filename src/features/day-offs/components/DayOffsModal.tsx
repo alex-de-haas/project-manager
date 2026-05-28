@@ -72,7 +72,7 @@ export function DayOffsModal({
     
     try {
       if (isRangeMode) {
-        // Create day-offs for date range
+        // Create days off for date range
         const start = new Date(date);
         const end = new Date(endDate);
         const dates: string[] = [];
@@ -98,7 +98,7 @@ export function DayOffsModal({
               skippedCount++;
             } else {
               const data = await response.json();
-              throw new Error(data.error || "Failed to create day-off");
+              throw new Error(data.error || "Failed to create day off");
             }
           } catch (err: any) {
             if (!err.message.includes("already exists")) {
@@ -109,7 +109,7 @@ export function DayOffsModal({
         }
 
         setMessage(
-          `Added ${addedCount} day-off(s)${
+          `Added ${addedCount} ${addedCount === 1 ? "day off" : "days off"}${
             skippedCount > 0 ? `, skipped ${skippedCount} (already exists)` : ""
           }`
         );
@@ -124,10 +124,10 @@ export function DayOffsModal({
 
         if (!response.ok) {
           const data = await response.json();
-          throw new Error(data.error || "Failed to create day-off");
+          throw new Error(data.error || "Failed to create day off");
         }
 
-        setMessage("Day-off added successfully.");
+        setMessage("Day off added successfully.");
         setMessageType("success");
       }
 
@@ -139,7 +139,7 @@ export function DayOffsModal({
         onSuccess();
       }, 1000);
     } catch (err: any) {
-      setMessage(err instanceof Error ? err.message : "Failed to create day-off");
+      setMessage(err instanceof Error ? err.message : "Failed to create day off");
       setMessageType("error");
     } finally {
       setSubmitting(false);
@@ -234,16 +234,16 @@ export function DayOffsModal({
         method: "DELETE",
       });
 
-      if (!response.ok) throw new Error("Failed to delete day-off");
+      if (!response.ok) throw new Error("Failed to delete day off");
 
       setPendingDeleteDayOff(null);
-      setMessage("Day-off deleted successfully.");
+      setMessage("Day off deleted successfully.");
       setMessageType("success");
       setTimeout(() => {
         onSuccess();
       }, 1000);
     } catch (err) {
-      setMessage("Failed to delete day-off");
+      setMessage("Failed to delete day off");
       setMessageType("error");
     }
   };
@@ -253,7 +253,7 @@ export function DayOffsModal({
       <Dialog open={true} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Manage Day-Offs</DialogTitle>
+            <DialogTitle>Manage Days Off</DialogTitle>
             <DialogDescription>
               Add holidays, vacations, or other non-working days
             </DialogDescription>
@@ -380,8 +380,8 @@ export function DayOffsModal({
                 {submitting
                   ? "Adding..."
                   : isRangeMode
-                  ? "+ Add Day-Off Range"
-                  : "+ Add Day-Off"}
+                  ? "+ Add Days Off"
+                  : "+ Add Day Off"}
               </Button>
             </form>
           </TabsContent>
@@ -449,7 +449,7 @@ export function DayOffsModal({
         {currentDayOffs.length > 0 && (
           <div className="space-y-2 mt-4">
             <h3 className="font-semibold text-sm text-gray-700">
-              Current Day-Offs ({currentDayOffs.length})
+              Current Days Off ({currentDayOffs.length})
             </h3>
             <div className="max-h-[300px] overflow-y-auto space-y-2">
               {currentDayOffs.map((dayOff) => (
@@ -471,7 +471,7 @@ export function DayOffsModal({
                     size="icon"
                     className="h-8 w-8 text-red-600 hover:text-red-800 hover:bg-red-50"
                     onClick={() => setPendingDeleteDayOff(dayOff)}
-                    title="Delete day-off"
+                    title="Delete day off"
                   >
                     ✕
                   </Button>
@@ -497,9 +497,9 @@ export function DayOffsModal({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete day-off</DialogTitle>
+            <DialogTitle>Delete day off</DialogTitle>
             <DialogDescription>
-              Delete this day-off from your calendar. This cannot be undone.
+              Delete this day off from your calendar. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
 
@@ -534,7 +534,7 @@ export function DayOffsModal({
               }}
               disabled={submitting}
             >
-              Delete day-off
+              Delete day off
             </Button>
           </DialogFooter>
         </DialogContent>

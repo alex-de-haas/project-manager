@@ -1250,7 +1250,7 @@ export function GeneralSettingsForm({
               <DialogHeader>
                 <DialogTitle>Delete project</DialogTitle>
                 <DialogDescription>
-                  Delete &quot;{projectPendingDelete?.name}&quot; and all of its tasks, releases, day-offs, and settings. This cannot be undone.
+                  Delete &quot;{projectPendingDelete?.name}&quot; and all of its tasks, releases, days off, and settings. This cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>

@@ -127,7 +127,7 @@ export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser =>
   if (existing) {
     const nextName = buildUniqueName(normalizeDisplayName(identity), existing.id);
     const nextEmail = identity.email ?? null;
-    const nextIsAdmin = shouldBeAdmin ? 1 : 0;
+    const nextIsAdmin = shouldBeAdmin ? 1 : existing.is_admin ?? 0;
 
     if (
       existing.name !== nextName ||

@@ -190,6 +190,14 @@ const isAzureDevOpsTaskAssignedAway = (task: TaskWithTimeEntries) =>
   task.external_source === "azure_devops" &&
   task.isAzureAssignedToCurrentUser === false;
 
+const hasTaskTimeInPeriod = (
+  task: TaskWithTimeEntries,
+  periodDateKeys: Set<string>
+) =>
+  Object.entries(task.timeEntries).some(
+    ([date, hours]) => periodDateKeys.has(date) && hours > 0
+  );
+
 const getAssignedUserLabel = (task: TaskWithTimeEntries) =>
   task.assignedUserName || task.assignedUserEmail || "another user";
 
@@ -591,11 +599,11 @@ export default function Home() {
       const response = await fetch(
         `/api/day-offs?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`
       );
-      if (!response.ok) throw new Error("Failed to fetch day-offs");
+      if (!response.ok) throw new Error("Failed to fetch days off");
       const data = await response.json();
       setDayOffs(data);
     } catch (err) {
-      console.error("Failed to load day-offs:", err);
+      console.error("Failed to load days off:", err);
     }
   }, [dateRange]);
 
@@ -778,8 +786,9 @@ export default function Home() {
   const filteredTasks = useMemo(
     () => tasks.filter(task => {
       const status = task.status || "New";
+      const hasTimeInPeriod = hasTaskTimeInPeriod(task, periodDateKeys);
 
-      if (isAzureDevOpsTaskAssignedAway(task)) {
+      if (isAzureDevOpsTaskAssignedAway(task) && !hasTimeInPeriod) {
         return false;
       }
       
@@ -790,9 +799,6 @@ export default function Home() {
       
       // For completed tasks (Resolved/Closed), only show if they have tracked time in current period
       if (COMPLETED_STATUSES.has(status.toLowerCase())) {
-        const hasTimeInPeriod = Object.entries(task.timeEntries).some(
-          ([date, hours]) => periodDateKeys.has(date) && hours > 0
-        );
         return hasTimeInPeriod;
       }
       

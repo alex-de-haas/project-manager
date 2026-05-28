@@ -93,7 +93,7 @@ export default function DayOffsCalendarPage() {
       ]);
 
       if (!teamResponse.ok || !currentUserResponse.ok) {
-        throw new Error("Failed to load day-offs");
+        throw new Error("Failed to load days off");
       }
 
       const [teamDayOffs, userDayOffs] = await Promise.all([
@@ -121,14 +121,14 @@ export default function DayOffsCalendarPage() {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold">Team Day-Off Calendar</h1>
+            <h1 className="text-2xl font-semibold">Team Days Off Calendar</h1>
             <p className="text-sm text-muted-foreground">
-              Overview of day-offs for all users.
+              Overview of days off for all users.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button onClick={() => setShowDayOffsModal(true)}>
-              + Add Day-Off
+              + Add Day Off
             </Button>
             <Button
               variant="outline"
@@ -263,7 +263,7 @@ export default function DayOffsCalendarPage() {
                         ))}
                         {entries.length === 0 && inCurrentMonth && (
                           <div className="text-[11px] text-muted-foreground">
-                            {isWeekend ? "Weekend" : "No day-off"}
+                            {isWeekend ? "Weekend" : "No day off"}
                           </div>
                         )}
                       </div>
@@ -287,7 +287,7 @@ export default function DayOffsCalendarPage() {
             variant="outline"
             className="border-purple-300 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
           >
-            Day-off
+            Day off
           </Badge>
           <Badge
             variant="outline"

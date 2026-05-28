@@ -190,10 +190,10 @@ export async function POST(request: NextRequest) {
       for (const dayOff of dayOffs) {
         const normalizedDayOff = assertObject(
           dayOff,
-          "Every imported day-off must be an object"
+          "Every imported day off must be an object"
         ) as JsonImportDayOff;
         if (!isDateString(normalizedDayOff.date)) {
-          throw new Error("Every imported day-off must use YYYY-MM-DD dates");
+          throw new Error("Every imported day off must use YYYY-MM-DD dates");
         }
 
         db.prepare(
