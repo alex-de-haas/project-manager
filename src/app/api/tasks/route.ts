@@ -19,6 +19,9 @@ interface TimeEntryTotal {
 type TaskRow = Task & {
   assignedUserName?: string | null;
   assignedUserEmail?: string | null;
+  azure_assigned_to_name?: string | null;
+  azure_assigned_to_unique_name?: string | null;
+  azure_assignee_is_current_user?: number | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -29,9 +32,6 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month'); // Format: YYYY-MM
     const startDateParam = searchParams.get('startDate'); // Format: YYYY-MM-DD
     const endDateParam = searchParams.get('endDate'); // Format: YYYY-MM-DD
-    const includeUntrackedDelegated =
-      searchParams.get('includeUntrackedDelegated') === 'true';
-
     let startDate: string;
     let endDate: string;
 
@@ -61,19 +61,7 @@ export async function GET(request: NextRequest) {
       WHERE t.project_id = ?
         AND DATE(t.created_at) <= ?
         AND (t.completed_at IS NULL OR DATE(t.completed_at) >= ?)
-        AND (
-          t.user_id = ?
-          OR (
-            ? = 1
-            AND t.user_id <> ?
-            AND NOT EXISTS (
-              SELECT 1
-              FROM time_entries all_te
-              WHERE all_te.task_id = t.id
-                AND all_te.hours > 0
-            )
-          )
-        )
+        AND t.user_id = ?
       ORDER BY
         CASE WHEN t.user_id = ? THEN 0 ELSE 1 END,
         COALESCE(t.display_order, 999999),
@@ -82,8 +70,6 @@ export async function GET(request: NextRequest) {
       projectId,
       endDate,
       startDate,
-      userId,
-      includeUntrackedDelegated ? 1 : 0,
       userId,
       userId
     ) as TaskRow[];
@@ -155,6 +141,13 @@ export async function GET(request: NextRequest) {
         assignedUserName: task.assignedUserName ?? null,
         assignedUserEmail: task.assignedUserEmail ?? null,
         isAssignedToCurrentUser: task.user_id === userId,
+        azureAssignedToName: task.azure_assigned_to_name ?? null,
+        azureAssignedToUniqueName: task.azure_assigned_to_unique_name ?? null,
+        isAzureAssignedToCurrentUser:
+          task.azure_assignee_is_current_user === null ||
+          task.azure_assignee_is_current_user === undefined
+            ? null
+            : Boolean(task.azure_assignee_is_current_user),
         blockers: taskBlockers,
         checklistSummary,
       };

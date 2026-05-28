@@ -10,9 +10,14 @@ import {
 } from "@/lib/azure-devops/child-work-items";
 import {
   createAzureDevOpsConnectionContext,
+  getAzureDevOpsAuthenticatedUser,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
+import {
+  isAzureDevOpsIdentityAssignedToUser,
+  normalizeAzureDevOpsWorkItemIdentity,
+} from "@/lib/azure-devops/identity";
 
 interface RefreshRequest {
   releaseId?: number;
@@ -200,7 +205,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+    const { settings, connection, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+    const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
 
     const workItemIdSet = new Set<number>();
     for (const task of importedTasks) {
@@ -245,7 +251,16 @@ export async function POST(request: NextRequest) {
 
     const updateTasksStmt = db.prepare(`
       UPDATE tasks
-      SET title = ?, type = ?, status = ?, tags = ?, completed_at = ?
+      SET
+        title = ?,
+        type = ?,
+        status = ?,
+        tags = ?,
+        completed_at = ?,
+        azure_assigned_to_id = ?,
+        azure_assigned_to_name = ?,
+        azure_assigned_to_unique_name = ?,
+        azure_assignee_is_current_user = ?
       WHERE id = ? AND user_id = ? AND project_id = ?
     `);
 
@@ -306,6 +321,15 @@ export async function POST(request: NextRequest) {
       const workItemType = releaseWorkItemType.toLowerCase();
       const status = (workItem.fields["System.State"] as string) || null;
       const tags = (workItem.fields["System.Tags"] as string) || null;
+      const assignedTo = normalizeAzureDevOpsWorkItemIdentity(
+        workItem.fields["System.AssignedTo"]
+      );
+      const isAssignedToCurrentUser = isAzureDevOpsIdentityAssignedToUser(
+        assignedTo,
+        authenticatedUser
+      );
+      const isAssignedToCurrentUserValue =
+        isAssignedToCurrentUser === null ? null : isAssignedToCurrentUser ? 1 : 0;
       const closedDate =
         (workItem.fields["Microsoft.VSTS.Common.ClosedDate"] as string) ||
         (workItem.fields["Microsoft.VSTS.Common.ResolvedDate"] as string) ||
@@ -334,7 +358,13 @@ export async function POST(request: NextRequest) {
           task.type !== taskType ||
           task.status !== status ||
           task.tags !== tags ||
-          taskCompletedAt !== workItemCompletedAt;
+          taskCompletedAt !== workItemCompletedAt ||
+          (task.azure_assigned_to_id ?? null) !== (assignedTo?.id ?? null) ||
+          (task.azure_assigned_to_name ?? null) !== (assignedTo?.displayName ?? null) ||
+          (task.azure_assigned_to_unique_name ?? null) !==
+            (assignedTo?.uniqueName ?? null) ||
+          (task.azure_assignee_is_current_user ?? null) !==
+            isAssignedToCurrentUserValue;
 
         if (hasTaskChanges) {
           updateTasksStmt.run(
@@ -343,6 +373,10 @@ export async function POST(request: NextRequest) {
             status,
             tags,
             closedDate,
+            assignedTo?.id ?? null,
+            assignedTo?.displayName ?? null,
+            assignedTo?.uniqueName ?? null,
+            isAssignedToCurrentUserValue,
             task.id,
             userId,
             projectId

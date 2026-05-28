@@ -2,13 +2,13 @@
 
 ## Description
 
-Time tracking shows weekly and monthly work item rows for the active project. Users can enter time inline for work items assigned to them, review totals by day and work item, filter by status, and export monthly time to Excel.
+Time tracking shows weekly and monthly work item rows for the active project. Users can enter time inline for their local work items, review totals by day and work item, filter by status, refresh imported Azure DevOps items, and export monthly time to Excel.
 
-When the user clicks **Refresh**, rows assigned to another project member are shown when they have no tracked time recorded. These rows are highlighted with a warning icon and assignee tooltip so project members can spot untracked delegated work without editing another user's time.
+When the user clicks **Refresh**, Project Manager checks only Azure DevOps work items that the current user already imported into the active period. If an imported, non-completed work item is no longer assigned to the current PAT-authenticated Azure DevOps user, the row is highlighted with a warning icon and assignee tooltip. This helps users spot work that was reassigned directly in Azure DevOps after it had already been imported locally.
 
 ## Behavior
 
-- Current-user work items remain editable in the time grid.
-- Work items assigned to another user are read-only in the time grid.
-- Other-user work items are checked when Refresh runs and are only surfaced in this warning state when no all-time tracked time exists for the work item.
-- Completed work items with no period time remain hidden unless they are in the other-user untracked warning state and their status filter is enabled.
+- Current-user local work items remain editable in the time grid.
+- Refresh updates title, type, status, tags, completion date, and current Azure DevOps assignee metadata for imported Azure DevOps tasks in the active period.
+- Assignment mismatch warnings are scoped to the current user's imported Azure DevOps tasks. Refresh does not surface unrelated project tasks owned by other users.
+- Completed work items with no period time remain hidden.

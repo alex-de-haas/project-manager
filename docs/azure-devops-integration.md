@@ -46,7 +46,7 @@ Imported items can be used in time tracking, task lists, blockers, checklists, a
 
 ## Refreshing Work Items
 
-Refresh updates previously imported work items with the latest Azure DevOps data. This is useful when titles, types, or statuses change outside Project Manager.
+Refresh updates previously imported work items with the latest Azure DevOps data. This is useful when titles, types, statuses, tags, completion dates, or assignees change outside Project Manager. Time tracking refreshes are scoped to the current user's imported Azure DevOps tasks in the selected week or month; they do not surface unrelated project tasks owned by other users.
 
 ## Status Sync
 

@@ -67,9 +67,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Bug, ClipboardCheck, GripVertical, ListChecks, Clock3, Upload } from "lucide-react";
-import { ShieldAlert, Trash2, MoreVertical, TreePalm, Pencil, Filter } from "lucide-react";
-import { TriangleAlert } from "lucide-react";
+import {
+  Bug,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardCheck,
+  Clock3,
+  Download,
+  Filter,
+  GripVertical,
+  ListChecks,
+  MoreVertical,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+  TreePalm,
+  TriangleAlert,
+  Upload,
+} from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -124,6 +141,7 @@ const WEEK_STARTS_ON_MONDAY = { weekStartsOn: 1 as const };
 const MAX_VISIBLE_TASK_TAGS = 3;
 const CHIP_GAP_PX = 6;
 const COMPLETED_STATUSES = new Set(["closed", "resolved", "done", "completed"]);
+const STATUS_FILTER_OPTIONS = ["New", "Active", "Resolved", "Closed"] as const;
 
 const parseTaskTags = (rawTags?: string | null): string[] =>
   rawTags
@@ -163,11 +181,16 @@ const getTaskTrackedHours = (task: TaskWithTimeEntries) =>
   task.totalHoursTracked ??
   Object.values(task.timeEntries).reduce((sum, hours) => sum + hours, 0);
 
-const hasOtherAssigneeNoTimeWarning = (task: TaskWithTimeEntries) =>
-  task.isAssignedToCurrentUser === false && getTaskTrackedHours(task) <= 0;
+const hasAzureAssignmentMismatchWarning = (task: TaskWithTimeEntries) =>
+  task.external_source === "azure_devops" &&
+  task.isAzureAssignedToCurrentUser === false &&
+  !COMPLETED_STATUSES.has((task.status ?? "").toLowerCase());
 
 const getAssignedUserLabel = (task: TaskWithTimeEntries) =>
   task.assignedUserName || task.assignedUserEmail || "another user";
+
+const getAzureAssignedUserLabel = (task: TaskWithTimeEntries) =>
+  task.azureAssignedToName || task.azureAssignedToUniqueName || "Unassigned";
 
 interface SortableRowProps {
   id: number;
@@ -496,13 +519,19 @@ export default function Home() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        return new Set(Array.isArray(parsed) ? parsed : ["New", "Active", "Resolved", "Closed"]);
+        return new Set<string>(Array.isArray(parsed) ? parsed : STATUS_FILTER_OPTIONS);
       } catch {
-        return new Set(["New", "Active", "Resolved", "Closed"]);
+        return new Set<string>(STATUS_FILTER_OPTIONS);
       }
     }
-    return new Set(["New", "Active", "Resolved", "Closed"]);
+    return new Set<string>(STATUS_FILTER_OPTIONS);
   });
+  const isStatusFilterActive = STATUS_FILTER_OPTIONS.some(
+    (status) => !visibleStatuses.has(status)
+  );
+  const statusFilterLabel = isStatusFilterActive
+    ? "Filter status active"
+    : "Filter status";
   const monthParam = useMemo(
     () => format(currentDate, "yyyy-MM"),
     [currentDate]
@@ -529,16 +558,13 @@ export default function Home() {
   }, [currentDate, viewMode]);
 
   const fetchTasks = useCallback(
-    async (showLoader = false, includeUntrackedDelegated = false) => {
+    async (showLoader = false) => {
       try {
         if (showLoader) setLoading(true);
         const params = new URLSearchParams({
           startDate: dateRange.startDate,
           endDate: dateRange.endDate,
         });
-        if (includeUntrackedDelegated) {
-          params.set("includeUntrackedDelegated", "true");
-        }
         const response = await fetch(`/api/tasks?${params.toString()}`);
         if (!response.ok) throw new Error("Failed to fetch tasks");
         const data = await response.json();
@@ -759,7 +785,7 @@ export default function Home() {
         const hasTimeInPeriod = Object.entries(task.timeEntries).some(
           ([date, hours]) => periodDateKeys.has(date) && hours > 0
         );
-        return hasTimeInPeriod || hasOtherAssigneeNoTimeWarning(task);
+        return hasTimeInPeriod || hasAzureAssignmentMismatchWarning(task);
       }
       
       return true;
@@ -1187,8 +1213,8 @@ export default function Home() {
       console.error("Error refreshing Azure DevOps tasks:", err);
       toast.error("An error occurred while refreshing tasks");
     } finally {
-      // Always fetch latest tasks from database and include delegated no-time warnings.
-      await fetchTasks(false, true);
+      // Always fetch the current user's latest imported tasks from the database.
+      await fetchTasks(false);
       setIsRefreshing(false);
     }
   };
@@ -1272,42 +1298,9 @@ export default function Home() {
   return (
     <div className="h-full flex flex-col">
       <div className="p-6 shrink-0">
-        <div className="flex gap-3 items-center justify-between flex-wrap">
-          <div className="flex gap-3 items-center">
-            <div className="flex bg-muted rounded-md p-1">
-              <Button
-                variant={viewMode === "week" ? "default" : "ghost"}
-                size="sm"
-                className={`h-8 px-4 ${
-                  viewMode === "week"
-                    ? "bg-orange-500 text-white hover:bg-orange-600"
-                    : ""
-                }`}
-                onClick={() => setViewMode("week")}
-              >
-                Week
-              </Button>
-              <Button
-                variant={viewMode === "month" ? "default" : "ghost"}
-                size="sm"
-                className="h-8 px-4"
-                onClick={() => setViewMode("month")}
-              >
-                Month
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex gap-3 items-center">
-            <Button
-              onClick={() => changeDate(-1)}
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-            >
-              ←
-            </Button>
-            <h1 className="text-2xl font-semibold">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-semibold">
               {viewMode === "week"
                 ? `This week: ${format(weekStart, "dd")} – ${format(
                     weekEnd,
@@ -1315,73 +1308,182 @@ export default function Home() {
                   )}`
                 : format(currentDate, "MMMM yyyy")}
             </h1>
-            <Button
-              onClick={() => changeDate(1)}
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-            >
-              →
-            </Button>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10">
-                  <Filter className="w-4 h-4 mr-2" />
-                  Filter Status
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>Show Status</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {["New", "Active", "Resolved", "Closed"].map((status) => (
-                  <DropdownMenuCheckboxItem
-                    key={status}
-                    checked={visibleStatuses.has(status)}
-                    onCheckedChange={() => toggleStatusVisibility(status)}
+          <TooltipProvider delayDuration={150}>
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div className="flex h-10 items-center rounded-md border bg-background p-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={() => changeDate(-1)}
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Previous period"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Previous period</TooltipContent>
+                </Tooltip>
+
+                <div className="mx-1 flex rounded-md bg-muted p-0.5">
+                  <Button
+                    variant={viewMode === "week" ? "default" : "ghost"}
+                    size="sm"
+                    className={`h-7 px-3 text-xs ${
+                      viewMode === "week"
+                        ? "bg-orange-500 text-white hover:bg-orange-600"
+                        : ""
+                    }`}
+                    onClick={() => setViewMode("week")}
                   >
-                    {status}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    Week
+                  </Button>
+                  <Button
+                    variant={viewMode === "month" ? "default" : "ghost"}
+                    size="sm"
+                    className="h-7 px-3 text-xs"
+                    onClick={() => setViewMode("month")}
+                  >
+                    Month
+                  </Button>
+                </div>
 
-            <Button onClick={() => setShowAddTask(true)} variant="outline" size="sm" className="h-10">
-              + Add row
-            </Button>
-            <Button onClick={() => setShowImport(true)} variant="outline" size="sm" className="h-10">
-              Import from Azure DevOps
-            </Button>
-            <Button 
-              onClick={handleRefresh} 
-              variant="outline"
-              size="sm"
-              className="h-10"
-              disabled={isRefreshing}
-            >
-              {isRefreshing ? 'Refreshing...' : 'Refresh'}
-            </Button>
-            <Button 
-              onClick={handleExportToExcel} 
-              variant="outline"
-              size="sm"
-              className="h-10"
-            >
-              Export to Excel
-            </Button>
-            {estimatedMonthHours !== null && (
-              <div className="text-sm text-muted-foreground flex items-center gap-1">
-                <span>Est. month hours:</span>
-                <span className="font-semibold text-foreground">
-                  {estimatedMonthHours > 0
-                    ? formatTimeDisplay(estimatedMonthHours)
-                    : "0:00"}
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={() => changeDate(1)}
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Next period"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Next period</TooltipContent>
+                </Tooltip>
               </div>
-            )}
-          </div>
+
+              <div className="hidden h-6 w-px bg-border sm:block" />
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="relative h-10 w-10"
+                    aria-label={statusFilterLabel}
+                    title={statusFilterLabel}
+                  >
+                    <Filter className="h-4 w-4" />
+                    {isStatusFilterActive && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-orange-500 ring-2 ring-background"
+                      />
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Status</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {STATUS_FILTER_OPTIONS.map((status) => (
+                    <DropdownMenuCheckboxItem
+                      key={status}
+                      checked={visibleStatuses.has(status)}
+                      onCheckedChange={() => toggleStatusVisibility(status)}
+                    >
+                      {status}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10"
+                    aria-label="Add work item"
+                    title="Add work item"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Add work item</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setShowAddTask(true)}>
+                    <span className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      <span>Create new</span>
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowImport(true)}>
+                    <span className="flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      <span>Import from Azure DevOps</span>
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleRefresh}
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10"
+                    disabled={isRefreshing}
+                    aria-label="Refresh Azure DevOps tasks"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{isRefreshing ? "Refreshing" : "Refresh"}</TooltipContent>
+              </Tooltip>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10"
+                    aria-label="Time management actions"
+                    title="More actions"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleExportToExcel}>
+                    <span className="flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      <span>Export to Excel</span>
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {estimatedMonthHours !== null && (
+                <div className="ml-1 flex h-10 items-center gap-1 rounded-md border px-3 text-sm text-muted-foreground">
+                  <span>Est. month:</span>
+                  <span className="font-semibold text-foreground">
+                    {estimatedMonthHours > 0
+                      ? formatTimeDisplay(estimatedMonthHours)
+                      : "0:00"}
+                  </span>
+                </div>
+              )}
+            </div>
+          </TooltipProvider>
         </div>
       </div>
 
@@ -1475,8 +1577,13 @@ export default function Home() {
                 const activeBlockers = task.blockers?.filter(b => !b.is_resolved) || [];
                 const hasBlockers = activeBlockers.length > 0;
                 const canManageTask = task.isAssignedToCurrentUser !== false;
-                const showAssignmentWarning = hasOtherAssigneeNoTimeWarning(task);
+                const showAssignmentWarning = hasAzureAssignmentMismatchWarning(task);
                 const assignedUserLabel = getAssignedUserLabel(task);
+                const azureAssignedUserLabel = getAzureAssignedUserLabel(task);
+                const azureAssignmentWarningLabel =
+                  azureAssignedUserLabel === "Unassigned"
+                    ? "Not assigned in Azure DevOps"
+                    : `Assigned to ${azureAssignedUserLabel} in Azure DevOps`;
                 const highestSeverity = hasBlockers 
                   ? activeBlockers.reduce((max, b) => {
                       const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
@@ -1586,13 +1693,13 @@ export default function Home() {
                                   <TooltipTrigger asChild>
                                     <span
                                       className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                                      aria-label={`Assigned to ${assignedUserLabel} with no tracked time`}
+                                      aria-label={azureAssignmentWarningLabel}
                                     >
                                       <TriangleAlert className="h-3.5 w-3.5" />
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent side="top" align="start" className="max-w-xs">
-                                    Assigned to {assignedUserLabel}; no tracked time recorded.
+                                    {azureAssignmentWarningLabel}.
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
