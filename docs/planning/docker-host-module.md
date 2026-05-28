@@ -2,7 +2,7 @@
 
 ## Description
 
-Project Manager is being converted into a Docker Host shell module only. Docker Host owns authentication, Host users, module assignment, and gateway access. Project Manager owns module-specific administrator rights, projects, project membership, planning data, time-management data, Azure DevOps settings, AI settings, and database backups.
+Project Manager is being converted into a Docker Host shell module only. Docker Host owns authentication, Host users, module assignment, gateway access, and administrator status. Project Manager owns projects, project membership, planning data, time-management data, Azure DevOps settings, AI settings, and database backups.
 
 There is no standalone mode and no local authentication fallback. A deployed module starts with empty Docker Host-managed storage and creates a fresh SQLite database from the current schema. Legacy local-auth migrations, local user invitations, local password flows, and legacy export flows are not part of the module runtime.
 
@@ -12,9 +12,8 @@ The target module behavior is:
 - Requests require a signed Docker Host identity token, except for `/api/health` and the direct-origin identity bootstrap endpoint.
 - The token issuer must be `docker-host`, the audience must match `com.haas.project-manager`, and expired tokens are rejected.
 - The token `sub` is the stable Host user principal.
-- Project Manager maps Host users into local records for internal joins and module roles.
-- Module roles are limited to admin and user.
-- Admins can see Settings, manage module roles, manage projects, and configure settings.
+- Project Manager maps Host users into local records for internal joins.
+- Docker Host administrators can see administrative Settings tabs, manage projects, and configure settings.
 - Non-admin users can access Time Management, Planning, and Calendar pages.
 - Persistent module state lives under Docker Host-managed module storage.
 - JSON migration import remains available for importing supported Project Manager export files into the current Host user and active project.
@@ -42,24 +41,24 @@ Recommendation:
 
 - Keep host-only behavior strict. Local development should use Docker Host developer mode or a configured Host JWKS source, not a standalone identity fallback.
 
-### Phase 2 - Module roles and scoped Host users
+### Phase 2 - Host-admin access and scoped Host users
 
 **Status**: Completed
 
-Keep Docker Host authorization separate from Project Manager permissions.
+Keep Docker Host authorization separate from Project Manager project membership.
 
 Tasks:
 
-- Completed: Store module administrator rights on local Host-backed user records.
-- Completed: Bootstrap module admin rights for the first Host user and for signed `host.admin` identities.
-- Completed: Restrict Settings UI and Settings APIs to module administrators.
+- Completed: Cache Docker Host administrator status on local Host-backed user records.
+- Completed: Derive administrative access from signed `host.admin` identities.
+- Completed: Restrict administrative Settings UI and Settings APIs to Docker Host administrators.
 - Completed: Remove local user create/delete/rename behavior.
 - Completed: Use the Docker Host scoped directory API to list users assigned to this module before they first open the app.
-- Completed: Store and manage module roles directly by stable Host user id when scoped directory integration is available.
+- Completed: Remove separate Project Manager role management; project access is configured only through per-project membership for non-admin users.
 
 Recommendation:
 
-- Use `host.admin` for bootstrap and emergency access. Keep normal Project Manager permissions in module-owned storage keyed by stable Docker Host user ids.
+- Use `host.admin` as the administrative source of truth. Keep normal Project Manager project membership in module-owned storage keyed by stable Docker Host user ids.
 
 ### Phase 3 - Fresh module database
 
@@ -73,7 +72,7 @@ Tasks:
 - Completed: Remove local password and invitation tables/helpers.
 - Completed: Add `users.host_user_id` as the stable Host principal mapping.
 - Completed: Keep local integer user ids only as internal join keys.
-- Completed: Keep projects as module-owned records managed by module admins.
+- Completed: Keep projects as module-owned records managed by Docker Host administrators.
 - Completed: Keep project membership and work data scoped by project and Host-backed local user records.
 - Completed: Store database and backups under Docker Host module storage.
 - Completed: Keep JSON migration import for supported Project Manager export files.
@@ -179,8 +178,8 @@ Tasks:
 - Completed: Browser smoke-test top navigation with local signed Docker Host-style admin and non-admin identity tokens.
 - Remaining: Verify direct-origin shell iframe bootstrap with a real Docker Host-issued token.
 - Remaining: Verify assigned Host users can access the app through Docker Host.
-- Remaining: Verify non-admin users cannot access Settings APIs or Settings UI inside a real Docker Host managed install.
-- Remaining: Verify admins can manage roles, projects, project settings, and AI settings.
+- Remaining: Verify non-admin users cannot access administrative Settings APIs or Settings UI inside a real Docker Host managed install.
+- Remaining: Verify Docker Host administrators can manage projects, project settings, and AI settings.
 - Remaining: Verify JSON migration import with a real exported file.
 - Remaining: Verify per-user Azure DevOps PAT behavior after Phase 5.
 
@@ -204,8 +203,8 @@ Recommendation:
 
 - Question: Should Host users automatically receive access to all projects?
   Answer: Host controls module access, while Project Manager still controls project-level assignment.
-  Recommendation: Keep project membership inside the module and let module admins assign Host users to projects.
+  Recommendation: Keep project membership inside the module and let Docker Host administrators assign non-admin Host users to projects.
 
-- Question: Should module administrators be bootstrapped from the first Host user, Host administrators, or both?
-  Answer: Current implementation grants admin rights to the first Host user that opens the module and to users whose signed token has `hostRole: "host.admin"`.
-  Recommendation: Keep both for bootstrap, then manage normal module roles through the scoped Host directory integration.
+- Question: Should Project Manager keep a separate administrator role?
+  Answer: No. Administrative access follows Docker Host `host.admin`; Project Manager only adds per-project membership for non-admin users.
+  Recommendation: Keep role management in Docker Host and avoid reintroducing a separate application role tab.

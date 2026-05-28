@@ -11,14 +11,14 @@ export default async function SettingsPage() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="space-y-4">
+      <div className="mx-auto w-full max-w-3xl space-y-4">
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold">Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Manage your profile and, for administrators, module projects and integrations.
+            Manage your profile and, for Host administrators, module projects and integrations.
           </p>
         </div>
-        <Card className="max-w-3xl">
+        <Card className="w-full">
           <CardContent className="pt-6">
             <GeneralSettingsForm isAdmin={Boolean(currentUser?.is_admin)} />
           </CardContent>

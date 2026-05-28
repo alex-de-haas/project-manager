@@ -26,7 +26,7 @@ The Azure DevOps integration connects Project Manager with Azure DevOps work ite
 
 1. Create a Personal Access Token in Azure DevOps.
 2. Give the token access to work items.
-3. Open Settings in Project Manager as a module administrator.
+3. Open Settings in Project Manager as a Docker Host administrator.
 4. Create or edit the Project Manager project from the Projects tab.
 5. Enter the Azure DevOps project URL in the project dialog. Project Manager supports URLs such as `https://dev.azure.com/{organization}/{project}` and parses the organization and project from that URL.
 6. Open Profile and save your personal token.

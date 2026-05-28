@@ -5,7 +5,6 @@ import type { Release } from "@/types";
 import { CheckCircle2, ExternalLink, GripVertical, MoreHorizontal } from "lucide-react";
 import { Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { UserAvatar } from "@/components/UserAvatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -78,7 +77,6 @@ interface DatabaseBackupFile {
 interface AppUser {
   id: number;
   host_user_id?: string | null;
-  host_role?: string | null;
   name: string;
   email?: string | null;
   is_admin?: number;
@@ -180,10 +178,7 @@ export function GeneralSettingsForm({
   const [activeTab, setActiveTab] = useState("profile");
   const [users, setUsers] = useState<AppUser[]>([]);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
-  const [activeUserId, setActiveUserId] = useState("");
-  const [hostDirectoryStatus, setHostDirectoryStatus] = useState("");
   const [loadingUsers, setLoadingUsers] = useState(true);
-  const [updatingUser, setUpdatingUser] = useState(false);
   const [projects, setProjects] = useState<AppProject[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [creatingProject, setCreatingProject] = useState(false);
@@ -282,17 +277,12 @@ export function GeneralSettingsForm({
       }
 
       const data = (await usersResponse.json()) as AppUser[];
-      setHostDirectoryStatus(
-        usersResponse.headers.get("x-project-manager-host-directory-status") || ""
-      );
       setUsers(data);
       if (sessionResponse.ok) {
         const sessionData = (await sessionResponse.json()) as { user?: AppUser };
         setCurrentUserId(sessionData.user?.id ?? null);
-        setActiveUserId(sessionData.user?.id ? String(sessionData.user.id) : "");
       } else {
         setCurrentUserId(null);
-        setActiveUserId("");
       }
     } catch (err) {
       setMessage("Failed to load users.");
@@ -444,44 +434,6 @@ export function GeneralSettingsForm({
       console.error("Failed to load settings:", err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSetUserAdmin = async (targetUser: AppUser, makeAdmin: boolean) => {
-    setUpdatingUser(true);
-    try {
-      const targetQuery = targetUser.host_user_id
-        ? `hostUserId=${encodeURIComponent(targetUser.host_user_id)}`
-        : `id=${targetUser.id}`;
-      const response = await fetch(`/api/users?${targetQuery}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          is_admin: makeAdmin,
-          hostUserId: targetUser.host_user_id,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as ApiError;
-        setMessage(data.error || "Failed to update administrator status.");
-        setMessageType("error");
-        return;
-      }
-
-      const updated = (await response.json()) as AppUser;
-      setUsers((prev) => prev.map((user) => (user.id === updated.id ? updated : user)));
-      setMessage(
-        makeAdmin
-          ? `User "${updated.name}" is now an administrator.`
-          : `User "${updated.name}" is no longer an administrator.`
-      );
-      setMessageType("success");
-    } catch {
-      setMessage("Failed to update administrator status.");
-      setMessageType("error");
-    } finally {
-      setUpdatingUser(false);
     }
   };
 
@@ -1026,118 +978,16 @@ export function GeneralSettingsForm({
   ) : (
     <form onSubmit={handleSave}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="projects">Projects</TabsTrigger>
           <TabsTrigger value="releases">Releases</TabsTrigger>
-          <TabsTrigger value="users">Module Roles</TabsTrigger>
           <TabsTrigger value="backups">Backups</TabsTrigger>
           <TabsTrigger value="ai">AI Provider</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className="mt-4">
           <ProfileSettingsForm />
-        </TabsContent>
-
-        <TabsContent value="users" className="space-y-4 mt-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <UserAvatar
-                name={users.find((user) => String(user.id) === activeUserId)?.name}
-                className="h-8 w-8 text-xs"
-              />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {users.find((user) => String(user.id) === activeUserId)?.name || "No user selected"}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {users.find((user) => String(user.id) === activeUserId)?.email || "No email"}
-                </p>
-                {users.find((user) => String(user.id) === activeUserId)?.is_admin ? (
-                  <p className="text-xs text-muted-foreground">Administrator</p>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" disabled>
-                Managed by Docker Host
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Assigned Docker Host Users</Label>
-            <p className="text-xs text-muted-foreground">
-              {hostDirectoryStatus === "ok"
-                ? "Users assigned to this module in Docker Host are available for module roles and project assignment."
-                : "Docker Host scoped directory is not available; showing users already known to this module."}
-            </p>
-            <div className="space-y-2 rounded-md border p-3">
-              {loadingUsers ? (
-                <p className="text-sm text-muted-foreground">Loading users...</p>
-              ) : users.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Assigned Host users appear here after Docker Host directory sync or after they open the module.
-                </p>
-              ) : (
-                users.map((user) => {
-                  const createdAt = user.created_at
-                    ? new Date(user.created_at).toLocaleString()
-                    : "Unknown";
-                  return (
-                    <div
-                      key={`user-row-${user.host_user_id ?? user.id}`}
-                      className="flex items-center justify-between gap-3 rounded-md border bg-background p-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium">{user.name}</p>
-                          {user.is_admin ? (
-                            <Badge variant="secondary" className="h-5 px-2 text-[10px]">
-                              Administrator
-                            </Badge>
-                          ) : null}
-                          {user.host_role === "host.admin" ? (
-                            <Badge variant="outline" className="h-5 px-2 text-[10px]">
-                              Host admin
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {user.email || "No email"}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <p className="text-xs text-muted-foreground">Created: {createdAt}</p>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              aria-label={`Actions for ${user.name}`}
-                              disabled={updatingUser}
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onSelect={() => void handleSetUserAdmin(user, !Boolean(user.is_admin))}
-                              disabled={updatingUser}
-                            >
-                              {user.is_admin ? "Remove administrator" : "Mark as administrator"}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
         </TabsContent>
 
         <TabsContent value="projects" className="space-y-4 mt-4">
@@ -1334,7 +1184,7 @@ export function GeneralSettingsForm({
                         >
                           <span className="truncate">{user.name}</span>
                           <Badge variant="secondary" className="h-5 px-2 text-[10px]">
-                            Admin access
+                            Host admin access
                           </Badge>
                         </div>
                       ))}

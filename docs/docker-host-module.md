@@ -1,6 +1,6 @@
 # Docker Host Module
 
-Project Manager runs as a Docker Host shell module. Docker Host owns authentication, module assignment, app discovery, and access to the app. Project Manager uses the signed Host identity token to create or update local module user records and stores module-specific administrator rights in its own database.
+Project Manager runs as a Docker Host shell module. Docker Host owns authentication, module assignment, app discovery, access to the app, and administrator status. Project Manager uses the signed Host identity token to create or update local module user records and keeps project membership for non-admin users in its own database.
 
 There is no standalone mode. Direct API access without Docker Host identity is rejected, except for the health and identity bootstrap endpoints. Direct browser access without Docker Host identity renders only the module identity bootstrap state and does not expose application data.
 
@@ -11,9 +11,9 @@ There is no standalone mode. Direct API access without Docker Host identity is r
 - Requests must include a valid signed Docker Host identity token issued by Docker Host.
 - Shell iframe traffic receives identity through the Docker Host `postMessage` bridge and exchanges it at `/api/auth/bootstrap` for an HttpOnly module-origin cookie.
 - Gateway and service/API traffic can still use the `X-Docker-Host-Identity` header.
-- The first Host user that opens the module becomes a module administrator. Host administrators also receive module administrator rights.
-- Settings are visible only to module administrators.
-- Module administrators can manage Project Manager roles for assigned Host users from the Docker Host scoped directory before those users first open the module.
+- Host administrators receive administrative access in Project Manager automatically.
+- Settings are visible to all assigned module users; administrative settings are visible only to Host administrators.
+- Project Manager does not have separate application role management. Non-admin project access is configured per project.
 
 ## Module Packaging
 
@@ -37,7 +37,7 @@ A one-time JSON import is available in Profile settings for migration data. It i
 
 The main data groups are:
 
-- Host user mappings and Project Manager administrator flags.
+- Host user mappings and cached Host administrator flags.
 - Projects, project membership, and project settings.
 - Module-level settings, including AI provider base URL and selected model.
 - Per-user credentials such as Azure DevOps Personal Access Tokens.
@@ -85,6 +85,6 @@ The module UI uses a Docker Host-friendly top navigation bar instead of an appli
 - Calendar: `/day-offs`
 - Settings: `/settings`
 
-Settings navigation is rendered for all assigned module users. Non-admin users see only Profile settings, while Project Manager module administrators also see project, role, release, backup, and AI provider settings. Project switching lives in the top bar as a compact selector.
+Settings navigation is rendered for all assigned module users. Non-admin users see only Profile settings, while Docker Host administrators also see project, release, backup, and AI provider settings. Project switching lives in the top bar as a compact selector.
 
 The module currently renders in the light theme by default. Future Docker Host theme integration should replace the hardcoded light theme with a Host-provided theme signal.

@@ -41,6 +41,8 @@ const selectHostBackedUserById = (userId: number) =>
     .prepare("SELECT id, name, email, is_admin, host_user_id, created_at FROM users WHERE id = ?")
     .get(userId) as HostBackedUser | undefined;
 
+const isHostAdminRole = (hostRole: string | null | undefined) => hostRole === "host.admin";
+
 export const listHostBackedUsers = (): HostBackedUser[] =>
   db
     .prepare(
@@ -76,7 +78,7 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
         existing?.id
       );
       const nextEmail = user.email ?? existing?.email ?? null;
-      const nextIsAdmin = user.hostRole === "host.admin" ? 1 : existing?.is_admin ?? 0;
+      const nextIsAdmin = isHostAdminRole(user.hostRole) ? 1 : 0;
 
       if (existing) {
         if (
@@ -120,17 +122,12 @@ export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser =>
     .prepare("SELECT id, name, email, is_admin, host_user_id, created_at FROM users WHERE host_user_id = ?")
     .get(identity.id) as HostBackedUser | undefined;
 
-  const firstHostUser = !(
-    db
-      .prepare("SELECT id FROM users WHERE host_user_id IS NOT NULL LIMIT 1")
-      .get() as { id: number } | undefined
-  );
-  const shouldBeAdmin = firstHostUser || identity.hostRole === "host.admin";
+  const shouldBeAdmin = isHostAdminRole(identity.hostRole);
 
   if (existing) {
     const nextName = buildUniqueName(normalizeDisplayName(identity), existing.id);
     const nextEmail = identity.email ?? null;
-    const nextIsAdmin = shouldBeAdmin ? 1 : existing.is_admin ?? 0;
+    const nextIsAdmin = shouldBeAdmin ? 1 : 0;
 
     if (
       existing.name !== nextName ||
