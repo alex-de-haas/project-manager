@@ -12,4 +12,5 @@ When the user clicks **Refresh**, Project Manager checks only Azure DevOps work 
 - Refresh updates title, type, status, tags, completion date, and current Azure DevOps assignee metadata for visible imported Azure DevOps tasks in the active period.
 - Time tracking refresh does not read release planning work items and does not surface unrelated project tasks owned by other users.
 - Azure DevOps tasks known to be assigned away from the current PAT-authenticated user are hidden from the time grid.
+- Expected-hour calculations use the current user's profile work schedule for the active project. Missing schedules default to 8 hours.
 - Completed work items with no period time remain hidden.

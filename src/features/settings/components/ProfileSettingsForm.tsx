@@ -356,46 +356,46 @@ export function ProfileSettingsForm() {
             </p>
           </div>
         </div>
-      </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="profilePat">Personal Access Token (PAT)</Label>
-        <Input
-          id="profilePat"
-          type="password"
-          value={pat}
-          onChange={(event) => setPat(event.target.value)}
-          placeholder={hasPat ? "Personal PAT saved" : "Enter your Azure DevOps PAT"}
-        />
-        <p className="text-xs text-muted-foreground">
-          {hasPat ? "Leave blank to keep the saved personal PAT." : "Used only for your Azure DevOps actions."}
-        </p>
-        <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-          Create the token in Azure DevOps under User settings, Personal access tokens, New Token.
-          Use a user-scoped token that can read Work Items and Project/Team information. Enable Work Items read/write if you need export, refresh, or status synchronization.
+        <div className="space-y-2 border-t pt-3">
+          <Label htmlFor="profilePat">Personal Access Token (PAT)</Label>
+          <Input
+            id="profilePat"
+            type="password"
+            value={pat}
+            onChange={(event) => setPat(event.target.value)}
+            placeholder={hasPat ? "Personal PAT saved" : "Enter your Azure DevOps PAT"}
+          />
+          <p className="text-xs text-muted-foreground">
+            {hasPat ? "Leave blank to keep the saved personal PAT." : "Used only for your Azure DevOps actions."}
+          </p>
+          <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+            Create the token in Azure DevOps under User settings, Personal access tokens, New Token.
+            Use a user-scoped token that can read Work Items and Project/Team information. Enable Work Items read/write if you need export, refresh, or status synchronization.
+          </div>
         </div>
-      </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Button type="button" onClick={handleSavePat} disabled={saving || testing}>
-          {saving ? "Saving..." : "Save PAT"}
-        </Button>
-        <Button
-          type="button"
-          onClick={handleTestConnection}
-          disabled={saving || testing || !azureDevOpsConfigured || (!pat && !hasPat)}
-          variant="outline"
-        >
-          {testing ? "Testing..." : "Test Connection"}
-        </Button>
-        <Button
-          type="button"
-          onClick={handleDeletePat}
-          disabled={saving || testing || !hasPat}
-          variant="outline"
-        >
-          Remove PAT
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button type="button" onClick={handleSavePat} disabled={saving || testing}>
+            {saving ? "Saving..." : "Save PAT"}
+          </Button>
+          <Button
+            type="button"
+            onClick={handleTestConnection}
+            disabled={saving || testing || !azureDevOpsConfigured || (!pat && !hasPat)}
+            variant="outline"
+          >
+            {testing ? "Testing..." : "Test Connection"}
+          </Button>
+          <Button
+            type="button"
+            onClick={handleDeletePat}
+            disabled={saving || testing || !hasPat}
+            variant="outline"
+          >
+            Remove PAT
+          </Button>
+        </div>
       </div>
 
     </div>

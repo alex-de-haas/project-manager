@@ -8,7 +8,7 @@ All assigned module users can open Settings. Non-admin users see only the Profil
 
 ## Profile Settings
 
-Profile settings are scoped to the current Host user and active Project Manager project. Each user sets their own default day length for each project before using the time tracker. This value is used when calculating expected hours and comparing planned time against recorded time.
+Profile settings are scoped to the current Host user and active Project Manager project. Each user has a default day length for each project. Project Manager starts missing profile schedules at 8 hours, and users can override that value in Profile. This value is used when calculating expected hours and comparing planned time against recorded time.
 
 Profile also stores the current user's Azure DevOps Personal Access Token. The profile page shows the active project's Azure DevOps organization and project when that integration is configured, but project-level Azure DevOps settings are managed from the Projects tab by administrators.
 
@@ -55,7 +55,7 @@ Checklist generation is available only after both the provider base URL and mode
 1. Open Settings from the top navigation.
 2. Open Projects and create the project explicitly.
 3. Configure the project's Azure DevOps URL if the project uses Azure DevOps.
-4. Open Profile and set your default day length for the active project.
+4. Open Profile if you need to change the default 8-hour work schedule for the active project.
 5. Save a personal Azure DevOps PAT if you use Azure DevOps features.
 6. Import migration JSON from Profile if needed.
 7. Assign non-admin Host users to the projects they should access.

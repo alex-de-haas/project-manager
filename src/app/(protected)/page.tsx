@@ -1036,6 +1036,16 @@ export default function Home() {
     () => endOfWeek(currentDate, WEEK_STARTS_ON_MONDAY),
     [currentDate]
   );
+  const periodLabel = useMemo(
+    () =>
+      viewMode === "week"
+        ? `${format(weekStart, "dd MMM yyyy")} - ${format(
+            weekEnd,
+            "dd MMM yyyy"
+          )}`
+        : format(currentDate, "MMMM yyyy"),
+    [currentDate, viewMode, weekEnd, weekStart]
+  );
 
   const formatTimeDisplay = useCallback((hours: number): string => {
     if (hours === 0) return "";
@@ -1312,18 +1322,7 @@ export default function Home() {
   return (
     <div className="h-full flex flex-col">
       <div className="p-6 shrink-0">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <h1 className="truncate text-2xl font-semibold">
-              {viewMode === "week"
-                ? `This week: ${format(weekStart, "dd")} – ${format(
-                    weekEnd,
-                    "dd MMM yyyy"
-                  )}`
-                : format(currentDate, "MMMM yyyy")}
-            </h1>
-          </div>
-
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
           <TooltipProvider delayDuration={150}>
             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <div className="flex h-10 items-center rounded-md border bg-background p-1">
@@ -1341,6 +1340,13 @@ export default function Home() {
                   </TooltipTrigger>
                   <TooltipContent>Previous period</TooltipContent>
                 </Tooltip>
+
+                <div
+                  className="mx-1 min-w-[12rem] truncate px-3 text-center text-sm font-semibold text-foreground"
+                  title={periodLabel}
+                >
+                  {periodLabel}
+                </div>
 
                 <div className="mx-1 flex rounded-md bg-muted p-0.5">
                   <Button
@@ -1429,8 +1435,6 @@ export default function Home() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>Add work item</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setShowAddTask(true)}>
                     <span className="flex items-center gap-2">
                       <Plus className="h-4 w-4" />

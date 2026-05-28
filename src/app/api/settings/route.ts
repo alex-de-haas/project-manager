@@ -20,6 +20,9 @@ import {
   upsertAzureDevOpsUserPat,
 } from '@/lib/azure-devops/settings';
 
+const DEFAULT_DAY_LENGTH_KEY = "default_day_length";
+const DEFAULT_DAY_LENGTH_HOURS = 8;
+
 const parseAzureDevOpsSettings = (value: string): Partial<AzureDevOpsSettings> | null => {
   try {
     return JSON.parse(value) as Partial<AzureDevOpsSettings>;
@@ -79,6 +82,22 @@ export async function GET(request: NextRequest) {
         .get(key, userId, projectId) as Settings | undefined;
       
       if (!setting) {
+        if (key === DEFAULT_DAY_LENGTH_KEY && projectId > 0) {
+          db.prepare(`
+            INSERT INTO settings (user_id, project_id, key, value, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, project_id, key) DO NOTHING
+          `).run(userId, projectId, key, String(DEFAULT_DAY_LENGTH_HOURS));
+
+          const defaultSetting = db
+            .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
+            .get(key, userId, projectId) as Settings | undefined;
+
+          if (defaultSetting) {
+            return NextResponse.json(defaultSetting);
+          }
+        }
+
         return NextResponse.json({ error: 'Setting not found' }, { status: 404 });
       }
 
@@ -189,7 +208,7 @@ export async function POST(request: NextRequest) {
       });
     } else {
       let stringValue: string;
-      if (key === "default_day_length") {
+      if (key === DEFAULT_DAY_LENGTH_KEY) {
         const numericValue = Number(value);
         if (!Number.isFinite(numericValue) || numericValue < 0.5 || numericValue > 24) {
           return NextResponse.json(
