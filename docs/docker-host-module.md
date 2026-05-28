@@ -26,6 +26,7 @@ There is no standalone mode. Direct API access without Docker Host identity is r
 - `/api/health` checks database readiness and writable module storage without requiring identity.
 - `/api/auth/bootstrap` verifies a Host-issued module identity token and stores it in a short-lived module cookie for direct-origin shell iframe traffic.
 - The iframe bridge compares each new Host token identity with the currently rendered module identity and immediately re-bootstraps and reloads when the Docker Host account changes.
+- The iframe bridge schedules silent refresh from the Host token `exp`, also refreshes on focus or page restore, and guards same-origin API calls so unsafe mutations do not fail only because the module cookie expired in the background.
 
 ## Data
 
@@ -53,7 +54,7 @@ The main data groups are:
 - Docker Host should not forward Host session cookies to the module.
 - Project Manager trusts only the signed Host identity token after signature, issuer, audience, and expiration validation.
 - Direct-origin shell iframe traffic uses the `project_manager_module_identity` HttpOnly cookie after `/api/auth/bootstrap`; the cookie stores the signed Host token and is refreshed by the client bridge before token expiry.
-- The client bridge stores only a non-secret identity fingerprint in `sessionStorage` so it can detect Host account switches before the old HttpOnly module cookie expires.
+- The client bridge stores only a non-secret identity fingerprint and expiry timestamp in `sessionStorage` so it can refresh before expiry and detect Host account switches before the old HttpOnly module cookie expires.
 - The module UI must allow being framed by the Docker Host shell origin. Docker Host no longer rewrites Project Manager HTML, assets, RSC requests, or API calls through an embed proxy.
 
 ## Local Development
