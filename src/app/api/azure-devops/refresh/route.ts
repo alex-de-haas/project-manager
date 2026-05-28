@@ -23,6 +23,7 @@ interface RefreshRequest {
   releaseId?: number;
   startDate?: string;
   endDate?: string;
+  taskIds?: number[];
 }
 
 interface ReleaseWorkItemSnapshot {
@@ -88,6 +89,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let scopedTaskIds: number[] | null = null;
+    if (body.taskIds !== undefined) {
+      if (!Array.isArray(body.taskIds)) {
+        return NextResponse.json(
+          { error: "taskIds must be an array of positive integers" },
+          { status: 400 }
+        );
+      }
+
+      const parsedTaskIds = body.taskIds.map(parsePositiveInt);
+      if (parsedTaskIds.some((value) => value === null)) {
+        return NextResponse.json(
+          { error: "taskIds must be an array of positive integers" },
+          { status: 400 }
+        );
+      }
+
+      scopedTaskIds = Array.from(new Set(parsedTaskIds as number[]));
+    }
+    const hasTaskIdScope = scopedTaskIds !== null;
+
     if (releaseId !== null) {
       const release = db
         .prepare("SELECT id FROM releases WHERE id = ? AND project_id = ?")
@@ -123,7 +145,8 @@ export async function POST(request: NextRequest) {
       importedReleaseWorkItemsParams.push(releaseId);
     }
 
-    const shouldRefreshReleaseItems = releaseId !== null || !hasDateRangeScope;
+    const shouldRefreshReleaseItems =
+      releaseId !== null || (!hasDateRangeScope && !hasTaskIdScope);
     const importedReleaseWorkItems = shouldRefreshReleaseItems
       ? (db
           .prepare(importedReleaseWorkItemsQueryParts.join("\n"))
@@ -141,9 +164,13 @@ export async function POST(request: NextRequest) {
     );
 
     let importedTasks: Task[] = [];
+    const scopedTaskIdPlaceholders =
+      scopedTaskIds && scopedTaskIds.length > 0
+        ? scopedTaskIds.map(() => "?").join(", ")
+        : null;
 
     if (releaseId !== null) {
-      if (releaseExternalIds.length > 0) {
+      if (releaseExternalIds.length > 0 && (!hasTaskIdScope || scopedTaskIds!.length > 0)) {
         const placeholders = releaseExternalIds.map(() => "?").join(", ");
         const queryParts = [
           `SELECT *
@@ -169,11 +196,16 @@ export async function POST(request: NextRequest) {
           queryParams.push(endDate!, startDate!);
         }
 
+        if (scopedTaskIdPlaceholders && scopedTaskIds) {
+          queryParts.push(`AND id IN (${scopedTaskIdPlaceholders})`);
+          queryParams.push(...scopedTaskIds);
+        }
+
         importedTasks = db.prepare(queryParts.join("\n")).all(...queryParams) as Task[];
       }
     } else if (hasDateRangeScope) {
-      importedTasks = db
-        .prepare(
+      if (!hasTaskIdScope || scopedTaskIds!.length > 0) {
+        const queryParts = [
           `SELECT *
            FROM tasks
            WHERE external_source = ?
@@ -181,20 +213,46 @@ export async function POST(request: NextRequest) {
              AND project_id = ?
              AND external_id IS NOT NULL
              AND DATE(created_at) <= ?
-             AND (completed_at IS NULL OR DATE(completed_at) >= ?)`
-        )
-        .all("azure_devops", userId, projectId, endDate!, startDate!) as Task[];
+             AND (completed_at IS NULL OR DATE(completed_at) >= ?)`,
+        ];
+        const queryParams: Array<string | number> = [
+          "azure_devops",
+          userId,
+          projectId,
+          endDate!,
+          startDate!,
+        ];
+
+        if (scopedTaskIdPlaceholders && scopedTaskIds) {
+          queryParts.push(`AND id IN (${scopedTaskIdPlaceholders})`);
+          queryParams.push(...scopedTaskIds);
+        }
+
+        importedTasks = db.prepare(queryParts.join("\n")).all(...queryParams) as Task[];
+      }
     } else {
-      importedTasks = db
-        .prepare(
+      if (!hasTaskIdScope || scopedTaskIds!.length > 0) {
+        const queryParts = [
           `SELECT *
            FROM tasks
            WHERE external_source = ?
              AND user_id = ?
              AND project_id = ?
-             AND external_id IS NOT NULL`
-        )
-        .all("azure_devops", userId, projectId) as Task[];
+             AND external_id IS NOT NULL`,
+        ];
+        const queryParams: Array<string | number> = [
+          "azure_devops",
+          userId,
+          projectId,
+        ];
+
+        if (scopedTaskIdPlaceholders && scopedTaskIds) {
+          queryParts.push(`AND id IN (${scopedTaskIdPlaceholders})`);
+          queryParams.push(...scopedTaskIds);
+        }
+
+        importedTasks = db.prepare(queryParts.join("\n")).all(...queryParams) as Task[];
+      }
     }
 
     if (importedTasks.length === 0 && importedReleaseWorkItems.length === 0) {

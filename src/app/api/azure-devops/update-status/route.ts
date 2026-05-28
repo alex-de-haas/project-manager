@@ -7,9 +7,16 @@ import type { Task } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 import {
   createAzureDevOpsConnectionContext,
+  getAzureDevOpsAuthenticatedUser,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from '@/lib/azure-devops/settings';
+import {
+  isAzureDevOpsIdentityAssignedToUser,
+  normalizeAzureDevOpsWorkItemIdentity,
+} from '@/lib/azure-devops/identity';
+
+const completedStatuses = ['closed', 'resolved', 'done', 'completed'];
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,7 +45,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Determine if status is a "completed" state
-    const completedStatuses = ['closed', 'resolved', 'done', 'completed'];
     const isCompleted = completedStatuses.includes(status.toLowerCase());
 
     if (isCompleted) {
@@ -87,7 +93,9 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+        const { settings, connection, witApi } =
+          await createAzureDevOpsConnectionContext(settingsResult);
+        const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
 
         const workItemId = parseInt(task.external_id);
         if (isNaN(workItemId)) {
@@ -142,6 +150,83 @@ export async function POST(request: NextRequest) {
           workItemId,
           settings.project
         );
+
+        const refreshedWorkItems = await witApi.getWorkItems(
+          [workItemId],
+          undefined,
+          undefined,
+          undefined,
+          undefined
+        );
+        const refreshedWorkItem = refreshedWorkItems?.[0];
+
+        if (refreshedWorkItem?.fields) {
+          const title =
+            (refreshedWorkItem.fields['System.Title'] as string) ||
+            task.title;
+          const workItemType = (
+            (refreshedWorkItem.fields['System.WorkItemType'] as string) ||
+            task.type ||
+            'Task'
+          ).toLowerCase();
+          const refreshedStatus =
+            (refreshedWorkItem.fields['System.State'] as string) || status;
+          const tags =
+            (refreshedWorkItem.fields['System.Tags'] as string) || null;
+          const assignedTo = normalizeAzureDevOpsWorkItemIdentity(
+            refreshedWorkItem.fields['System.AssignedTo']
+          );
+          const isAssignedToCurrentUser = isAzureDevOpsIdentityAssignedToUser(
+            assignedTo,
+            authenticatedUser
+          );
+          const closedDate =
+            (refreshedWorkItem.fields['Microsoft.VSTS.Common.ClosedDate'] as string) ||
+            (refreshedWorkItem.fields['Microsoft.VSTS.Common.ResolvedDate'] as string) ||
+            (refreshedWorkItem.fields['System.ClosedDate'] as string) ||
+            null;
+          const refreshedIsCompleted = completedStatuses.includes(
+            refreshedStatus.toLowerCase()
+          );
+          const completedAt = refreshedIsCompleted
+            ? closedDate || task.completed_at || new Date().toISOString()
+            : null;
+          const taskType = workItemType === 'bug' ? 'bug' : 'task';
+          const isAssignedToCurrentUserValue =
+            isAssignedToCurrentUser === null
+              ? null
+              : isAssignedToCurrentUser
+                ? 1
+                : 0;
+
+          db.prepare(
+            `UPDATE tasks
+             SET
+               title = ?,
+               type = ?,
+               status = ?,
+               tags = ?,
+               completed_at = ?,
+               azure_assigned_to_id = ?,
+               azure_assigned_to_name = ?,
+               azure_assigned_to_unique_name = ?,
+               azure_assignee_is_current_user = ?
+             WHERE id = ? AND user_id = ? AND project_id = ?`
+          ).run(
+            title,
+            taskType,
+            refreshedStatus,
+            tags,
+            completedAt,
+            assignedTo?.id ?? null,
+            assignedTo?.displayName ?? null,
+            assignedTo?.uniqueName ?? null,
+            isAssignedToCurrentUserValue,
+            taskId,
+            userId,
+            projectId
+          );
+        }
 
         return NextResponse.json({
           success: true,

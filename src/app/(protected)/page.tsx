@@ -186,6 +186,10 @@ const hasAzureAssignmentMismatchWarning = (task: TaskWithTimeEntries) =>
   task.isAzureAssignedToCurrentUser === false &&
   !COMPLETED_STATUSES.has((task.status ?? "").toLowerCase());
 
+const isAzureDevOpsTaskAssignedAway = (task: TaskWithTimeEntries) =>
+  task.external_source === "azure_devops" &&
+  task.isAzureAssignedToCurrentUser === false;
+
 const getAssignedUserLabel = (task: TaskWithTimeEntries) =>
   task.assignedUserName || task.assignedUserEmail || "another user";
 
@@ -774,6 +778,10 @@ export default function Home() {
   const filteredTasks = useMemo(
     () => tasks.filter(task => {
       const status = task.status || "New";
+
+      if (isAzureDevOpsTaskAssignedAway(task)) {
+        return false;
+      }
       
       // First check if status is visible
       if (!visibleStatuses.has(status)) {
@@ -785,7 +793,7 @@ export default function Home() {
         const hasTimeInPeriod = Object.entries(task.timeEntries).some(
           ([date, hours]) => periodDateKeys.has(date) && hours > 0
         );
-        return hasTimeInPeriod || hasAzureAssignmentMismatchWarning(task);
+        return hasTimeInPeriod;
       }
       
       return true;
@@ -1183,31 +1191,37 @@ export default function Home() {
     setIsRefreshing(true);
     
     try {
-      // First, refresh Azure DevOps tasks
-      const refreshResponse = await fetch("/api/azure-devops/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
-        }),
-      });
+      const refreshTaskIds = filteredTasks
+        .filter((task) => task.external_source === "azure_devops" && task.external_id)
+        .map((task) => task.id);
 
-      if (refreshResponse.ok) {
-        const result = await refreshResponse.json();
-        console.log("Azure DevOps refresh result:", result);
-        
-        if (result.updated > 0) {
-          toast.success(`Successfully updated ${result.updated} task(s) from Azure DevOps`);
-        } else if (result.skipped > 0) {
-          toast.info(`All ${result.skipped} imported task(s) are up to date`);
+      if (refreshTaskIds.length > 0) {
+        const refreshResponse = await fetch("/api/azure-devops/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            startDate: dateRange.startDate,
+            endDate: dateRange.endDate,
+            taskIds: refreshTaskIds,
+          }),
+        });
+
+        if (refreshResponse.ok) {
+          const result = await refreshResponse.json();
+          console.log("Azure DevOps refresh result:", result);
+          
+          if (result.updated > 0) {
+            toast.success(`Successfully updated ${result.updated} task(s) from Azure DevOps`);
+          } else if (result.skipped > 0) {
+            toast.info(`All ${result.skipped} imported task(s) are up to date`);
+          }
+        } else if (refreshResponse.status === 400) {
+          // Settings not configured, silently skip
+          console.log("Azure DevOps settings not configured, skipping refresh");
+        } else {
+          const errorData = await refreshResponse.json();
+          toast.error(errorData.error || "Failed to refresh Azure DevOps tasks");
         }
-      } else if (refreshResponse.status === 400) {
-        // Settings not configured, silently skip
-        console.log("Azure DevOps settings not configured, skipping refresh");
-      } else {
-        const errorData = await refreshResponse.json();
-        toast.error(errorData.error || "Failed to refresh Azure DevOps tasks");
       }
     } catch (err) {
       console.error("Error refreshing Azure DevOps tasks:", err);
@@ -1580,10 +1594,7 @@ export default function Home() {
                 const showAssignmentWarning = hasAzureAssignmentMismatchWarning(task);
                 const assignedUserLabel = getAssignedUserLabel(task);
                 const azureAssignedUserLabel = getAzureAssignedUserLabel(task);
-                const azureAssignmentWarningLabel =
-                  azureAssignedUserLabel === "Unassigned"
-                    ? "Not assigned in Azure DevOps"
-                    : `Assigned to ${azureAssignedUserLabel} in Azure DevOps`;
+                const azureAssignmentWarningLabel = `Azure DevOps assignee: ${azureAssignedUserLabel}`;
                 const highestSeverity = hasBlockers 
                   ? activeBlockers.reduce((max, b) => {
                       const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
@@ -1692,10 +1703,10 @@ export default function Home() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span
-                                      className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                      className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center text-amber-700 dark:text-amber-300"
                                       aria-label={azureAssignmentWarningLabel}
                                     >
-                                      <TriangleAlert className="h-3.5 w-3.5" />
+                                      <TriangleAlert className="h-4 w-4" />
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent side="top" align="start" className="max-w-xs">
