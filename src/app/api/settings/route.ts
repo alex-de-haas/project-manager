@@ -20,6 +20,8 @@ import {
   upsertAzureDevOpsUserPat,
 } from '@/lib/azure-devops/settings';
 
+const DEFAULT_DAY_LENGTH_KEY = "default_day_length";
+
 const parseAzureDevOpsSettings = (value: string): Partial<AzureDevOpsSettings> | null => {
   try {
     return JSON.parse(value) as Partial<AzureDevOpsSettings>;
@@ -188,8 +190,29 @@ export async function POST(request: NextRequest) {
         updated_at: null,
       });
     } else {
-      // Stringify value if it's an object
-      const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      let stringValue: string;
+      if (key === DEFAULT_DAY_LENGTH_KEY) {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue) || numericValue < 0.5 || numericValue > 24) {
+          return NextResponse.json(
+            { error: "Default day length must be between 0.5 and 24 hours" },
+            { status: 400 }
+          );
+        }
+
+        if (projectId <= 0) {
+          return NextResponse.json(
+            { error: "Select or create a project before setting default day length" },
+            { status: 400 }
+          );
+        }
+
+        stringValue = String(numericValue);
+      } else {
+        // Stringify value if it's an object
+        stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      }
+
       const stmt = db.prepare(`
         INSERT INTO settings (user_id, project_id, key, value, updated_at)
         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)

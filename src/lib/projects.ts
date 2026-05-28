@@ -1,20 +1,29 @@
 import db from "@/lib/db";
 import type { Project } from "@/types";
+import { isAdminUser } from "@/lib/authorization";
 
 export type ProjectWithMembers = Project & {
   member_user_ids: number[];
 };
 
 export const getProjectsForUser = (userId: number): ProjectWithMembers[] => {
-  const projects = db
-    .prepare(`
-      SELECT p.*
-      FROM projects p
-      INNER JOIN project_members pm ON pm.project_id = p.id
-      WHERE pm.user_id = ?
-      ORDER BY p.created_at ASC, p.id ASC
-    `)
-    .all(userId) as Project[];
+  const projects = isAdminUser(userId)
+    ? (db
+        .prepare(`
+          SELECT p.*
+          FROM projects p
+          ORDER BY p.created_at ASC, p.id ASC
+        `)
+        .all() as Project[])
+    : (db
+        .prepare(`
+          SELECT p.*
+          FROM projects p
+          INNER JOIN project_members pm ON pm.project_id = p.id
+          WHERE pm.user_id = ?
+          ORDER BY p.created_at ASC, p.id ASC
+        `)
+        .all(userId) as Project[]);
 
   if (projects.length === 0) {
     return [];

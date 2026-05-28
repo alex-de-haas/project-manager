@@ -97,6 +97,10 @@ const initDb = () => {
       tags TEXT,
       external_id TEXT,
       external_source TEXT,
+      azure_assigned_to_id TEXT,
+      azure_assigned_to_name TEXT,
+      azure_assigned_to_unique_name TEXT,
+      azure_assignee_is_current_user INTEGER,
       display_order INTEGER DEFAULT 0,
       completed_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -281,6 +285,23 @@ const initDb = () => {
     CREATE INDEX IF NOT EXISTS idx_checklist_task_id ON checklist_items(task_id);
     CREATE INDEX IF NOT EXISTS idx_checklist_order ON checklist_items(task_id, display_order);
   `);
+
+  const taskColumns = new Set(
+    (
+      db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>
+    ).map((column) => column.name)
+  );
+
+  const ensureTaskColumn = (columnName: string, definition: string) => {
+    if (!taskColumns.has(columnName)) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN ${columnName} ${definition}`);
+    }
+  };
+
+  ensureTaskColumn("azure_assigned_to_id", "TEXT");
+  ensureTaskColumn("azure_assigned_to_name", "TEXT");
+  ensureTaskColumn("azure_assigned_to_unique_name", "TEXT");
+  ensureTaskColumn("azure_assignee_is_current_user", "INTEGER");
 };
 
 if (dbAvailable) {

@@ -67,9 +67,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Bug, ClipboardCheck, GripVertical, ListChecks, Clock3, Upload } from "lucide-react";
-import { ShieldAlert, Trash2, MoreVertical, TreePalm, Pencil, Filter } from "lucide-react";
-import { TriangleAlert } from "lucide-react";
+import {
+  Bug,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardCheck,
+  Clock3,
+  Download,
+  Filter,
+  GripVertical,
+  ListChecks,
+  MoreVertical,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+  TreePalm,
+  TriangleAlert,
+  Upload,
+} from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -124,6 +141,7 @@ const WEEK_STARTS_ON_MONDAY = { weekStartsOn: 1 as const };
 const MAX_VISIBLE_TASK_TAGS = 3;
 const CHIP_GAP_PX = 6;
 const COMPLETED_STATUSES = new Set(["closed", "resolved", "done", "completed"]);
+const STATUS_FILTER_OPTIONS = ["New", "Active", "Resolved", "Closed"] as const;
 
 const parseTaskTags = (rawTags?: string | null): string[] =>
   rawTags
@@ -163,11 +181,28 @@ const getTaskTrackedHours = (task: TaskWithTimeEntries) =>
   task.totalHoursTracked ??
   Object.values(task.timeEntries).reduce((sum, hours) => sum + hours, 0);
 
-const hasOtherAssigneeNoTimeWarning = (task: TaskWithTimeEntries) =>
-  task.isAssignedToCurrentUser === false && getTaskTrackedHours(task) <= 0;
+const hasAzureAssignmentMismatchWarning = (task: TaskWithTimeEntries) =>
+  task.external_source === "azure_devops" &&
+  task.isAzureAssignedToCurrentUser === false &&
+  !COMPLETED_STATUSES.has((task.status ?? "").toLowerCase());
+
+const isAzureDevOpsTaskAssignedAway = (task: TaskWithTimeEntries) =>
+  task.external_source === "azure_devops" &&
+  task.isAzureAssignedToCurrentUser === false;
+
+const hasTaskTimeInPeriod = (
+  task: TaskWithTimeEntries,
+  periodDateKeys: Set<string>
+) =>
+  Object.entries(task.timeEntries).some(
+    ([date, hours]) => periodDateKeys.has(date) && hours > 0
+  );
 
 const getAssignedUserLabel = (task: TaskWithTimeEntries) =>
   task.assignedUserName || task.assignedUserEmail || "another user";
+
+const getAzureAssignedUserLabel = (task: TaskWithTimeEntries) =>
+  task.azureAssignedToName || task.azureAssignedToUniqueName || "Unassigned";
 
 interface SortableRowProps {
   id: number;
@@ -439,7 +474,9 @@ export default function Home() {
   const [dayOffs, setDayOffs] = useState<DayOff[]>([]);
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [defaultDayLength, setDefaultDayLength] = useState(8);
+  const [defaultDayLength, setDefaultDayLength] = useState<number | null>(null);
+  const [defaultDayLengthLoading, setDefaultDayLengthLoading] = useState(true);
+  const expectedDayLength = defaultDayLength ?? 0;
   
   // Initialize state from localStorage
   const [currentDate, setCurrentDate] = useState(() => {
@@ -468,6 +505,7 @@ export default function Home() {
   const [showBlockers, setShowBlockers] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showChecklist, setShowChecklist] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showTimeEntries, setShowTimeEntries] = useState<{ taskId: number; taskTitle: string } | null>(null);
+  const [pendingDeleteTask, setPendingDeleteTask] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [pendingNoTimeStatusChange, setPendingNoTimeStatusChange] = useState<{
     taskId: number;
     taskTitle: string;
@@ -493,13 +531,19 @@ export default function Home() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        return new Set(Array.isArray(parsed) ? parsed : ["New", "Active", "Resolved", "Closed"]);
+        return new Set<string>(Array.isArray(parsed) ? parsed : STATUS_FILTER_OPTIONS);
       } catch {
-        return new Set(["New", "Active", "Resolved", "Closed"]);
+        return new Set<string>(STATUS_FILTER_OPTIONS);
       }
     }
-    return new Set(["New", "Active", "Resolved", "Closed"]);
+    return new Set<string>(STATUS_FILTER_OPTIONS);
   });
+  const isStatusFilterActive = STATUS_FILTER_OPTIONS.some(
+    (status) => !visibleStatuses.has(status)
+  );
+  const statusFilterLabel = isStatusFilterActive
+    ? "Filter status active"
+    : "Filter status";
   const monthParam = useMemo(
     () => format(currentDate, "yyyy-MM"),
     [currentDate]
@@ -526,16 +570,13 @@ export default function Home() {
   }, [currentDate, viewMode]);
 
   const fetchTasks = useCallback(
-    async (showLoader = false, includeUntrackedDelegated = false) => {
+    async (showLoader = false) => {
       try {
         if (showLoader) setLoading(true);
         const params = new URLSearchParams({
           startDate: dateRange.startDate,
           endDate: dateRange.endDate,
         });
-        if (includeUntrackedDelegated) {
-          params.set("includeUntrackedDelegated", "true");
-        }
         const response = await fetch(`/api/tasks?${params.toString()}`);
         if (!response.ok) throw new Error("Failed to fetch tasks");
         const data = await response.json();
@@ -558,11 +599,11 @@ export default function Home() {
       const response = await fetch(
         `/api/day-offs?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`
       );
-      if (!response.ok) throw new Error("Failed to fetch day-offs");
+      if (!response.ok) throw new Error("Failed to fetch days off");
       const data = await response.json();
       setDayOffs(data);
     } catch (err) {
-      console.error("Failed to load day-offs:", err);
+      console.error("Failed to load days off:", err);
     }
   }, [dateRange]);
 
@@ -659,19 +700,25 @@ export default function Home() {
     fetchDayOffs();
   }, [fetchDayOffs]);
 
-  // Fetch default day length setting
+  // Fetch the current user's work-day length for the active project.
   useEffect(() => {
     const fetchDefaultDayLength = async () => {
       try {
         const response = await fetch("/api/settings?key=default_day_length");
         if (response.ok) {
           const data = await response.json();
-          if (data.value) {
-            setDefaultDayLength(parseFloat(data.value));
-          }
+          const parsed = Number(data.value);
+          setDefaultDayLength(
+            Number.isFinite(parsed) && parsed >= 0.5 && parsed <= 24 ? parsed : null
+          );
+        } else {
+          setDefaultDayLength(null);
         }
       } catch (err) {
         console.error("Failed to load default day length:", err);
+        setDefaultDayLength(null);
+      } finally {
+        setDefaultDayLengthLoading(false);
       }
     };
     fetchDefaultDayLength();
@@ -739,6 +786,11 @@ export default function Home() {
   const filteredTasks = useMemo(
     () => tasks.filter(task => {
       const status = task.status || "New";
+      const hasTimeInPeriod = hasTaskTimeInPeriod(task, periodDateKeys);
+
+      if (isAzureDevOpsTaskAssignedAway(task) && !hasTimeInPeriod) {
+        return false;
+      }
       
       // First check if status is visible
       if (!visibleStatuses.has(status)) {
@@ -747,10 +799,7 @@ export default function Home() {
       
       // For completed tasks (Resolved/Closed), only show if they have tracked time in current period
       if (COMPLETED_STATUSES.has(status.toLowerCase())) {
-        const hasTimeInPeriod = Object.entries(task.timeEntries).some(
-          ([date, hours]) => periodDateKeys.has(date) && hours > 0
-        );
-        return hasTimeInPeriod || hasOtherAssigneeNoTimeWarning(task);
+        return hasTimeInPeriod;
       }
       
       return true;
@@ -883,12 +932,12 @@ export default function Home() {
       }
 
       if (day.isDayOff) {
-        return sum + (day.isHalfDay ? defaultDayLength / 2 : 0);
+        return sum + (day.isHalfDay ? expectedDayLength / 2 : 0);
       }
 
-      return sum + defaultDayLength;
+      return sum + expectedDayLength;
     }, 0);
-  }, [viewMode, calendarDays, defaultDayLength]);
+  }, [viewMode, calendarDays, expectedDayLength]);
 
   // Calculate cumulative overwork time for each day (incrementing from start of month)
   const cumulativeOverwork = useMemo(
@@ -900,14 +949,14 @@ export default function Home() {
         const expectedHours = day.isWeekend
           ? 0
           : day.isDayOff
-          ? (day.isHalfDay ? defaultDayLength / 2 : 0)
-          : defaultDayLength;
+          ? (day.isHalfDay ? expectedDayLength / 2 : 0)
+          : expectedDayLength;
         const dailyDifference = actualHours - expectedHours;
         cumulative += dailyDifference;
         return cumulative;
       });
     },
-    [calendarDays, allTotalHoursByDay, defaultDayLength]
+    [calendarDays, allTotalHoursByDay, expectedDayLength]
   );
 
   const toggleStatusVisibility = (status: string) => {
@@ -993,6 +1042,16 @@ export default function Home() {
     () => endOfWeek(currentDate, WEEK_STARTS_ON_MONDAY),
     [currentDate]
   );
+  const periodLabel = useMemo(
+    () =>
+      viewMode === "week"
+        ? `${format(weekStart, "dd MMM yyyy")} - ${format(
+            weekEnd,
+            "dd MMM yyyy"
+          )}`
+        : format(currentDate, "MMMM yyyy"),
+    [currentDate, viewMode, weekEnd, weekStart]
+  );
 
   const formatTimeDisplay = useCallback((hours: number): string => {
     if (hours === 0) return "";
@@ -1031,15 +1090,7 @@ export default function Home() {
     }
   };
 
-  const handleDeleteTask = async (taskId: number, taskTitle: string) => {
-    if (
-      !confirm(
-        `Are you sure you want to delete the task "${taskTitle}"? This will also delete all associated time entries.`
-      )
-    ) {
-      return;
-    }
-
+  const handleDeleteTask = async (taskId: number) => {
     try {
       const response = await fetch(`/api/tasks?id=${taskId}`, {
         method: "DELETE",
@@ -1048,6 +1099,7 @@ export default function Home() {
       if (!response.ok) throw new Error("Failed to delete task");
 
       await fetchTasks();
+      setPendingDeleteTask(null);
       toast.success("Task deleted successfully");
     } catch (err) {
       toast.error("Failed to delete task");
@@ -1155,38 +1207,44 @@ export default function Home() {
     setIsRefreshing(true);
     
     try {
-      // First, refresh Azure DevOps tasks
-      const refreshResponse = await fetch("/api/azure-devops/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
-        }),
-      });
+      const refreshTaskIds = filteredTasks
+        .filter((task) => task.external_source === "azure_devops" && task.external_id)
+        .map((task) => task.id);
 
-      if (refreshResponse.ok) {
-        const result = await refreshResponse.json();
-        console.log("Azure DevOps refresh result:", result);
-        
-        if (result.updated > 0) {
-          toast.success(`Successfully updated ${result.updated} task(s) from Azure DevOps`);
-        } else if (result.skipped > 0) {
-          toast.info(`All ${result.skipped} imported task(s) are up to date`);
+      if (refreshTaskIds.length > 0) {
+        const refreshResponse = await fetch("/api/azure-devops/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            startDate: dateRange.startDate,
+            endDate: dateRange.endDate,
+            taskIds: refreshTaskIds,
+          }),
+        });
+
+        if (refreshResponse.ok) {
+          const result = await refreshResponse.json();
+          console.log("Azure DevOps refresh result:", result);
+          
+          if (result.updated > 0) {
+            toast.success(`Successfully updated ${result.updated} task(s) from Azure DevOps`);
+          } else if (result.skipped > 0) {
+            toast.info(`All ${result.skipped} imported task(s) are up to date`);
+          }
+        } else if (refreshResponse.status === 400) {
+          // Settings not configured, silently skip
+          console.log("Azure DevOps settings not configured, skipping refresh");
+        } else {
+          const errorData = await refreshResponse.json();
+          toast.error(errorData.error || "Failed to refresh Azure DevOps tasks");
         }
-      } else if (refreshResponse.status === 400) {
-        // Settings not configured, silently skip
-        console.log("Azure DevOps settings not configured, skipping refresh");
-      } else {
-        const errorData = await refreshResponse.json();
-        toast.error(errorData.error || "Failed to refresh Azure DevOps tasks");
       }
     } catch (err) {
       console.error("Error refreshing Azure DevOps tasks:", err);
       toast.error("An error occurred while refreshing tasks");
     } finally {
-      // Always fetch latest tasks from database and include delegated no-time warnings.
-      await fetchTasks(false, true);
+      // Always fetch the current user's latest imported tasks from the database.
+      await fetchTasks(false);
       setIsRefreshing(false);
     }
   };
@@ -1227,7 +1285,7 @@ export default function Home() {
     }
   };
 
-  if (initialLoading) {
+  if (initialLoading || defaultDayLengthLoading) {
     return (
       <div className="h-full overflow-auto p-6">
         <Card>
@@ -1247,119 +1305,209 @@ export default function Home() {
     );
   }
 
+  if (defaultDayLength === null) {
+    return (
+      <div className="h-full overflow-auto p-6">
+        <Card>
+          <CardHeader>
+            <h1 className="text-2xl font-semibold">Work schedule required</h1>
+            <p className="text-sm text-muted-foreground">
+              Set your default day length in Profile before using the time tracker for this project.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <a href="/settings">Open Profile Settings</a>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-6 shrink-0">
-        <div className="flex gap-3 items-center justify-between flex-wrap">
-          <div className="flex gap-3 items-center">
-            <div className="flex bg-muted rounded-md p-1">
-              <Button
-                variant={viewMode === "week" ? "default" : "ghost"}
-                size="sm"
-                className={`h-8 px-4 ${
-                  viewMode === "week"
-                    ? "bg-orange-500 text-white hover:bg-orange-600"
-                    : ""
-                }`}
-                onClick={() => setViewMode("week")}
-              >
-                Week
-              </Button>
-              <Button
-                variant={viewMode === "month" ? "default" : "ghost"}
-                size="sm"
-                className="h-8 px-4"
-                onClick={() => setViewMode("month")}
-              >
-                Month
-              </Button>
-            </div>
-          </div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
+          <TooltipProvider delayDuration={150}>
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div className="flex h-10 items-center rounded-md border bg-background p-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={() => changeDate(-1)}
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Previous period"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Previous period</TooltipContent>
+                </Tooltip>
 
-          <div className="flex gap-3 items-center">
-            <Button
-              onClick={() => changeDate(-1)}
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-            >
-              ←
-            </Button>
-            <h1 className="text-2xl font-semibold">
-              {viewMode === "week"
-                ? `This week: ${format(weekStart, "dd")} – ${format(
-                    weekEnd,
-                    "dd MMM yyyy"
-                  )}`
-                : format(currentDate, "MMMM yyyy")}
-            </h1>
-            <Button
-              onClick={() => changeDate(1)}
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-            >
-              →
-            </Button>
-          </div>
+                <div
+                  className="mx-1 min-w-[12rem] truncate px-3 text-center text-sm font-semibold text-foreground"
+                  title={periodLabel}
+                >
+                  {periodLabel}
+                </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10">
-                  <Filter className="w-4 h-4 mr-2" />
-                  Filter Status
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>Show Status</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {["New", "Active", "Resolved", "Closed"].map((status) => (
-                  <DropdownMenuCheckboxItem
-                    key={status}
-                    checked={visibleStatuses.has(status)}
-                    onCheckedChange={() => toggleStatusVisibility(status)}
+                <div className="mx-1 flex rounded-md bg-muted p-0.5">
+                  <Button
+                    variant={viewMode === "week" ? "default" : "ghost"}
+                    size="sm"
+                    className={`h-7 px-3 text-xs ${
+                      viewMode === "week"
+                        ? "bg-orange-500 text-white hover:bg-orange-600"
+                        : ""
+                    }`}
+                    onClick={() => setViewMode("week")}
                   >
-                    {status}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    Week
+                  </Button>
+                  <Button
+                    variant={viewMode === "month" ? "default" : "ghost"}
+                    size="sm"
+                    className="h-7 px-3 text-xs"
+                    onClick={() => setViewMode("month")}
+                  >
+                    Month
+                  </Button>
+                </div>
 
-            <Button onClick={() => setShowAddTask(true)} variant="outline" size="sm" className="h-10">
-              + Add row
-            </Button>
-            <Button onClick={() => setShowImport(true)} variant="outline" size="sm" className="h-10">
-              Import from Azure DevOps
-            </Button>
-            <Button 
-              onClick={handleRefresh} 
-              variant="outline"
-              size="sm"
-              className="h-10"
-              disabled={isRefreshing}
-            >
-              {isRefreshing ? 'Refreshing...' : 'Refresh'}
-            </Button>
-            <Button 
-              onClick={handleExportToExcel} 
-              variant="outline"
-              size="sm"
-              className="h-10"
-            >
-              Export to Excel
-            </Button>
-            {estimatedMonthHours !== null && (
-              <div className="text-sm text-muted-foreground flex items-center gap-1">
-                <span>Est. month hours:</span>
-                <span className="font-semibold text-foreground">
-                  {estimatedMonthHours > 0
-                    ? formatTimeDisplay(estimatedMonthHours)
-                    : "0:00"}
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={() => changeDate(1)}
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Next period"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Next period</TooltipContent>
+                </Tooltip>
               </div>
-            )}
-          </div>
+
+              <div className="hidden h-6 w-px bg-border sm:block" />
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="relative h-10 w-10"
+                    aria-label={statusFilterLabel}
+                    title={statusFilterLabel}
+                  >
+                    <Filter className="h-4 w-4" />
+                    {isStatusFilterActive && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-orange-500 ring-2 ring-background"
+                      />
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Status</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {STATUS_FILTER_OPTIONS.map((status) => (
+                    <DropdownMenuCheckboxItem
+                      key={status}
+                      checked={visibleStatuses.has(status)}
+                      onCheckedChange={() => toggleStatusVisibility(status)}
+                    >
+                      {status}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10"
+                    aria-label="Add work item"
+                    title="Add work item"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={() => setShowAddTask(true)}>
+                    <span className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      <span>Create new</span>
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowImport(true)}>
+                    <span className="flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      <span>Import from Azure DevOps</span>
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleRefresh}
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10"
+                    disabled={isRefreshing}
+                    aria-label="Refresh Azure DevOps tasks"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{isRefreshing ? "Refreshing" : "Refresh"}</TooltipContent>
+              </Tooltip>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10"
+                    aria-label="Time management actions"
+                    title="More actions"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleExportToExcel}>
+                    <span className="flex items-center gap-2">
+                      <Download className="h-4 w-4" />
+                      <span>Export to Excel</span>
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {estimatedMonthHours !== null && (
+                <div className="ml-1 flex h-10 items-center gap-1 rounded-md border px-3 text-sm text-muted-foreground">
+                  <span>Est. month:</span>
+                  <span className="font-semibold text-foreground">
+                    {estimatedMonthHours > 0
+                      ? formatTimeDisplay(estimatedMonthHours)
+                      : "0:00"}
+                  </span>
+                </div>
+              )}
+            </div>
+          </TooltipProvider>
         </div>
       </div>
 
@@ -1453,8 +1601,10 @@ export default function Home() {
                 const activeBlockers = task.blockers?.filter(b => !b.is_resolved) || [];
                 const hasBlockers = activeBlockers.length > 0;
                 const canManageTask = task.isAssignedToCurrentUser !== false;
-                const showAssignmentWarning = hasOtherAssigneeNoTimeWarning(task);
+                const showAssignmentWarning = hasAzureAssignmentMismatchWarning(task);
                 const assignedUserLabel = getAssignedUserLabel(task);
+                const azureAssignedUserLabel = getAzureAssignedUserLabel(task);
+                const azureAssignmentWarningLabel = `Azure DevOps assignee: ${azureAssignedUserLabel}`;
                 const highestSeverity = hasBlockers 
                   ? activeBlockers.reduce((max, b) => {
                       const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
@@ -1563,14 +1713,14 @@ export default function Home() {
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span
-                                      className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-amber-300 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                                      aria-label={`Assigned to ${assignedUserLabel} with no tracked time`}
+                                      className="mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center text-amber-700 dark:text-amber-300"
+                                      aria-label={azureAssignmentWarningLabel}
                                     >
-                                      <TriangleAlert className="h-3.5 w-3.5" />
+                                      <TriangleAlert className="h-4 w-4" />
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent side="top" align="start" className="max-w-xs">
-                                    Assigned to {assignedUserLabel}; no tracked time recorded.
+                                    {azureAssignmentWarningLabel}.
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
@@ -1775,7 +1925,7 @@ export default function Home() {
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
-                                    onClick={() => handleDeleteTask(task.id, task.title)}
+                                    onClick={() => setPendingDeleteTask({ taskId: task.id, taskTitle: task.title })}
                                     className="text-red-600 focus:bg-red-50 focus:text-red-600"
                                   >
                                     <span className="flex items-center gap-2">
@@ -2012,6 +2162,50 @@ export default function Home() {
               <span>{trackedTimeTotal > 0 ? formatTimeDisplay(trackedTimeTotal) : "0:00"}</span>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingDeleteTask)}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteTask(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete task</DialogTitle>
+            <DialogDescription>
+              Delete this task and all associated time entries. This cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingDeleteTask ? (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm font-medium">
+              {pendingDeleteTask.taskTitle}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingDeleteTask(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (pendingDeleteTask) {
+                  void handleDeleteTask(pendingDeleteTask.taskId);
+                }
+              }}
+            >
+              Delete task
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

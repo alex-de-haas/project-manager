@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
 
     if (importedDayOffs.length === 0) {
       return NextResponse.json(
-        { error: "No day-offs could be parsed from this ICS calendar" },
+        { error: "No days off could be parsed from this ICS calendar" },
         { status: 400 }
       );
     }
@@ -127,11 +127,11 @@ export async function POST(request: NextRequest) {
       total: importedDayOffs.length,
     });
   } catch (error) {
-    console.error("Error importing ICS day-offs:", error);
+    console.error("Error importing ICS days off:", error);
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Failed to import ICS day-offs",
+          error instanceof Error ? error.message : "Failed to import ICS days off",
       },
       { status: error instanceof DayOffImportError ? error.status : 500 }
     );

@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -43,6 +45,7 @@ export default function BlockersModal({
   const [editSeverity, setEditSeverity] = useState<BlockerSeverity>("medium");
   const [resolvingId, setResolvingId] = useState<number | null>(null);
   const [resolveComment, setResolveComment] = useState("");
+  const [pendingDeleteBlocker, setPendingDeleteBlocker] = useState<Blocker | null>(null);
 
   const fetchBlockers = useCallback(async () => {
     try {
@@ -169,10 +172,6 @@ export default function BlockersModal({
   };
 
   const handleDeleteBlocker = async (blockerId: number) => {
-    if (!confirm("Are you sure you want to delete this blocker?")) {
-      return;
-    }
-
     try {
       const response = await fetch(`/api/blockers?id=${blockerId}`, {
         method: "DELETE",
@@ -180,6 +179,7 @@ export default function BlockersModal({
 
       if (!response.ok) throw new Error("Failed to delete blocker");
 
+      setPendingDeleteBlocker(null);
       await fetchBlockers();
       onSuccess?.();
     } catch (err) {
@@ -238,13 +238,14 @@ export default function BlockersModal({
   const resolvedBlockers = blockers.filter((b) => b.is_resolved);
 
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Blockers for: {taskTitle}</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open onOpenChange={onClose}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Blockers for: {taskTitle}</DialogTitle>
+          </DialogHeader>
 
-        <div className="space-y-6">
+          <div className="space-y-6">
           {/* Add New Blocker */}
           <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-900">
             <h3 className="font-semibold mb-3">Add New Blocker</h3>
@@ -401,7 +402,7 @@ export default function BlockersModal({
                               Resolve
                             </Button>
                             <Button
-                              onClick={() => handleDeleteBlocker(blocker.id)}
+                              onClick={() => setPendingDeleteBlocker(blocker)}
                               variant="ghost"
                               size="sm"
                               className="h-7 text-xs text-red-600 hover:text-red-700"
@@ -448,7 +449,7 @@ export default function BlockersModal({
                           Unresolve
                         </Button>
                         <Button
-                          onClick={() => handleDeleteBlocker(blocker.id)}
+                          onClick={() => setPendingDeleteBlocker(blocker)}
                           variant="ghost"
                           size="sm"
                           className="h-7 text-xs text-red-600 hover:text-red-700"
@@ -491,14 +492,63 @@ export default function BlockersModal({
               No blockers for this task
             </div>
           )}
-        </div>
+          </div>
 
-        <div className="flex justify-end pt-4 border-t">
-          <Button onClick={onClose} variant="outline">
-            Close
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          <div className="flex justify-end pt-4 border-t">
+            <Button onClick={onClose} variant="outline">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingDeleteBlocker)}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteBlocker(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete blocker</DialogTitle>
+            <DialogDescription>
+              Delete this blocker from the task. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pendingDeleteBlocker ? (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">
+              <Badge className={getSeverityColor(pendingDeleteBlocker.severity)}>
+                {getSeverityLabel(pendingDeleteBlocker.severity)}
+              </Badge>
+              <p className="mt-2 text-muted-foreground">
+                {pendingDeleteBlocker.comment}
+              </p>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingDeleteBlocker(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (pendingDeleteBlocker) {
+                  void handleDeleteBlocker(pendingDeleteBlocker.id);
+                }
+              }}
+            >
+              Delete blocker
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

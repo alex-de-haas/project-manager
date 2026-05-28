@@ -5,7 +5,7 @@ import db from '@/lib/db';
 import type { DayOff } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 
-// GET - Fetch all day-offs or filter by date range
+// GET - Fetch all days off or filter by date range
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -31,15 +31,15 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(dayOffs);
   } catch (error) {
-    console.error('Error fetching day-offs:', error);
+    console.error('Error fetching days off:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch day-offs' },
+      { error: 'Failed to fetch days off' },
       { status: 500 }
     );
   }
 }
 
-// POST - Create a new day-off
+// POST - Create a new day off
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -54,11 +54,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if day-off already exists for this date
+    // Check if day off already exists for this date
     const existing = db.prepare('SELECT id FROM day_offs WHERE date = ? AND user_id = ?').get(date, userId);
     if (existing) {
       return NextResponse.json(
-        { error: 'Day-off already exists for this date' },
+        { error: 'Day off already exists for this date' },
         { status: 409 }
       );
     }
@@ -74,15 +74,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(newDayOff, { status: 201 });
   } catch (error) {
-    console.error('Error creating day-off:', error);
+    console.error('Error creating day off:', error);
     return NextResponse.json(
-      { error: 'Failed to create day-off' },
+      { error: 'Failed to create day off' },
       { status: 500 }
     );
   }
 }
 
-// DELETE - Delete a day-off
+// DELETE - Delete a day off
 export async function DELETE(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -110,16 +110,16 @@ export async function DELETE(request: NextRequest) {
 
     if (result.changes === 0) {
       return NextResponse.json(
-        { error: 'Day-off not found' },
+        { error: 'Day off not found' },
         { status: 404 }
       );
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting day-off:', error);
+    console.error('Error deleting day off:', error);
     return NextResponse.json(
-      { error: 'Failed to delete day-off' },
+      { error: 'Failed to delete day off' },
       { status: 500 }
     );
   }

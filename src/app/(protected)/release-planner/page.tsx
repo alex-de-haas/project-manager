@@ -40,6 +40,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   DndContext,
   closestCenter,
   KeyboardSensor,
@@ -56,7 +62,19 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { BookOpen, Bug, ClipboardCheck, GripVertical, MoreVertical, ShieldAlert } from "lucide-react";
+import {
+  BookOpen,
+  Bug,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardCheck,
+  GripVertical,
+  MoreVertical,
+  Plus,
+  RefreshCw,
+  ShieldAlert,
+  Upload,
+} from "lucide-react";
 import { readLocalStorage, writeLocalStorage } from "@/lib/browser-storage";
 
 const ReleaseImportModal = dynamic(
@@ -94,11 +112,13 @@ interface AppUser {
   id: number;
   name: string;
   email?: string | null;
+  is_admin?: number | null;
 }
 
 interface AppProject {
   id: number;
   member_user_ids?: number[];
+  is_default?: boolean;
 }
 
 interface ExistingChildTask {
@@ -338,22 +358,26 @@ export default function ReleaseTrackingPage() {
           return;
         }
 
-        const projects = (await projectsResponse.json()) as AppProject[];
-        const users = (await usersResponse.json()) as AppUser[];
-
-        const cookieProjectId = getCookieValue("pm_project_id");
-        const activeProject =
-          projects.find((project) => String(project.id) === cookieProjectId) ??
-          projects[0];
-
-        const memberIds = new Set(activeProject?.member_user_ids ?? []);
-        const members = users.filter((user) => memberIds.has(user.id));
-        setProjectUsers(members);
-
         const sessionData = sessionResponse.ok
           ? ((await sessionResponse.json()) as { user?: { id: number } })
           : null;
         const sessionUserId = sessionData?.user?.id;
+        const projects = (await projectsResponse.json()) as AppProject[];
+        const users = (await usersResponse.json()) as AppUser[];
+
+        const cookieProjectId = getCookieValue("pm_project_id");
+        const cookieUserId = getCookieValue("pm_project_user_id");
+        const defaultProject = projects.find((project) => project.is_default);
+        const activeProject =
+          cookieUserId === String(sessionUserId)
+            ? projects.find((project) => String(project.id) === cookieProjectId) ??
+              defaultProject ??
+              projects[0]
+            : defaultProject ?? projects[0];
+
+        const memberIds = new Set(activeProject?.member_user_ids ?? []);
+        const members = users.filter((user) => user.is_admin || memberIds.has(user.id));
+        setProjectUsers(members);
 
         const defaultUserId =
           members.find((member) => member.id === sessionUserId)?.id ??
@@ -1176,64 +1200,96 @@ export default function ReleaseTrackingPage() {
             </p>
           </div>
         ) : (
-          <div className="flex gap-3 items-center justify-center relative">
-            <div className="flex gap-3 items-center">
-              <Button
-                onClick={handlePrevRelease}
-                variant="outline"
-                size="icon"
-                className="h-10 w-10"
-                disabled={activeReleaseIndex <= 0}
-              >
-                ←
-              </Button>
-              {activeRelease && (
-                <div className="text-center min-w-[200px]">
-                  <div className="flex items-center justify-center gap-2">
-                    <h1 className="text-2xl font-semibold">
-                      {activeRelease.name}
-                    </h1>
-                    {activeRelease.status === "completed" && (
-                      <Badge variant="secondary">Completed</Badge>
-                    )}
-                  </div>
-                </div>
-              )}
-              <Button
-                onClick={handleNextRelease}
-                variant="outline"
-                size="icon"
-                className="h-10 w-10"
-                disabled={activeReleaseIndex >= sortedReleases.length - 1}
-              >
-                →
-              </Button>
-            </div>
+          <TooltipProvider delayDuration={150}>
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div className="flex h-10 items-center rounded-md border bg-background p-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={handlePrevRelease}
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={activeReleaseIndex <= 0}
+                      aria-label="Previous release"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Previous release</TooltipContent>
+                </Tooltip>
 
-            <div className="flex items-center gap-3 absolute right-0">
-              {activeRelease && (
-                <>
+                <div
+                  className="mx-1 flex min-w-[12rem] items-center justify-center gap-2 px-3 text-sm font-semibold text-foreground"
+                  title={activeRelease?.name || "No release"}
+                >
+                  <span className="truncate">{activeRelease?.name || "No release"}</span>
+                  {activeRelease?.status === "completed" && (
+                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                      Completed
+                    </Badge>
+                  )}
+                </div>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={handleNextRelease}
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={activeReleaseIndex >= sortedReleases.length - 1}
+                      aria-label="Next release"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Next release</TooltipContent>
+                </Tooltip>
+              </div>
+
+              <div className="hidden h-6 w-px bg-border sm:block" />
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <Button
-                    onClick={() => setShowImport(true)}
-                    size="sm"
-                    className="h-10"
                     variant="outline"
+                    size="icon"
+                    className="h-10 w-10"
+                    disabled={!activeRelease}
+                    aria-label="Add release work item"
+                    title="Add release work item"
                   >
-                    Import user stories
+                    <Plus className="h-4 w-4" />
                   </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={() => setShowImport(true)}>
+                    <span className="flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      <span>Import from Azure DevOps</span>
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <Button
                     onClick={handleRefresh}
-                    size="sm"
-                    className="h-10"
+                    size="icon"
+                    className="h-10 w-10"
                     variant="outline"
-                    disabled={isRefreshing}
+                    disabled={isRefreshing || !activeRelease}
+                    aria-label="Refresh Azure DevOps work items"
                   >
-                    {isRefreshing ? "Refreshing..." : "Refresh"}
+                    <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
                   </Button>
-                </>
-              )}
+                </TooltipTrigger>
+                <TooltipContent>{isRefreshing ? "Refreshing" : "Refresh"}</TooltipContent>
+              </Tooltip>
             </div>
-          </div>
+          </TooltipProvider>
         )}
       </div>
 

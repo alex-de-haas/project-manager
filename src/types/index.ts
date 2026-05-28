@@ -10,6 +10,10 @@ export interface Task {
   tags?: string | null;
   external_id?: string | null;
   external_source?: string | null;
+  azure_assigned_to_id?: string | null;
+  azure_assigned_to_name?: string | null;
+  azure_assigned_to_unique_name?: string | null;
+  azure_assignee_is_current_user?: number | null;
   created_at: Date;
   completed_at?: Date | null;
 }
@@ -28,6 +32,9 @@ export interface TaskWithTimeEntries extends Task {
   assignedUserName?: string | null;
   assignedUserEmail?: string | null;
   isAssignedToCurrentUser?: boolean;
+  azureAssignedToName?: string | null;
+  azureAssignedToUniqueName?: string | null;
+  isAzureAssignedToCurrentUser?: boolean | null;
   blockers?: Blocker[];
   checklistSummary?: {
     total: number;
@@ -51,10 +58,6 @@ export interface AzureDevOpsSettings {
   projectUrl?: string;
   pat: string;
   hasPat?: boolean;
-}
-
-export interface GeneralSettings {
-  default_day_length: number;
 }
 
 export interface AiProviderSettings {

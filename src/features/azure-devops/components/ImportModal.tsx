@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +14,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AzureDevOpsWorkItem } from "@/types";
 
@@ -42,11 +42,11 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
       if (response.ok) {
         setWorkItems(data.workItems || []);
       } else {
-        setMessage(`✗ Failed to fetch work items: ${data.error || "Unknown error"}`);
+        setMessage(`Failed to fetch work items: ${data.error || "Unknown error"}`);
         setMessageType("error");
       }
     } catch (err) {
-      setMessage("✗ Failed to fetch work items: Network error");
+      setMessage("Failed to fetch work items: Network error");
       setMessageType("error");
     } finally {
       setLoading(false);
@@ -56,6 +56,20 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   useEffect(() => {
     void fetchWorkItems();
   }, [fetchWorkItems]);
+
+  useEffect(() => {
+    if (!message) return;
+
+    if (messageType === "success") {
+      toast.success(message);
+    } else if (messageType === "error") {
+      toast.error(message);
+    } else {
+      toast.info(message);
+    }
+
+    setMessage("");
+  }, [message, messageType]);
 
   const filteredWorkItems = useMemo(() => {
     const searchText = filterText.trim().toLowerCase();
@@ -124,7 +138,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
 
       if (response.ok) {
         setMessage(
-          `✓ Successfully imported ${data.imported} work item(s)${
+          `Successfully imported ${data.imported} work item(s)${
             data.skipped > 0 ? `, skipped ${data.skipped} (already exists)` : ""
           }`
         );
@@ -133,11 +147,11 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
           onSuccess();
         }, 2000);
       } else {
-        setMessage(`✗ Import failed: ${data.error || "Unknown error"}`);
+        setMessage(`Import failed: ${data.error || "Unknown error"}`);
         setMessageType("error");
       }
     } catch (err) {
-      setMessage("✗ Import failed: Network error");
+      setMessage("Import failed: Network error");
       setMessageType("error");
     } finally {
       setImporting(false);
@@ -246,21 +260,6 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
             <div className="text-sm text-muted-foreground">
               {selectedIds.size} work item(s) selected
             </div>
-          )}
-
-          {message && (
-            <Alert
-              variant={messageType === "error" ? "destructive" : "default"}
-              className={
-                messageType === "success"
-                  ? "bg-green-50 border-green-200"
-                  : messageType === "info"
-                  ? "bg-blue-50 border-blue-200"
-                  : ""
-              }
-            >
-              <AlertDescription>{message}</AlertDescription>
-            </Alert>
           )}
 
           <DialogFooter>

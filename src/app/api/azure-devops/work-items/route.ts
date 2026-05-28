@@ -10,27 +10,11 @@ import {
   isAzureDevOpsConfigProblem,
 } from '@/lib/azure-devops/settings';
 
-const getUserEmail = (userId: number): string | null => {
-  const user = db
-    .prepare('SELECT email FROM users WHERE id = ?')
-    .get(userId) as { email?: string | null } | undefined;
-  return user?.email?.trim() || null;
-};
-
-const escapeWiqlString = (value: string): string => value.replace(/'/g, "''");
-
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
-    const userEmail = getUserEmail(userId);
 
-    if (!userEmail) {
-      return NextResponse.json(
-        { error: 'Current user email is required to load assigned work items.' },
-        { status: 400 }
-      );
-    }
     const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
     if (isAzureDevOpsConfigProblem(settingsResult)) {
       return NextResponse.json(
@@ -41,13 +25,12 @@ export async function GET(request: NextRequest) {
 
     const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
 
-    // Query for work items assigned to the authenticated app user
-    const escapedUserEmail = escapeWiqlString(userEmail);
+    // @Me is resolved by Azure DevOps from the PAT-authenticated request identity.
     const wiql = {
       query: `
         SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State]
         FROM WorkItems
-        WHERE [System.AssignedTo] = '${escapedUserEmail}'
+        WHERE [System.AssignedTo] = @Me
           AND [System.TeamProject] = @project
           AND [System.State] <> 'Closed'
           AND [System.State] <> 'Removed'

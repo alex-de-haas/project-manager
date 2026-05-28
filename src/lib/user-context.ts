@@ -1,9 +1,11 @@
 import type { NextRequest } from "next/server";
 import db from "@/lib/db";
 import { getAuthenticatedUserId } from "@/lib/auth";
+import { isAdminUser } from "@/lib/authorization";
+import { canAccessProject, getDefaultProjectIdForUser } from "@/lib/default-project";
 
 export const PROJECT_COOKIE_NAME = "pm_project_id";
-const DEFAULT_PROJECT_NAME = "Default";
+export const PROJECT_USER_COOKIE_NAME = "pm_project_user_id";
 
 export const getRequestUserId = (request: NextRequest): number => {
   const userId = getAuthenticatedUserId(request);
@@ -20,7 +22,19 @@ const parseProjectId = (value: string | null | undefined): number | null => {
   return parsed;
 };
 
-const ensureDefaultProjectForUser = (userId: number): number => {
+const getFallbackProjectId = (userId: number): number => {
+  const defaultProjectId = getDefaultProjectIdForUser(userId);
+  if (defaultProjectId) {
+    return defaultProjectId;
+  }
+
+  if (isAdminUser(userId)) {
+    const firstProject = db
+      .prepare("SELECT id FROM projects ORDER BY created_at ASC, id ASC LIMIT 1")
+      .get() as { id: number } | undefined;
+    return firstProject?.id ?? 0;
+  }
+
   const existingMembership = db
     .prepare(`
       SELECT p.id
@@ -32,32 +46,19 @@ const ensureDefaultProjectForUser = (userId: number): number => {
     `)
     .get(userId) as { id: number } | undefined;
 
-  if (existingMembership) {
-    return existingMembership.id;
-  }
-
-  const projectInserted = db
-    .prepare("INSERT INTO projects (user_id, name) VALUES (?, ?)")
-    .run(userId, DEFAULT_PROJECT_NAME);
-  const projectId = Number(projectInserted.lastInsertRowid);
-  db.prepare(
-    "INSERT OR IGNORE INTO project_members (project_id, user_id, added_by_user_id) VALUES (?, ?, ?)"
-  ).run(projectId, userId, userId);
-  return projectId;
+  return existingMembership?.id ?? 0;
 };
 
 const resolveKnownProjectId = (userId: number, candidateProjectId: number | null): number => {
-  const fallbackProjectId = ensureDefaultProjectForUser(userId);
+  const fallbackProjectId = getFallbackProjectId(userId);
 
   if (!candidateProjectId) {
     return fallbackProjectId;
   }
 
-  const project = db
-    .prepare("SELECT project_id as id FROM project_members WHERE project_id = ? AND user_id = ?")
-    .get(candidateProjectId, userId) as { id: number } | undefined;
-
-  return project ? candidateProjectId : fallbackProjectId;
+  return canAccessProject(userId, candidateProjectId)
+    ? candidateProjectId
+    : fallbackProjectId;
 };
 
 export const getRequestProjectId = (
@@ -71,6 +72,9 @@ export const getRequestProjectId = (
   const fromQuery = parseProjectId(request.nextUrl.searchParams.get("projectId"));
   if (fromQuery) return resolveKnownProjectId(userId, fromQuery);
 
-  const fromCookie = parseProjectId(request.cookies.get(PROJECT_COOKIE_NAME)?.value);
+  const cookieUserId = parseProjectId(request.cookies.get(PROJECT_USER_COOKIE_NAME)?.value);
+  const fromCookie = cookieUserId === userId
+    ? parseProjectId(request.cookies.get(PROJECT_COOKIE_NAME)?.value)
+    : null;
   return resolveKnownProjectId(userId, fromCookie);
 };

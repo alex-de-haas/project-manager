@@ -9,8 +9,8 @@ The application is organized around a few core workflows:
 - **Time tracking**: weekly and monthly views, inline time entry editing, totals by day and work item, status filtering, untracked delegated work warnings, and Excel export.
 - **Work management**: local tasks and bugs, task status changes, checklists, blockers, and completion rules that prevent closing work with unfinished checklist items.
 - **Release planning**: ordered releases, imported work items, child task visibility, release status tracking, and movement of work between releases.
-- **Day-offs**: personal and team day-off tracking with full-day and half-day support.
-- **Project administration**: Docker Host identity, module administrator roles, project switching, projects, and general settings.
+- **Days off**: personal and team day off tracking with full-day and half-day support.
+- **Project administration**: Docker Host identity, host-admin settings access, project switching, projects, and per-project user access.
 - **Azure DevOps integration**: optional import, export, refresh, status sync, and release planning support for Azure DevOps work items.
 - **Database operations**: local SQLite storage with JSON migration import, backup, and restore support.
 
@@ -39,17 +39,25 @@ Install dependencies:
 npm install
 ```
 
-Start the development server:
+Start the standalone development server:
 
 ```bash
 npm run dev
 ```
 
-Link the running app into Docker Host developer mode:
+Run the integrated Docker Host developer loop from the repository root:
+
+```bash
+docker-host dev up
+```
+
+Use the richer harness manifest when you want the seeded development Host user and assigned-user policy:
 
 ```bash
 docker-host dev up --manifest .docker-host/dev.json
 ```
+
+Both Docker Host developer commands start the Next.js app on port `3100`.
 
 If Docker Host is already running on a specific local URL, pass it explicitly:
 
@@ -85,7 +93,7 @@ Build the app image:
 docker build -t project-manager .
 ```
 
-The source module metadata template is available in `metadata.json`. CI renders an installable metadata file that points at the immutable `sha-<commit>` image tag pushed to GHCR, then publishes that file as the `metadata.json` asset on the `latest` GitHub release. The stable Docker Host metadata URL is:
+The source module metadata template is available in `metadata.json` using schema `0.3` image-backed services. Local process development metadata is available in `metadata.dev.json`. CI renders an installable metadata file that points at the immutable `sha-<commit>` image tag pushed to GHCR, then publishes that file as the `metadata.json` asset on the `latest` GitHub release. The stable Docker Host metadata URL is:
 
 ```text
 https://github.com/alex-de-haas/project-manager/releases/download/latest/metadata.json

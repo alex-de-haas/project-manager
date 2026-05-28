@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import * as azdev from 'azure-devops-node-api';
 import type { AzureDevOpsSettings } from '@/types';
-import { getAzureDevOpsProjectSettings, getAzureDevOpsUserPat } from '@/lib/azure-devops/settings';
+import {
+  getAzureDevOpsAuthenticatedUser,
+  getAzureDevOpsProjectSettings,
+  getAzureDevOpsUserPat,
+} from '@/lib/azure-devops/settings';
 import { parseAzureDevOpsProjectUrl } from '@/lib/azure-devops/project-url';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 
@@ -36,6 +40,7 @@ export async function POST(request: NextRequest) {
     // Try to get project info to validate connection
     const coreApi = await connection.getCoreApi();
     const projectInfo = await coreApi.getProject(effectiveProject);
+    const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
 
     if (!projectInfo) {
       return NextResponse.json(
@@ -51,7 +56,8 @@ export async function POST(request: NextRequest) {
         name: projectInfo.name,
         id: projectInfo.id,
         description: projectInfo.description
-      }
+      },
+      authenticatedUser
     });
 
   } catch (error) {

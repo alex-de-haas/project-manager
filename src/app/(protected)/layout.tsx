@@ -3,8 +3,9 @@ import TopNavigation from "@/components/TopNavigation";
 import { headers } from "next/headers";
 import { readTrustedHostIdentity } from "@/lib/host-identity";
 import { ensureHostUser } from "@/lib/host-users";
-import { PROJECT_COOKIE_NAME } from "@/lib/user-context";
+import { PROJECT_COOKIE_NAME, PROJECT_USER_COOKIE_NAME } from "@/lib/user-context";
 import { getProjectsForUser } from "@/lib/projects";
+import { getDefaultProjectIdForUser } from "@/lib/default-project";
 
 export default async function ProtectedLayout({
   children,
@@ -28,21 +29,35 @@ export default async function ProtectedLayout({
   const currentUser = ensureHostUser(hostIdentity);
   const cookieStore = await cookies();
   const projects = getProjectsForUser(currentUser.id);
-  const cookieProjectId = cookieStore.get(PROJECT_COOKIE_NAME)?.value ?? "";
+  const cookieUserId = cookieStore.get(PROJECT_USER_COOKIE_NAME)?.value ?? "";
+  const cookieProjectId = cookieUserId === String(currentUser.id)
+    ? cookieStore.get(PROJECT_COOKIE_NAME)?.value ?? ""
+    : "";
+  const defaultProjectId = getDefaultProjectIdForUser(currentUser.id);
   const activeProjectId = projects.some(
     (project) => String(project.id) === cookieProjectId
   )
     ? cookieProjectId
+    : defaultProjectId && projects.some((project) => project.id === defaultProjectId)
+    ? String(defaultProjectId)
     : projects[0]
     ? String(projects[0].id)
     : "";
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div
+      data-project-manager-host-identity="present"
+      data-host-user-id={hostIdentity.id}
+      data-host-user-email={hostIdentity.email ?? ""}
+      data-host-user-name={hostIdentity.name ?? ""}
+      data-host-role={hostIdentity.hostRole ?? ""}
+      className="flex h-dvh flex-col overflow-hidden"
+    >
       <TopNavigation
         initialUser={currentUser}
         initialProjects={projects}
         initialActiveProjectId={activeProjectId}
+        initialDefaultProjectId={defaultProjectId ? String(defaultProjectId) : ""}
       />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {children}

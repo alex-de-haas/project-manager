@@ -6,22 +6,20 @@ import type { Task } from '@/types';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
 import {
   createAzureDevOpsConnectionContext,
+  getAzureDevOpsAuthenticatedUser,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from '@/lib/azure-devops/settings';
+import {
+  isAzureDevOpsIdentityAssignedToUser,
+  normalizeAzureDevOpsWorkItemIdentity,
+} from '@/lib/azure-devops/identity';
 
 interface ImportRequest {
   workItemIds?: number[];
   query?: string;
   assignedToMe?: boolean;
 }
-
-const getUserEmail = (userId: number): string | null => {
-  const user = db
-    .prepare('SELECT email FROM users WHERE id = ?')
-    .get(userId) as { email?: string | null } | undefined;
-  return user?.email?.trim() || null;
-};
 
 const escapeWiqlString = (value: string): string => value.replace(/'/g, "''");
 
@@ -40,14 +38,6 @@ export async function POST(request: NextRequest) {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const body: ImportRequest = await request.json();
-    const userEmail = getUserEmail(userId);
-
-    if (!userEmail) {
-      return NextResponse.json(
-        { error: 'Current user email is required to import assigned work items.' },
-        { status: 400 }
-      );
-    }
 
     const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
     if (isAzureDevOpsConfigProblem(settingsResult)) {
@@ -57,7 +47,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+    const { settings, connection, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+    const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
 
     let workItemIds: number[] = [];
 
@@ -65,13 +56,12 @@ export async function POST(request: NextRequest) {
     if (body.workItemIds && body.workItemIds.length > 0) {
       workItemIds = body.workItemIds;
     } else if (body.assignedToMe) {
-      // Query for work items assigned to the authenticated app user
-      const escapedUserEmail = escapeWiqlString(userEmail);
+      // @Me is resolved by Azure DevOps from the PAT-authenticated request identity.
       const wiql = {
         query: `
           SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State]
           FROM WorkItems
-          WHERE [System.AssignedTo] = '${escapedUserEmail}'
+          WHERE [System.AssignedTo] = @Me
             AND [System.TeamProject] = @project
             AND [System.State] <> 'Closed'
             AND [System.State] <> 'Removed'
@@ -127,6 +117,13 @@ export async function POST(request: NextRequest) {
       const workItemType = (workItem.fields['System.WorkItemType'] as string || 'Task').toLowerCase();
       const status = workItem.fields['System.State'] as string || null;
       const tags = workItem.fields['System.Tags'] as string || null;
+      const assignedTo = normalizeAzureDevOpsWorkItemIdentity(
+        workItem.fields['System.AssignedTo']
+      );
+      const isAssignedToCurrentUser = isAzureDevOpsIdentityAssignedToUser(
+        assignedTo,
+        authenticatedUser
+      );
       const closedDate = workItem.fields['Microsoft.VSTS.Common.ClosedDate'] as string || 
                         workItem.fields['Microsoft.VSTS.Common.ResolvedDate'] as string || 
                         workItem.fields['System.ClosedDate'] as string || 
@@ -156,8 +153,23 @@ export async function POST(request: NextRequest) {
 
       // Insert task
       const stmt = db.prepare(`
-        INSERT INTO tasks (user_id, project_id, title, type, status, tags, external_id, external_source, display_order, completed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'azure_devops', ?, ?)
+        INSERT INTO tasks (
+          user_id,
+          project_id,
+          title,
+          type,
+          status,
+          tags,
+          external_id,
+          external_source,
+          azure_assigned_to_id,
+          azure_assigned_to_name,
+          azure_assigned_to_unique_name,
+          azure_assignee_is_current_user,
+          display_order,
+          completed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'azure_devops', ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -168,6 +180,10 @@ export async function POST(request: NextRequest) {
         status,
         tags,
         workItem.id,
+        assignedTo?.id ?? null,
+        assignedTo?.displayName ?? null,
+        assignedTo?.uniqueName ?? null,
+        isAssignedToCurrentUser === null ? null : isAssignedToCurrentUser ? 1 : 0,
         newOrder,
         closedDate
       );
