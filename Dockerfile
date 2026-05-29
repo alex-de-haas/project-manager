@@ -22,6 +22,7 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV PROJECT_MANAGER_DATA_DIR=/app/data
+ENV PROJECT_MANAGER_DEFAULT_DAY_LENGTH=8
 COPY package*.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next

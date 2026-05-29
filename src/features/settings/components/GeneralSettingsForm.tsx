@@ -102,16 +102,16 @@ interface ApiError {
 interface SortableReleaseRowProps {
   id: number;
   release: Release;
-  onRename: (release: Release) => void;
-  onMarkCompleted: (release: Release) => void;
+  onEdit: (release: Release) => void;
+  onStatusChange: (release: Release, status: Release["status"]) => void | Promise<void>;
   updatingReleaseId: number | null;
 }
 
 function SortableReleaseRow({
   id,
   release,
-  onRename,
-  onMarkCompleted,
+  onEdit,
+  onStatusChange,
   updatingReleaseId,
 }: SortableReleaseRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -127,44 +127,66 @@ function SortableReleaseRow({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 rounded-md border p-2 bg-background"
+      className="rounded-md border bg-background p-3"
     >
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground hover:text-foreground"
-        title="Drag to reorder"
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{release.name}</div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="mt-0.5 cursor-grab rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
+            title="Drag to reorder"
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-medium">{release.name}</h3>
+              <Badge
+                variant={release.status === "completed" ? "secondary" : "outline"}
+                className="h-5 px-2 text-[10px]"
+              >
+                {release.status === "completed" ? "Completed" : "Active"}
+              </Badge>
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label={`Actions for ${release.name}`}
+                disabled={updatingReleaseId === release.id}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => onEdit(release)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit release
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  void onStatusChange(
+                    release,
+                    release.status === "completed" ? "active" : "completed"
+                  )
+                }
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                {release.status === "completed" ? "Mark active" : "Mark completed"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-      <Badge variant={release.status === "completed" ? "secondary" : "outline"}>
-        {release.status === "completed" ? "Completed" : "Active"}
-      </Badge>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => onRename(release)}
-        disabled={updatingReleaseId === release.id}
-      >
-        Rename
-      </Button>
-      {release.status !== "completed" && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onMarkCompleted(release)}
-          disabled={updatingReleaseId === release.id}
-        >
-          <CheckCircle2 className="h-4 w-4 mr-1" />
-          Mark completed
-        </Button>
-      )}
     </div>
   );
 }
@@ -193,11 +215,11 @@ export function GeneralSettingsForm({
   const [projectPendingDelete, setProjectPendingDelete] = useState<AppProject | null>(null);
   const [releases, setReleases] = useState<Release[]>([]);
   const [loadingReleases, setLoadingReleases] = useState(true);
-  const [releaseName, setReleaseName] = useState("");
+  const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
+  const [editingReleaseId, setEditingReleaseId] = useState<number | null>(null);
+  const [releaseFormName, setReleaseFormName] = useState("");
   const [creatingRelease, setCreatingRelease] = useState(false);
   const [updatingReleaseId, setUpdatingReleaseId] = useState<number | null>(null);
-  const [releasePendingRename, setReleasePendingRename] = useState<Release | null>(null);
-  const [releaseRenameValue, setReleaseRenameValue] = useState("");
 
   // AI provider settings
   const [aiProviderBaseUrl, setAiProviderBaseUrl] = useState("");
@@ -596,8 +618,26 @@ export function GeneralSettingsForm({
     }
   };
 
-  const handleCreateRelease = async () => {
-    const trimmed = releaseName.trim();
+  const openCreateReleaseDialog = () => {
+    setEditingReleaseId(null);
+    setReleaseFormName("");
+    setReleaseDialogOpen(true);
+  };
+
+  const openEditReleaseDialog = (release: Release) => {
+    setEditingReleaseId(release.id);
+    setReleaseFormName(release.name);
+    setReleaseDialogOpen(true);
+  };
+
+  const resetReleaseDialog = () => {
+    setReleaseDialogOpen(false);
+    setEditingReleaseId(null);
+    setReleaseFormName("");
+  };
+
+  const handleSaveRelease = async () => {
+    const trimmed = releaseFormName.trim();
     if (!activeProjectId) {
       setMessage("Create a project before adding releases.");
       setMessageType("error");
@@ -609,116 +649,86 @@ export function GeneralSettingsForm({
       return;
     }
 
-    setCreatingRelease(true);
+    const editing = editingReleaseId !== null;
+    const editingRelease = editing
+      ? releases.find((release) => release.id === editingReleaseId)
+      : null;
+    if (editing && editingRelease?.name === trimmed) {
+      resetReleaseDialog();
+      return;
+    }
+
+    if (editing && editingReleaseId !== null) {
+      setUpdatingReleaseId(editingReleaseId);
+    } else {
+      setCreatingRelease(true);
+    }
+
     try {
-      const today = new Date().toISOString().split("T")[0];
       const response = await fetch("/api/releases", {
-        method: "POST",
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(editing ? { id: editingReleaseId } : {}),
           name: trimmed,
-          start_date: today,
-          end_date: today,
         }),
       });
-
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as ApiError;
-        throw new Error(data.error || "Failed to create release.");
+        throw new Error(data.error || (editing ? "Failed to update release." : "Failed to create release."));
       }
 
-      setReleaseName("");
+      resetReleaseDialog();
       await loadReleases();
-      setMessage(`Release "${trimmed}" created.`);
+      setMessage(editing ? `Release "${trimmed}" updated.` : `Release "${trimmed}" created.`);
       setMessageType("success");
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : "Failed to create release.";
+        err instanceof Error
+          ? err.message
+          : editing
+            ? "Failed to update release."
+            : "Failed to create release.";
       setMessage(errorMessage);
       setMessageType("error");
     } finally {
       setCreatingRelease(false);
-    }
-  };
-
-  const handleRenameRelease = (release: Release) => {
-    setReleasePendingRename(release);
-    setReleaseRenameValue(release.name);
-  };
-
-  const handleSaveReleaseRename = async () => {
-    if (!releasePendingRename) return;
-
-    const trimmed = releaseRenameValue.trim();
-    if (!trimmed) {
-      setMessage("Release name is required.");
-      setMessageType("error");
-      return;
-    }
-    if (trimmed === releasePendingRename.name) {
-      setReleasePendingRename(null);
-      setReleaseRenameValue("");
-      return;
-    }
-
-    setUpdatingReleaseId(releasePendingRename.id);
-    try {
-      const response = await fetch("/api/releases", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: releasePendingRename.id, name: trimmed }),
-      });
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as ApiError;
-        throw new Error(data.error || "Failed to rename release.");
-      }
-
-      setReleases((prev) =>
-        prev.map((item) =>
-          item.id === releasePendingRename.id ? { ...item, name: trimmed } : item
-        )
-      );
-      setReleasePendingRename(null);
-      setReleaseRenameValue("");
-      setMessage(`Release renamed to "${trimmed}".`);
-      setMessageType("success");
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to rename release.";
-      setMessage(errorMessage);
-      setMessageType("error");
-    } finally {
       setUpdatingReleaseId(null);
     }
   };
 
-  const handleMarkReleaseCompleted = async (release: Release) => {
-    if (release.status === "completed") return;
+  const handleReleaseStatusChange = async (
+    release: Release,
+    status: Release["status"]
+  ) => {
+    if (release.status === status) return;
 
     setUpdatingReleaseId(release.id);
     try {
       const response = await fetch("/api/releases", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: release.id, status: "completed" }),
+        body: JSON.stringify({ id: release.id, status }),
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as ApiError;
-        throw new Error(data.error || "Failed to mark release as completed.");
+        throw new Error(data.error || "Failed to update release status.");
       }
 
       setReleases((prev) =>
         prev.map((item) =>
-          item.id === release.id ? { ...item, status: "completed" } : item
+          item.id === release.id ? { ...item, status } : item
         )
       );
-      setMessage(`Release "${release.name}" marked as completed.`);
+      setMessage(
+        status === "completed"
+          ? `Release "${release.name}" marked as completed.`
+          : `Release "${release.name}" marked as active.`
+      );
       setMessageType("success");
     } catch (err) {
       const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "Failed to mark release as completed.";
+        err instanceof Error ? err.message : "Failed to update release status.";
       setMessage(errorMessage);
       setMessageType("error");
     } finally {
@@ -962,6 +972,9 @@ export function GeneralSettingsForm({
   const assignableUsers = users.filter((user) => !user.is_admin);
   const editingProject = editingProjectId
     ? projects.find((project) => project.id === editingProjectId)
+    : null;
+  const editingRelease = editingReleaseId
+    ? releases.find((release) => release.id === editingReleaseId)
     : null;
 
   return loading ? (
@@ -1280,85 +1293,86 @@ export function GeneralSettingsForm({
         </TabsContent>
 
         <TabsContent value="releases" className="space-y-4 mt-4">
-          <div className="space-y-2">
-            <Label htmlFor="releaseName">Create Release</Label>
-            <div className="flex gap-2">
-              <Input
-                id="releaseName"
-                value={releaseName}
-                onChange={(event) => setReleaseName(event.target.value)}
-                placeholder="e.g., Q2 Launch"
-              />
-              <Button
-                type="button"
-                onClick={handleCreateRelease}
-                disabled={creatingRelease || !activeProjectId}
-              >
-                {creatingRelease ? "Creating..." : "Create release"}
-              </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <Label>Releases</Label>
+              <p className="text-xs text-muted-foreground">
+                Plan releases for the active project and reorder them for the Planning page.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              New releases default to today for start/end dates. Reorder releases by dragging rows.
-            </p>
+            <Button
+              type="button"
+              onClick={openCreateReleaseDialog}
+              disabled={creatingRelease || updatingReleaseId !== null || !activeProjectId}
+            >
+              <Plus className="h-4 w-4" />
+              Add new release
+            </Button>
           </div>
 
-          {loadingReleases ? (
-            <div className="text-sm text-muted-foreground">Loading releases...</div>
-          ) : sortedReleases.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No releases yet.</div>
-          ) : (
-            <DndContext
-              sensors={releaseSensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleReleaseDragEnd}
-            >
-              <SortableContext
-                items={sortedReleases.map((release) => release.id)}
-                strategy={verticalListSortingStrategy}
+          <div className="space-y-2">
+            {loadingReleases ? (
+              <p className="rounded-md border p-3 text-sm text-muted-foreground">Loading releases...</p>
+            ) : sortedReleases.length === 0 ? (
+              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                No releases yet. Create a release to start planning work items.
+              </div>
+            ) : (
+              <DndContext
+                sensors={releaseSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleReleaseDragEnd}
               >
-                <div className="space-y-2">
-                  {sortedReleases.map((release) => (
-                    <SortableReleaseRow
-                      key={release.id}
-                      id={release.id}
-                      release={release}
-                      onRename={handleRenameRelease}
-                      onMarkCompleted={handleMarkReleaseCompleted}
-                      updatingReleaseId={updatingReleaseId}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          )}
+                <SortableContext
+                  items={sortedReleases.map((release) => release.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-2">
+                    {sortedReleases.map((release) => (
+                      <SortableReleaseRow
+                        key={release.id}
+                        id={release.id}
+                        release={release}
+                        onEdit={openEditReleaseDialog}
+                        onStatusChange={handleReleaseStatusChange}
+                        updatingReleaseId={updatingReleaseId}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
 
           <Dialog
-            open={Boolean(releasePendingRename)}
+            open={releaseDialogOpen}
             onOpenChange={(open) => {
               if (!open) {
-                setReleasePendingRename(null);
-                setReleaseRenameValue("");
+                resetReleaseDialog();
+              } else {
+                setReleaseDialogOpen(true);
               }
             }}
           >
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>Rename release</DialogTitle>
+                <DialogTitle>{editingRelease ? "Edit release" : "Add new release"}</DialogTitle>
                 <DialogDescription>
-                  Update the release name used in planning and settings.
+                  Configure the release name used in planning.
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-2">
-                <Label htmlFor="releaseRenameValue">Release name</Label>
+                <Label htmlFor="releaseFormName">Release name</Label>
                 <Input
-                  id="releaseRenameValue"
-                  value={releaseRenameValue}
-                  onChange={(event) => setReleaseRenameValue(event.target.value)}
+                  id="releaseFormName"
+                  value={releaseFormName}
+                  onChange={(event) => setReleaseFormName(event.target.value)}
+                  placeholder="e.g., Q2 Launch"
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      void handleSaveReleaseRename();
+                      void handleSaveRelease();
                     }
                   }}
                 />
@@ -1368,20 +1382,19 @@ export function GeneralSettingsForm({
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    setReleasePendingRename(null);
-                    setReleaseRenameValue("");
-                  }}
-                  disabled={updatingReleaseId !== null}
+                  onClick={resetReleaseDialog}
+                  disabled={creatingRelease || updatingReleaseId !== null}
                 >
                   Cancel
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => void handleSaveReleaseRename()}
-                  disabled={updatingReleaseId !== null}
+                  onClick={() => void handleSaveRelease()}
+                  disabled={creatingRelease || updatingReleaseId !== null}
                 >
-                  {updatingReleaseId !== null ? "Renaming..." : "Rename release"}
+                  {creatingRelease || updatingReleaseId !== null
+                    ? "Saving..."
+                    : "Save release"}
                 </Button>
               </DialogFooter>
             </DialogContent>

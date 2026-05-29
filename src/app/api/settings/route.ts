@@ -19,8 +19,11 @@ import {
   upsertAzureDevOpsProjectSettings,
   upsertAzureDevOpsUserPat,
 } from '@/lib/azure-devops/settings';
-
-const DEFAULT_DAY_LENGTH_KEY = "default_day_length";
+import {
+  DEFAULT_DAY_LENGTH_SETTING_KEY,
+  getModuleDefaultDayLength,
+  parseDefaultDayLength,
+} from '@/lib/work-schedule';
 
 const parseAzureDevOpsSettings = (value: string): Partial<AzureDevOpsSettings> | null => {
   try {
@@ -71,6 +74,31 @@ export async function GET(request: NextRequest) {
           project_id: null,
           key: AI_PROVIDER_SETTING_KEY,
           value,
+          created_at: null,
+          updated_at: null,
+        });
+      }
+
+      if (key === DEFAULT_DAY_LENGTH_SETTING_KEY) {
+        const setting = db
+          .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
+          .get(key, userId, projectId) as Settings | undefined;
+
+        const storedValue = parseDefaultDayLength(setting?.value);
+
+        if (setting && storedValue !== null) {
+          return NextResponse.json({
+            ...setting,
+            value: String(storedValue),
+          });
+        }
+
+        return NextResponse.json({
+          id: 0,
+          user_id: userId,
+          project_id: projectId,
+          key,
+          value: String(getModuleDefaultDayLength()),
           created_at: null,
           updated_at: null,
         });
@@ -191,9 +219,9 @@ export async function POST(request: NextRequest) {
       });
     } else {
       let stringValue: string;
-      if (key === DEFAULT_DAY_LENGTH_KEY) {
-        const numericValue = Number(value);
-        if (!Number.isFinite(numericValue) || numericValue < 0.5 || numericValue > 24) {
+      if (key === DEFAULT_DAY_LENGTH_SETTING_KEY) {
+        const numericValue = parseDefaultDayLength(value);
+        if (numericValue === null) {
           return NextResponse.json(
             { error: "Default day length must be between 0.5 and 24 hours" },
             { status: 400 }

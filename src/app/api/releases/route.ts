@@ -33,14 +33,18 @@ export async function POST(request: NextRequest) {
       end_date?: string;
     };
 
-    if (!name || !start_date || !end_date) {
+    if (!name?.trim()) {
       return NextResponse.json(
-        { error: "Name, start date, and end date are required" },
+        { error: "Release name is required" },
         { status: 400 }
       );
     }
 
-    if (end_date < start_date) {
+    const today = new Date().toISOString().split("T")[0];
+    const startDate = start_date?.trim() || today;
+    const endDate = end_date?.trim() || startDate;
+
+    if (endDate < startDate) {
       return NextResponse.json(
         { error: "End date must be after start date" },
         { status: 400 }
@@ -56,7 +60,7 @@ export async function POST(request: NextRequest) {
     const insertStmt = db.prepare(
       "INSERT INTO releases (user_id, project_id, name, start_date, end_date, display_order, status) VALUES (?, ?, ?, ?, ?, ?, 'active')"
     );
-    const result = insertStmt.run(userId, projectId, name.trim(), start_date, end_date, nextOrder);
+    const result = insertStmt.run(userId, projectId, name.trim(), startDate, endDate, nextOrder);
 
     const release = db
       .prepare("SELECT * FROM releases WHERE id = ? AND project_id = ?")
