@@ -9,3 +9,6 @@ Feature and operation documentation:
 - [Settings](settings-feature.md)
 - [Toast notifications](sonner-usage.md)
 
+Planning documents:
+
+- [Domain model refactor](planning/domain-model-refactor.md)
