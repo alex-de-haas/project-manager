@@ -4,6 +4,20 @@ Project Manager runs as a Docker Host shell module. Docker Host owns authenticat
 
 There is no standalone mode. Direct API access without Docker Host identity is rejected, except for the health and identity bootstrap endpoints. Direct browser access without Docker Host identity renders only the module identity bootstrap state and does not expose application data.
 
+## Implemented Scope
+
+The Docker Host module migration is implemented in the application runtime and packaging:
+
+- Host users are the only supported users.
+- Host-issued module identity tokens are validated for signature, issuer, audience, and expiration.
+- Project Manager maps the Host token `sub` claim to `users.host_user_id` and uses the local integer user id only for internal joins.
+- Host administrator status is derived from the signed `host.admin` role and cached on the local user record.
+- Local login, invitation, password change, logout, and local role-management flows are not part of the runtime.
+- Project Manager creates a fresh SQLite database from the current schema when module storage is empty.
+- Project data, project membership, planning data, time-management data, Azure DevOps settings, AI settings, backups, blockers, checklists, and releases are module-owned data.
+- JSON migration import remains available for supported legacy Project Manager export files.
+- The module is packaged through Docker Host metadata and published as an image-backed service.
+
 ## User Access
 
 - Docker Host users are the only supported users.
@@ -14,6 +28,8 @@ There is no standalone mode. Direct API access without Docker Host identity is r
 - Host administrators receive administrative access in Project Manager automatically.
 - Settings are visible to all assigned module users; administrative settings are visible only to Host administrators.
 - Project Manager does not have separate application role management. Non-admin project access is configured per project.
+- Project assignment uses the Docker Host scoped module directory. Host administrators can synchronize assigned Host users into local records and assign non-admin users to projects.
+- Host administrators automatically have access to all projects and are not explicitly assigned as project members.
 
 ## Module Packaging
 
@@ -46,6 +62,19 @@ The main data groups are:
 - Releases, release work items, and release work item children.
 - Module backup files under `/app/data/backups`.
 
+## Project And Provider Configuration
+
+Docker Host owns module access. Project Manager owns project-level configuration after a Host user reaches the module.
+
+- Project creation requires a project name. Host administrators can assign non-admin Host users to a project.
+- Azure DevOps project configuration is project-level data. Project Manager stores the organization and project parsed from the configured Azure DevOps project URL.
+- Azure DevOps PAT credentials are per-user profile credentials. API responses expose only whether a PAT exists and never return the secret value.
+- Azure DevOps import, export, refresh, and status synchronization use the current Host user's PAT.
+- Manual project, release, task, time-management, blocker, and checklist workflows remain available without an Azure DevOps PAT.
+- AI provider configuration is module-level data restricted to Host administrators. It stores an OpenAI-compatible provider base URL and selected model.
+- Checklist generation is available only when the AI provider URL and model are configured.
+- Database backup and restore operations are administrative module settings.
+
 ## Runtime Contract
 
 - `DOCKER_HOST_MODULE_ID` identifies the module audience for Host identity tokens.
@@ -77,6 +106,15 @@ When Docker Host runs on a non-default local URL, pass that URL explicitly:
 docker-host dev up --manifest .docker-host/dev.json --host-url http://localhost:<host-port>
 ```
 
+For direct API probes against the local module origin, prepare the developer target and request a Host-signed development identity token:
+
+```bash
+TOKEN="$(docker-host dev identity --manifest .docker-host/dev.json --format token)"
+curl -H "X-Docker-Host-Identity: $TOKEN" http://127.0.0.1:3100/api/auth/session
+```
+
+Gateway and shell integration should still be checked through the Host URL printed by `docker-host dev up`; direct-origin probes only validate endpoint behavior with a real Host-signed token.
+
 ## Navigation
 
 The module UI uses a Docker Host-friendly top navigation bar instead of an application sidebar. The stable navigation paths match the module metadata:
@@ -89,3 +127,19 @@ The module UI uses a Docker Host-friendly top navigation bar instead of an appli
 Settings navigation is rendered for all assigned module users. Non-admin users see only Profile settings, while Docker Host administrators also see project, release, backup, and AI provider settings. Project switching lives in the top bar as a compact selector.
 
 The module currently renders in the light theme by default. Future Docker Host theme integration should replace the hardcoded light theme with a Host-provided theme signal.
+
+## Validation
+
+Use these checks when changing the module contract or preparing a release:
+
+- Run `npm run build` to verify the Next.js application and TypeScript compilation.
+- Run `npm run module:metadata -- --tag sha-test --output /tmp/project-manager-metadata.json` to verify metadata rendering.
+- Build the production image locally with Docker when packaging changes affect the runtime image.
+- Smoke-test `/api/health` in the built container; it should be public and return database/storage readiness.
+- Verify normal app and API requests reject missing Host identity.
+- Verify direct-origin iframe bootstrap with a real Docker Host-issued module identity token.
+- Verify assigned Host users can access the module through Docker Host.
+- Verify non-admin users cannot access administrative Settings APIs or administrative Settings UI.
+- Verify Host administrators can manage projects, project settings, releases, backups, and AI provider settings.
+- Verify JSON import with a supported legacy export file when migration behavior changes.
+- Verify per-user Azure DevOps PAT behavior after Azure DevOps-related changes.
