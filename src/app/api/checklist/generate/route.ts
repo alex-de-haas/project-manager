@@ -9,7 +9,12 @@ import {
   type AiProviderSettings,
 } from '@/lib/ai-provider-settings';
 import { safeServerFetch } from '@/lib/safe-fetch';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from '@/lib/user-context';
+import { getWorkItemForUser } from '@/lib/work-items';
 
 interface ChecklistGenerationRequest {
   task_id: number;
@@ -143,10 +148,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const task = db
-      .prepare('SELECT id FROM tasks WHERE id = ? AND user_id = ? AND project_id = ?')
-      .get(task_id, userId, projectId) as { id: number } | undefined;
-    if (!task) {
+    const task = getWorkItemForUser(task_id, projectId, userId, {
+      requireAssigned: true,
+      requireTrackable: true,
+    });
+    if (!task || task.type !== 'task') {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
@@ -170,18 +176,25 @@ export async function POST(request: NextRequest) {
 
     // Get the current max display_order for this task
     const maxOrder = db.prepare(
-      'SELECT MAX(display_order) as max_order FROM checklist_items WHERE task_id = ? AND user_id = ? AND project_id = ?'
-    ).get(task_id, userId, projectId) as { max_order: number | null };
+      'SELECT MAX(display_order) as max_order FROM checklist_items WHERE work_item_id = ? AND user_id = ?'
+    ).get(task_id, userId) as { max_order: number | null };
     let currentOrder = (maxOrder.max_order ?? -1) + 1;
 
     // Insert all checklist items
     const insertStmt = db.prepare(
-      'INSERT INTO checklist_items (user_id, project_id, task_id, title, display_order) VALUES (?, ?, ?, ?, ?)'
+      `INSERT INTO checklist_items (
+        user_id,
+        work_item_id,
+        title,
+        display_order,
+        created_by_user_id,
+        updated_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?)`
     );
 
     const insertedIds: number[] = [];
     for (const title of checklistItems) {
-      const result = insertStmt.run(userId, projectId, task_id, title, currentOrder);
+      const result = insertStmt.run(userId, task_id, title, currentOrder, userId, userId);
       insertedIds.push(result.lastInsertRowid as number);
       currentOrder++;
     }
@@ -195,6 +208,9 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('AI generation error:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to generate checklist from AI' },

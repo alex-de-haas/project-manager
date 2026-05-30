@@ -2,7 +2,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from '@/lib/user-context';
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -19,11 +23,18 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Update display_order for each task in a transaction
-    const updateStmt = db.prepare('UPDATE tasks SET display_order = ? WHERE id = ? AND user_id = ? AND project_id = ?');
+    const updateStmt = db.prepare(`
+      UPDATE work_items
+      SET display_order = ?, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+        AND assigned_user_id = ?
+        AND project_id = ?
+        AND type IN ('task', 'bug')
+    `);
     
     const transaction = db.transaction((orders: Array<{ id: number; order: number }>) => {
       for (const { id, order } of orders) {
-        updateStmt.run(order, id, userId, projectId);
+        updateStmt.run(order, userId, id, userId, projectId);
       }
     });
 
@@ -34,6 +45,9 @@ export async function PATCH(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Database error:', error);
     return NextResponse.json(
       { error: 'Failed to reorder tasks' },

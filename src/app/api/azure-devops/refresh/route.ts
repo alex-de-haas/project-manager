@@ -2,8 +2,6 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import type { Task } from "@/types";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
 import {
   fetchChildWorkItemsForParentIds,
   syncChildWorkItemsSnapshot,
@@ -18,6 +16,16 @@ import {
   isAzureDevOpsIdentityAssignedToUser,
   normalizeAzureDevOpsWorkItemIdentity,
 } from "@/lib/azure-devops/identity";
+import {
+  mapAzureDevOpsStatusToWorkItemStatus,
+  mapAzureDevOpsTypeToWorkItemType,
+  upsertExternalLink,
+} from "@/lib/work-items";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 
 interface RefreshRequest {
   releaseId?: number;
@@ -26,11 +34,14 @@ interface RefreshRequest {
   taskIds?: number[];
 }
 
-interface ReleaseWorkItemSnapshot {
+interface LinkedWorkItemRow {
+  id: number;
   title: string;
-  work_item_type: string | null;
-  state: string | null;
+  type: string;
+  status: string;
   tags: string | null;
+  completed_at?: string | null;
+  external_id: string;
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -41,80 +52,45 @@ const parsePositiveInt = (value: unknown): number | null => {
   return parsed;
 };
 
-const uniqueExternalIds = (values: Array<string | null>): number[] =>
-  Array.from(
-    new Set(
-      values
-        .map((value) => Number.parseInt(String(value ?? ""), 10))
-        .filter((value) => Number.isInteger(value) && value > 0)
-    )
-  );
-
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const body = (await request.json().catch(() => ({}))) as RefreshRequest;
+    const releaseId = body.releaseId === undefined ? null : parsePositiveInt(body.releaseId);
 
-    const hasStartDate = typeof body.startDate === "string" && body.startDate.trim().length > 0;
-    const hasEndDate = typeof body.endDate === "string" && body.endDate.trim().length > 0;
-
-    if (hasStartDate !== hasEndDate) {
-      return NextResponse.json(
-        { error: "startDate and endDate must be provided together" },
-        { status: 400 }
-      );
-    }
-
-    const hasDateRangeScope = hasStartDate && hasEndDate;
-    const startDate = hasDateRangeScope ? body.startDate!.trim() : null;
-    const endDate = hasDateRangeScope ? body.endDate!.trim() : null;
-
-    if (hasDateRangeScope && (!DATE_RE.test(startDate!) || !DATE_RE.test(endDate!))) {
-      return NextResponse.json(
-        { error: "startDate and endDate must be in YYYY-MM-DD format" },
-        { status: 400 }
-      );
-    }
-
-    const releaseId =
-      body.releaseId === undefined || body.releaseId === null
-        ? null
-        : parsePositiveInt(body.releaseId);
-
-    if (body.releaseId !== undefined && body.releaseId !== null && releaseId === null) {
+    if (body.releaseId !== undefined && !releaseId) {
       return NextResponse.json(
         { error: "releaseId must be a positive integer" },
         { status: 400 }
       );
     }
 
-    let scopedTaskIds: number[] | null = null;
-    if (body.taskIds !== undefined) {
-      if (!Array.isArray(body.taskIds)) {
-        return NextResponse.json(
-          { error: "taskIds must be an array of positive integers" },
-          { status: 400 }
-        );
-      }
-
-      const parsedTaskIds = body.taskIds.map(parsePositiveInt);
-      if (parsedTaskIds.some((value) => value === null)) {
-        return NextResponse.json(
-          { error: "taskIds must be an array of positive integers" },
-          { status: 400 }
-        );
-      }
-
-      scopedTaskIds = Array.from(new Set(parsedTaskIds as number[]));
+    if ((body.startDate && !body.endDate) || (!body.startDate && body.endDate)) {
+      return NextResponse.json(
+        { error: "startDate and endDate must be provided together" },
+        { status: 400 }
+      );
     }
-    const hasTaskIdScope = scopedTaskIds !== null;
+    if (
+      body.startDate &&
+      body.endDate &&
+      (!DATE_RE.test(body.startDate) || !DATE_RE.test(body.endDate))
+    ) {
+      return NextResponse.json(
+        { error: "startDate and endDate must be in YYYY-MM-DD format" },
+        { status: 400 }
+      );
+    }
 
-    if (releaseId !== null) {
+    const taskIds = Array.isArray(body.taskIds)
+      ? Array.from(new Set(body.taskIds.map(parsePositiveInt).filter(Boolean) as number[]))
+      : null;
+
+    if (releaseId) {
       const release = db
         .prepare("SELECT id FROM releases WHERE id = ? AND project_id = ?")
         .get(releaseId, projectId) as { id: number } | undefined;
-
       if (!release) {
         return NextResponse.json({ error: "Release not found" }, { status: 404 });
       }
@@ -122,140 +98,57 @@ export async function POST(request: NextRequest) {
 
     const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
     if (isAzureDevOpsConfigProblem(settingsResult)) {
-      return NextResponse.json(
-        { error: settingsResult.message },
-        { status: 400 }
+      return NextResponse.json({ error: settingsResult.message }, { status: 400 });
+    }
+
+    const queryParts = [
+      `
+        SELECT DISTINCT
+          wi.id,
+          wi.title,
+          wi.type,
+          wi.status,
+          wi.tags,
+          wi.completed_at,
+          link.external_id
+        FROM work_items wi
+        INNER JOIN work_item_external_links link
+          ON link.work_item_id = wi.id
+          AND link.provider = 'azure_devops'
+      `,
+    ];
+    const params: Array<string | number> = [];
+
+    if (releaseId) {
+      queryParts.push("INNER JOIN release_items ri ON ri.work_item_id = wi.id");
+    }
+
+    queryParts.push("WHERE wi.project_id = ?");
+    params.push(projectId);
+
+    if (releaseId) {
+      queryParts.push("AND ri.release_id = ?");
+      params.push(releaseId);
+    }
+
+    if (body.startDate && body.endDate) {
+      queryParts.push(
+        "AND DATE(wi.created_at) <= ? AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)"
       );
+      params.push(body.endDate, body.startDate);
     }
 
-    const importedReleaseWorkItemsQueryParts = [
-      `SELECT external_id, title, work_item_type, state, tags
-       FROM release_work_items
-       WHERE external_source = ?
-         AND project_id = ?
-         AND external_id IS NOT NULL`,
-    ];
-    const importedReleaseWorkItemsParams: Array<string | number> = [
-      "azure_devops",
-      projectId,
-    ];
-
-    if (releaseId !== null) {
-      importedReleaseWorkItemsQueryParts.push("AND release_id = ?");
-      importedReleaseWorkItemsParams.push(releaseId);
+    if (taskIds !== null) {
+      if (taskIds.length === 0) {
+        return NextResponse.json({ updated: 0, skipped: 0 });
+      }
+      queryParts.push(`AND wi.id IN (${taskIds.map(() => "?").join(", ")})`);
+      params.push(...taskIds);
     }
 
-    const shouldRefreshReleaseItems =
-      releaseId !== null || (!hasDateRangeScope && !hasTaskIdScope);
-    const importedReleaseWorkItems = shouldRefreshReleaseItems
-      ? (db
-          .prepare(importedReleaseWorkItemsQueryParts.join("\n"))
-          .all(...importedReleaseWorkItemsParams) as Array<{
-          external_id: string;
-          title: string;
-          work_item_type: string | null;
-          state: string | null;
-          tags: string | null;
-        }>)
-      : [];
+    const linkedItems = db.prepare(queryParts.join("\n")).all(...params) as LinkedWorkItemRow[];
 
-    const releaseExternalIds = uniqueExternalIds(
-      importedReleaseWorkItems.map((item) => item.external_id)
-    );
-
-    let importedTasks: Task[] = [];
-    const scopedTaskIdPlaceholders =
-      scopedTaskIds && scopedTaskIds.length > 0
-        ? scopedTaskIds.map(() => "?").join(", ")
-        : null;
-
-    if (releaseId !== null) {
-      if (releaseExternalIds.length > 0 && (!hasTaskIdScope || scopedTaskIds!.length > 0)) {
-        const placeholders = releaseExternalIds.map(() => "?").join(", ");
-        const queryParts = [
-          `SELECT *
-           FROM tasks
-           WHERE external_source = ?
-             AND user_id = ?
-             AND project_id = ?
-             AND external_id IS NOT NULL
-             AND CAST(external_id AS INTEGER) IN (${placeholders})`,
-        ];
-
-        const queryParams: Array<string | number> = [
-          "azure_devops",
-          userId,
-          projectId,
-          ...releaseExternalIds,
-        ];
-
-        if (hasDateRangeScope) {
-          queryParts.push(
-            "AND DATE(created_at) <= ? AND (completed_at IS NULL OR DATE(completed_at) >= ?)"
-          );
-          queryParams.push(endDate!, startDate!);
-        }
-
-        if (scopedTaskIdPlaceholders && scopedTaskIds) {
-          queryParts.push(`AND id IN (${scopedTaskIdPlaceholders})`);
-          queryParams.push(...scopedTaskIds);
-        }
-
-        importedTasks = db.prepare(queryParts.join("\n")).all(...queryParams) as Task[];
-      }
-    } else if (hasDateRangeScope) {
-      if (!hasTaskIdScope || scopedTaskIds!.length > 0) {
-        const queryParts = [
-          `SELECT *
-           FROM tasks
-           WHERE external_source = ?
-             AND user_id = ?
-             AND project_id = ?
-             AND external_id IS NOT NULL
-             AND DATE(created_at) <= ?
-             AND (completed_at IS NULL OR DATE(completed_at) >= ?)`,
-        ];
-        const queryParams: Array<string | number> = [
-          "azure_devops",
-          userId,
-          projectId,
-          endDate!,
-          startDate!,
-        ];
-
-        if (scopedTaskIdPlaceholders && scopedTaskIds) {
-          queryParts.push(`AND id IN (${scopedTaskIdPlaceholders})`);
-          queryParams.push(...scopedTaskIds);
-        }
-
-        importedTasks = db.prepare(queryParts.join("\n")).all(...queryParams) as Task[];
-      }
-    } else {
-      if (!hasTaskIdScope || scopedTaskIds!.length > 0) {
-        const queryParts = [
-          `SELECT *
-           FROM tasks
-           WHERE external_source = ?
-             AND user_id = ?
-             AND project_id = ?
-             AND external_id IS NOT NULL`,
-        ];
-        const queryParams: Array<string | number> = [
-          "azure_devops",
-          userId,
-          projectId,
-        ];
-
-        if (scopedTaskIdPlaceholders && scopedTaskIds) {
-          queryParts.push(`AND id IN (${scopedTaskIdPlaceholders})`);
-          queryParams.push(...scopedTaskIds);
-        }
-
-        importedTasks = db.prepare(queryParts.join("\n")).all(...queryParams) as Task[];
-      }
-    }
-
-    if (importedTasks.length === 0 && importedReleaseWorkItems.length === 0) {
+    if (linkedItems.length === 0) {
       return NextResponse.json({
         updated: 0,
         skipped: 0,
@@ -263,121 +156,55 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { settings, connection, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+    const { settings, connection, witApi } =
+      await createAzureDevOpsConnectionContext(settingsResult);
     const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
+    const externalIds = Array.from(
+      new Set(
+        linkedItems
+          .map((item) => Number.parseInt(item.external_id, 10))
+          .filter((value) => Number.isInteger(value) && value > 0)
+      )
+    );
 
-    const workItemIdSet = new Set<number>();
-    for (const task of importedTasks) {
-      const id = task.external_id ? Number.parseInt(task.external_id, 10) : Number.NaN;
-      if (!Number.isNaN(id)) workItemIdSet.add(id);
-    }
-    for (const item of importedReleaseWorkItems) {
-      const id = Number.parseInt(item.external_id, 10);
-      if (!Number.isNaN(id)) workItemIdSet.add(id);
-    }
-
-    const workItemIds = Array.from(workItemIdSet);
-
-    if (workItemIds.length === 0) {
-      return NextResponse.json({
-        updated: 0,
-        skipped: 0,
-        message: "No valid work item IDs found in current scope",
-      });
+    if (externalIds.length === 0) {
+      return NextResponse.json({ updated: 0, skipped: linkedItems.length });
     }
 
     const MAX_BATCH_SIZE = 200;
     const workItems: any[] = [];
-
-    for (let i = 0; i < workItemIds.length; i += MAX_BATCH_SIZE) {
-      const batchIds = workItemIds.slice(i, i + MAX_BATCH_SIZE);
+    for (let i = 0; i < externalIds.length; i += MAX_BATCH_SIZE) {
       const batchItems = await witApi.getWorkItems(
-        batchIds,
+        externalIds.slice(i, i + MAX_BATCH_SIZE),
         undefined,
         undefined,
         undefined,
         undefined
       );
-
-      if (batchItems?.length) {
-        workItems.push(...batchItems);
-      }
+      if (batchItems?.length) workItems.push(...batchItems);
     }
+
+    const linkedByExternalId = new Map<number, LinkedWorkItemRow>();
+    linkedItems.forEach((item) => {
+      const externalId = Number.parseInt(item.external_id, 10);
+      if (Number.isInteger(externalId)) linkedByExternalId.set(externalId, item);
+    });
 
     const updated: Array<{ id: number; title: string; status: string }> = [];
     const skipped: Array<{ id: number; reason: string }> = [];
 
-    const updateTasksStmt = db.prepare(`
-      UPDATE tasks
-      SET
-        title = ?,
-        type = ?,
-        status = ?,
-        tags = ?,
-        completed_at = ?,
-        azure_assigned_to_id = ?,
-        azure_assigned_to_name = ?,
-        azure_assigned_to_unique_name = ?,
-        azure_assignee_is_current_user = ?
-      WHERE id = ? AND user_id = ? AND project_id = ?
-    `);
-
-    const updateReleaseWorkItemsStmt =
-      releaseId !== null
-        ? db.prepare(`
-            UPDATE release_work_items
-            SET title = ?, work_item_type = ?, state = ?, tags = ?
-            WHERE external_source = 'azure_devops'
-              AND CAST(external_id AS INTEGER) = ?
-              AND project_id = ?
-              AND release_id = ?
-          `)
-        : db.prepare(`
-            UPDATE release_work_items
-            SET title = ?, work_item_type = ?, state = ?, tags = ?
-            WHERE external_source = 'azure_devops'
-              AND CAST(external_id AS INTEGER) = ?
-              AND project_id = ?
-          `);
-
-    const importedTasksByExternalId = new Map<number, Task>();
-    for (const task of importedTasks) {
-      const externalId = task.external_id ? Number.parseInt(task.external_id, 10) : Number.NaN;
-      if (!Number.isNaN(externalId)) {
-        importedTasksByExternalId.set(externalId, task);
-      }
-    }
-
-    const importedReleaseWorkItemsByExternalId = new Map<
-      number,
-      ReleaseWorkItemSnapshot[]
-    >();
-    for (const item of importedReleaseWorkItems) {
-      const externalId = Number.parseInt(item.external_id, 10);
-      if (Number.isNaN(externalId)) {
-        continue;
-      }
-      const existing = importedReleaseWorkItemsByExternalId.get(externalId) ?? [];
-      existing.push({
-        title: item.title,
-        work_item_type: item.work_item_type,
-        state: item.state,
-        tags: item.tags,
-      });
-      importedReleaseWorkItemsByExternalId.set(externalId, existing);
-    }
-
     for (const workItem of workItems) {
-      if (!workItem.id || !workItem.fields) {
-        continue;
-      }
+      if (!workItem.id || !workItem.fields) continue;
+      const localItem = linkedByExternalId.get(workItem.id);
+      if (!localItem) continue;
 
       const title =
         (workItem.fields["System.Title"] as string) || `Work Item ${workItem.id}`;
-      const releaseWorkItemType =
+      const nativeType =
         (workItem.fields["System.WorkItemType"] as string) || "Task";
-      const workItemType = releaseWorkItemType.toLowerCase();
-      const status = (workItem.fields["System.State"] as string) || null;
+      const type = mapAzureDevOpsTypeToWorkItemType(nativeType);
+      const nativeStatus = (workItem.fields["System.State"] as string) || null;
+      const status = mapAzureDevOpsStatusToWorkItemStatus(nativeStatus);
       const tags = (workItem.fields["System.Tags"] as string) || null;
       const assignedTo = normalizeAzureDevOpsWorkItemIdentity(
         workItem.fields["System.AssignedTo"]
@@ -386,113 +213,79 @@ export async function POST(request: NextRequest) {
         assignedTo,
         authenticatedUser
       );
-      const isAssignedToCurrentUserValue =
-        isAssignedToCurrentUser === null ? null : isAssignedToCurrentUser ? 1 : 0;
       const closedDate =
         (workItem.fields["Microsoft.VSTS.Common.ClosedDate"] as string) ||
         (workItem.fields["Microsoft.VSTS.Common.ResolvedDate"] as string) ||
         (workItem.fields["System.ClosedDate"] as string) ||
         null;
 
-      let taskType: "task" | "bug" = "task";
-      if (workItemType === "bug") {
-        taskType = "bug";
-      }
+      const hasChanges =
+        localItem.title !== title ||
+        localItem.type !== type ||
+        localItem.status !== status ||
+        (localItem.tags ?? null) !== tags;
 
-      const task = importedTasksByExternalId.get(workItem.id);
-      const releaseItems = importedReleaseWorkItemsByExternalId.get(workItem.id) ?? [];
-      let didUpdate = false;
-
-      if (task) {
-        const taskCompletedAt = task.completed_at
-          ? new Date(task.completed_at).toISOString()
-          : null;
-        const workItemCompletedAt = closedDate
-          ? new Date(closedDate).toISOString()
-          : null;
-
-        const hasTaskChanges =
-          task.title !== title ||
-          task.type !== taskType ||
-          task.status !== status ||
-          task.tags !== tags ||
-          taskCompletedAt !== workItemCompletedAt ||
-          (task.azure_assigned_to_id ?? null) !== (assignedTo?.id ?? null) ||
-          (task.azure_assigned_to_name ?? null) !== (assignedTo?.displayName ?? null) ||
-          (task.azure_assigned_to_unique_name ?? null) !==
-            (assignedTo?.uniqueName ?? null) ||
-          (task.azure_assignee_is_current_user ?? null) !==
-            isAssignedToCurrentUserValue;
-
-        if (hasTaskChanges) {
-          updateTasksStmt.run(
-            title,
-            taskType,
-            status,
-            tags,
-            closedDate,
-            assignedTo?.id ?? null,
-            assignedTo?.displayName ?? null,
-            assignedTo?.uniqueName ?? null,
-            isAssignedToCurrentUserValue,
-            task.id,
-            userId,
-            projectId
-          );
-          didUpdate = true;
-        }
-      }
-
-      const hasReleaseWorkItemChanges = releaseItems.some(
-        (item) =>
-          item.title !== title ||
-          item.work_item_type !== releaseWorkItemType ||
-          item.state !== status ||
-          item.tags !== tags
-      );
-
-      if (hasReleaseWorkItemChanges) {
-        if (releaseId !== null) {
-          updateReleaseWorkItemsStmt.run(
-            title,
-            releaseWorkItemType,
-            status,
-            tags,
-            workItem.id,
-            projectId,
-            releaseId
-          );
-        } else {
-          updateReleaseWorkItemsStmt.run(
-            title,
-            releaseWorkItemType,
-            status,
-            tags,
-            workItem.id,
-            projectId
-          );
-        }
-        didUpdate = true;
-      }
-
-      if (didUpdate) {
-        updated.push({ id: workItem.id, title, status: status || "N/A" });
+      if (hasChanges) {
+        db.prepare(
+          `
+            UPDATE work_items
+            SET title = ?,
+                type = ?,
+                status = ?,
+                tags = ?,
+                completed_at = ?,
+                sync_state = 'synced',
+                updated_by_user_id = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND project_id = ?
+          `
+        ).run(
+          title,
+          type,
+          status,
+          tags,
+          status === "completed"
+            ? closedDate || localItem.completed_at || new Date().toISOString()
+            : null,
+          userId,
+          localItem.id,
+          projectId
+        );
+        updated.push({ id: workItem.id, title, status: nativeStatus || "N/A" });
       } else {
         skipped.push({ id: workItem.id, reason: "No changes detected" });
       }
+
+      upsertExternalLink({
+        workItemId: localItem.id,
+        projectId,
+        provider: "azure_devops",
+        externalId: workItem.id,
+        nativeType,
+        nativeStatus,
+        nativeAssigneeId: assignedTo?.id ?? null,
+        nativeAssigneeName: assignedTo?.displayName ?? null,
+        nativeAssigneeUniqueName: assignedTo?.uniqueName ?? null,
+        nativeAssigneeIsCurrentUser: isAssignedToCurrentUser,
+        sanitizedSnapshot: {
+          id: workItem.id,
+          title,
+          type: nativeType,
+          state: nativeStatus,
+          tags,
+        },
+      });
     }
 
-    const childParentIds = uniqueExternalIds(
-      importedReleaseWorkItems.map((item) => item.external_id)
-    );
+    const childParentIds = releaseId
+      ? externalIds
+      : externalIds.filter((externalId) => {
+          const item = linkedByExternalId.get(externalId);
+          return item?.type === "user_story";
+        });
 
-    let childItemsSync: { parents: number; items: number; deleted: number } = {
-      parents: 0,
-      items: 0,
-      deleted: 0,
-    };
+    let childItemsSync = { parents: 0, items: 0, deleted: 0 };
     let childItemsSyncError: string | null = null;
-
     if (childParentIds.length > 0) {
       try {
         const childItems = await fetchChildWorkItemsForParentIds(
@@ -507,9 +300,7 @@ export async function POST(request: NextRequest) {
         });
       } catch (error) {
         childItemsSyncError =
-          error instanceof Error
-            ? error.message
-            : "Failed to sync child work items";
+          error instanceof Error ? error.message : "Failed to sync child work items";
         console.error("Azure DevOps refresh child sync error:", error);
       }
     }
@@ -523,10 +314,15 @@ export async function POST(request: NextRequest) {
       childItemsSyncError,
     });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Azure DevOps refresh error:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Failed to refresh from Azure DevOps", details: errorMessage },
+      {
+        error: "Failed to refresh Azure DevOps items",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
       { status: 500 }
     );
   }

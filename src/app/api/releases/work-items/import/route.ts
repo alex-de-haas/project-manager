@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
 import type { ReleaseWorkItem } from "@/types";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 import {
   fetchChildWorkItemsForParentIds,
   syncChildWorkItemsSnapshot,
@@ -13,6 +17,10 @@ import {
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
+import {
+  mapAzureDevOpsStatusToWorkItemStatus,
+  upsertExternalLink,
+} from "@/lib/work-items";
 
 interface ImportRequest {
   releaseId?: number;
@@ -75,13 +83,21 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const existing = db
+      const existingReleaseItem = db
         .prepare(
-          "SELECT id FROM release_work_items WHERE release_id = ? AND external_id = ? AND external_source = 'azure_devops' AND project_id = ?"
+          `
+            SELECT ri.id
+            FROM release_items ri
+            INNER JOIN work_item_external_links link ON link.work_item_id = ri.work_item_id
+            WHERE ri.release_id = ?
+              AND link.project_id = ?
+              AND link.provider = 'azure_devops'
+              AND link.external_id = ?
+          `
         )
-        .get(releaseId, workItem.id, projectId) as { id: number } | undefined;
+        .get(releaseId, projectId, String(workItem.id)) as { id: number } | undefined;
 
-      if (existing) {
+      if (existingReleaseItem) {
         skipped.push({ id: workItem.id, reason: "Already added" });
         continue;
       }
@@ -93,26 +109,106 @@ export async function POST(request: NextRequest) {
         (workItem.fields["System.WorkItemType"] as string) || "User Story";
       const state = (workItem.fields["System.State"] as string) || null;
       const tagsString = (workItem.fields["System.Tags"] as string) || null;
+      const status = mapAzureDevOpsStatusToWorkItemStatus(state);
 
-      // Get the max display_order for this release
+      const linkedWorkItem = db
+        .prepare(
+          `
+            SELECT wi.id
+            FROM work_item_external_links link
+            INNER JOIN work_items wi ON wi.id = link.work_item_id
+            WHERE link.project_id = ?
+              AND link.provider = 'azure_devops'
+              AND link.external_id = ?
+            LIMIT 1
+          `
+        )
+        .get(projectId, String(workItem.id)) as { id: number } | undefined;
+
+      let workItemId: number;
+      if (linkedWorkItem) {
+        workItemId = linkedWorkItem.id;
+        db.prepare(
+          `
+            UPDATE work_items
+            SET title = ?,
+                type = 'user_story',
+                status = ?,
+                tags = ?,
+                completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE NULL END,
+                updated_by_user_id = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND project_id = ?
+          `
+        ).run(title, status, tagsString, status, userId, workItemId, projectId);
+      } else {
+        const result = db.prepare(
+          `
+            INSERT INTO work_items (
+              project_id,
+              title,
+              type,
+              status,
+              tags,
+              sync_state,
+              created_by_user_id,
+              updated_by_user_id
+            )
+            VALUES (?, ?, 'user_story', ?, ?, 'synced', ?, ?)
+          `
+        ).run(projectId, title, status, tagsString, userId, userId);
+        workItemId = Number(result.lastInsertRowid);
+      }
+
+      upsertExternalLink({
+        workItemId,
+        projectId,
+        provider: "azure_devops",
+        externalId: workItem.id,
+        nativeType: workItemType,
+        nativeStatus: state,
+        sanitizedSnapshot: {
+          id: workItem.id,
+          title,
+          type: workItemType,
+          state,
+          tags: tagsString,
+        },
+      });
+
       const maxOrderRow = db
-        .prepare("SELECT MAX(display_order) as max_order FROM release_work_items WHERE release_id = ? AND project_id = ?")
-        .get(releaseId, projectId) as { max_order: number | null } | undefined;
+        .prepare("SELECT MAX(display_order) as max_order FROM release_items WHERE release_id = ?")
+        .get(releaseId) as { max_order: number | null } | undefined;
       const nextOrder = (maxOrderRow?.max_order ?? -1) + 1;
 
-      const stmt = db.prepare(
+      const result = db.prepare(
         `
-        INSERT INTO release_work_items
-          (user_id, project_id, release_id, title, external_id, external_source, work_item_type, state, tags, display_order)
-        VALUES
-          (?, ?, ?, ?, ?, 'azure_devops', ?, ?, ?, ?)
+          INSERT INTO release_items (release_id, work_item_id, display_order)
+          VALUES (?, ?, ?)
       `
-      );
-
-      const result = stmt.run(userId, projectId, releaseId, title, workItem.id, workItemType, state, tagsString, nextOrder);
+      ).run(releaseId, workItemId, nextOrder);
       const newItem = db
-        .prepare("SELECT * FROM release_work_items WHERE id = ? AND project_id = ?")
-        .get(result.lastInsertRowid, projectId) as ReleaseWorkItem;
+        .prepare(
+          `
+            SELECT
+              ri.id,
+              ri.release_id,
+              ri.work_item_id,
+              wi.title,
+              link.external_id,
+              link.provider AS external_source,
+              link.native_type AS work_item_type,
+              link.native_status AS state,
+              wi.tags,
+              ri.display_order,
+              ri.created_at
+            FROM release_items ri
+            INNER JOIN work_items wi ON wi.id = ri.work_item_id
+            LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
+            WHERE ri.id = ?
+          `
+        )
+        .get(result.lastInsertRowid) as ReleaseWorkItem;
       imported.push(newItem);
     }
 
@@ -161,6 +257,9 @@ export async function POST(request: NextRequest) {
       childItemsSyncError,
     });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Release work item import error:", error);
     return NextResponse.json(
       {

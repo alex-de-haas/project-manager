@@ -2,59 +2,86 @@
 
 ## Overview
 
-The Azure DevOps integration connects Project Manager with Azure DevOps work items. It is optional: teams can use Project Manager entirely with local tasks, or connect a project to Azure DevOps when they want planning and execution data to stay aligned.
+The Azure DevOps integration connects Project Manager work items with Azure DevOps work items. The integration is optional. Teams can run Project Manager with local work only, or connect a project to Azure DevOps when provider synchronization is needed.
+
+Project Manager remains the local source of truth for its own work item records. Azure DevOps identity, native state, native type, assignee snapshots, and sync diagnostics are stored on provider link records.
 
 ## Capabilities
 
-- Configure the Azure DevOps project URL. Project Manager parses the organization and project from the URL and shows them as read-only values.
+- Configure Azure DevOps as a project-level integration.
 - Store each user's Azure DevOps Personal Access Token separately.
-- Test the Azure DevOps connection from the current user's Profile after saving a personal token, including the Azure DevOps identity resolved from that token.
-- Import work items assigned to the Azure DevOps user represented by the current user's PAT.
+- Resolve and store the Azure DevOps identity represented by each user's PAT.
+- Import assigned tasks and bugs into Time Management.
 - Import specific work items by ID.
-- Avoid duplicate imports for work items that are already linked.
-- Show which tasks are linked to Azure DevOps.
-- Refresh imported items to pick up title, type, and status changes.
-- Update linked work item status from Project Manager when permissions allow it.
-- Export local tasks to Azure DevOps.
-- Link exported tasks to an optional parent work item.
-- Import release work items for release planning.
-- Track child work item counts and child status in release planning.
-- Create discipline-specific child tasks for backend, frontend, and design work.
-- Create a local blocker task from a release work item.
+- Import user stories into Release Planning.
+- Refresh linked work items from Azure DevOps.
+- Upsert child tasks and bugs for imported user stories.
+- Map Azure DevOps assignees to Project Manager users when provider identities are known.
+- Export local tasks and bugs to Azure DevOps, including Markdown descriptions.
+- Synchronize local status changes back to Azure DevOps when permissions and process rules allow it.
+- Preserve local status changes and mark sync failures when Azure DevOps updates fail.
 
 ## Setup
 
 1. Create a Personal Access Token in Azure DevOps.
 2. Give the token access to work items.
 3. Open Settings in Project Manager as a Docker Host administrator.
-4. Create or edit the Project Manager project from the Projects tab.
-5. Enter the Azure DevOps project URL in the project dialog. Project Manager supports URLs such as `https://dev.azure.com/{organization}/{project}` and parses the organization and project from that URL.
-6. Open Profile and save your personal token.
-7. Test the connection.
+4. Create or edit a Project Manager project.
+5. Select Azure DevOps as the project integration.
+6. Enter the Azure DevOps project URL, such as `https://dev.azure.com/{organization}/{project}`.
+7. Open Profile and save the current user's personal token.
+8. Test the connection.
 
-For status updates and exported tasks, the token needs work item write access. Read-only tokens can still support read-focused workflows such as import and refresh.
+For status updates and exported work items, the token needs work item write access. Read-only tokens can still support read-focused workflows such as import and refresh.
 
 Saved tokens are personal credentials. Project Manager stores each Host user's PAT separately and uses only the current Host user's PAT for import, export, refresh, and status synchronization. API responses expose only whether the current user has a saved PAT.
 
-Assigned work item import does not depend on the Host user's email address. Project Manager sends Azure DevOps WIQL with the `@Me` macro, so Azure DevOps resolves the assignee from the PAT-authenticated request identity.
+## Type Mapping
+
+Azure DevOps work item types are mapped into Project Manager types:
+
+- User Story maps to `user_story`.
+- Task maps to `task`.
+- Bug maps to `bug`.
+
+Provider-native type is preserved on the provider link for diagnostics and display. Project Manager behavior uses the normalized Project Manager type.
+
+## Status Mapping
+
+Azure DevOps states are mapped into Project Manager normalized statuses:
+
+- New-like provider states map to `new`.
+- Active-like provider states map to `in_progress`.
+- Resolved-like provider states map to `resolved`.
+- Closed, Done, Completed, or Removed-like provider states map to `completed`.
+
+Provider-native status is preserved separately on the provider link. This allows Project Manager to display and debug provider state without coupling local workflow rules to one Azure DevOps process.
 
 ## Importing Work Items
 
-Users can import all assigned work items or provide a specific list of work item IDs. Assigned imports use the saved PAT identity, not the local Project Manager user email. Imported work items become tasks or bugs in Project Manager and keep a link to their Azure DevOps source.
+Assigned imports use Azure DevOps WIQL with the `@Me` macro, so Azure DevOps resolves the assignee from the PAT-authenticated request identity. Import does not depend on the Project Manager user's email address.
 
-Imported items can be used in time tracking, task lists, blockers, checklists, and release planning.
+Imported tasks and bugs are assigned to the current Project Manager user and can appear in Time Management. Imported user stories are attached to releases and do not appear in Time Management.
 
-## Refreshing Work Items
-
-Refresh updates previously imported work items with the latest Azure DevOps data. This is useful when titles, types, statuses, tags, completion dates, or assignees change outside Project Manager. Time tracking refreshes are scoped to the current time-management page's visible Azure DevOps tasks in the selected week or month; they do not read release-planning-only user stories or surface unrelated project tasks owned by other users. If Azure DevOps reports a refreshed task as assigned to someone other than the current PAT-authenticated user, Project Manager records that assignee snapshot and omits the row from time tracking.
-
-## Status Sync
-
-When a task is linked to Azure DevOps, status changes can sync back to the Azure DevOps work item. If the token does not have write permissions or the target status is not valid for the work item process, the local task can still be updated while the remote update fails.
+Project Manager prevents duplicate provider imports by enforcing uniqueness on project, provider, and external work item id.
 
 ## Release Planning
 
-Release planning can import Azure DevOps user stories and related work items into a release. Teams can reorder releases, move work items between releases, review child work item progress, and create supporting child tasks for different disciplines.
+Release Planning imports Azure DevOps user stories as Project Manager `user_story` work items. During import and refresh, Project Manager also fetches child tasks and bugs and upserts them as separate Project Manager work items with `parent_work_item_id` pointing to the user story.
+
+If a child task or bug has an Azure DevOps assignee that maps to a Project Manager user, the child item is assigned locally and can appear in that user's Time Management page. If no mapping exists, the child item remains unassigned locally and the provider assignee snapshot remains visible for planning context.
+
+## Status Sync
+
+When a linked work item status changes locally, Project Manager validates the local workflow gate first. If the local transition passes, the local status is saved and Azure DevOps synchronization is attempted.
+
+If Azure DevOps rejects the update or the token lacks write access, the local change remains saved. The work item and provider link are marked as `sync_failed`, and the last sync error is stored without logging secrets.
+
+## Provider Sync Disablement
+
+Administrators can disable provider sync for a project. Existing provider links are preserved as historical metadata, but refresh, export, and status sync stop using those links while sync is disabled.
+
+Project Manager blocks switching from one configured provider to a different provider while provider-linked work items exist. A future migration or cleanup flow would be required before changing providers.
 
 ## Troubleshooting
 
@@ -77,3 +104,4 @@ Release planning can import Azure DevOps user stories and related work items int
 - Confirm that the token has work item write permissions.
 - Check whether the selected status exists in the Azure DevOps process used by the project.
 - Review whether the work item is in a state that allows the requested transition.
+- Review the Project Manager sync failure indicator for the latest local error message.

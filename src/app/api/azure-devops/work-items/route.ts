@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { AzureDevOpsWorkItem } from '@/types';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from '@/lib/user-context';
 import {
   createAzureDevOpsConnectionContext,
   getAzureDevOpsSettingsForUser,
@@ -55,12 +59,13 @@ export async function GET(request: NextRequest) {
     );
 
     const importedRows = db.prepare(`
-      SELECT external_id
-      FROM tasks
-      WHERE external_source = 'azure_devops'
-        AND user_id = ?
-        AND project_id = ?
-        AND external_id IS NOT NULL
+      SELECT link.external_id
+      FROM work_item_external_links link
+      INNER JOIN work_items wi ON wi.id = link.work_item_id
+      WHERE link.provider = 'azure_devops'
+        AND wi.assigned_user_id = ?
+        AND wi.project_id = ?
+        AND link.external_id IS NOT NULL
     `).all(userId, projectId) as Array<{ external_id: string | number | null }>;
 
     const importedIds = new Set<number>();
@@ -83,6 +88,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ workItems: result });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Error fetching Azure DevOps work items:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to fetch work items' },

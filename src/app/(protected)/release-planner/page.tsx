@@ -7,6 +7,7 @@ import type { Release, ReleaseWorkItem } from "@/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -45,6 +46,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import {
   DndContext,
   closestCenter,
@@ -68,6 +70,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  FileText,
   GripVertical,
   MoreVertical,
   Plus,
@@ -113,12 +116,6 @@ interface AppUser {
   name: string;
   email?: string | null;
   is_admin?: number | null;
-}
-
-interface AppProject {
-  id: number;
-  member_user_ids?: number[];
-  is_default?: boolean;
 }
 
 interface ExistingChildTask {
@@ -185,7 +182,12 @@ function SortableRow({
 export default function ReleaseTrackingPage() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
+  const [projectRequired, setProjectRequired] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showCreateUserStory, setShowCreateUserStory] = useState(false);
+  const [userStoryTitle, setUserStoryTitle] = useState("");
+  const [userStoryDescription, setUserStoryDescription] = useState("");
+  const [userStorySubmitting, setUserStorySubmitting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [workItems, setWorkItems] = useState<ReleaseWorkItem[]>([]);
   const [workItemsLoading, setWorkItemsLoading] = useState(false);
@@ -300,7 +302,15 @@ export default function ReleaseTrackingPage() {
     setLoading(true);
     try {
       const response = await fetch("/api/releases");
-      if (!response.ok) throw new Error("Failed to fetch releases");
+      if (!response.ok) {
+        if (response.status === 400 || response.status === 403 || response.status === 404) {
+          setProjectRequired(true);
+          setReleases([]);
+          return;
+        }
+        throw new Error("Failed to fetch releases");
+      }
+      setProjectRequired(false);
       const data = (await response.json()) as Release[];
       setReleases(data);
     } catch (err) {
@@ -339,22 +349,14 @@ export default function ReleaseTrackingPage() {
   }, []);
 
   useEffect(() => {
-    const getCookieValue = (key: string) => {
-      if (typeof document === "undefined") return "";
-      const parts = document.cookie.split(";").map((item) => item.trim());
-      const found = parts.find((part) => part.startsWith(`${key}=`));
-      return found ? decodeURIComponent(found.split("=").slice(1).join("=")) : "";
-    };
-
     const loadProjectUsers = async () => {
       try {
-        const [sessionResponse, projectsResponse, usersResponse] = await Promise.all([
+        const [sessionResponse, usersResponse] = await Promise.all([
           fetch("/api/auth/session"),
-          fetch("/api/projects"),
-          fetch("/api/users"),
+          fetch("/api/project-members"),
         ]);
 
-        if (!projectsResponse.ok || !usersResponse.ok) {
+        if (!usersResponse.ok) {
           return;
         }
 
@@ -362,21 +364,9 @@ export default function ReleaseTrackingPage() {
           ? ((await sessionResponse.json()) as { user?: { id: number } })
           : null;
         const sessionUserId = sessionData?.user?.id;
-        const projects = (await projectsResponse.json()) as AppProject[];
         const users = (await usersResponse.json()) as AppUser[];
 
-        const cookieProjectId = getCookieValue("pm_project_id");
-        const cookieUserId = getCookieValue("pm_project_user_id");
-        const defaultProject = projects.find((project) => project.is_default);
-        const activeProject =
-          cookieUserId === String(sessionUserId)
-            ? projects.find((project) => String(project.id) === cookieProjectId) ??
-              defaultProject ??
-              projects[0]
-            : defaultProject ?? projects[0];
-
-        const memberIds = new Set(activeProject?.member_user_ids ?? []);
-        const members = users.filter((user) => user.is_admin || memberIds.has(user.id));
+        const members = users;
         setProjectUsers(members);
 
         const defaultUserId =
@@ -1060,6 +1050,7 @@ export default function ReleaseTrackingPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               title: `${option.prefix} ${showCreateChild.workItemTitle}`,
+              parentWorkItemId: showCreateChild.workItemId,
               type: "task",
               userId: parsedUserId,
             }),
@@ -1083,6 +1074,42 @@ export default function ReleaseTrackingPage() {
       setChildSubmitting(false);
     }
   }, [childDisciplines, childUserByDiscipline, showCreateChild]);
+
+  const handleCreateUserStory = useCallback(async () => {
+    if (!activeReleaseId) return;
+    const title = userStoryTitle.trim();
+    if (!title) {
+      toast.error("Title is required");
+      return;
+    }
+
+    setUserStorySubmitting(true);
+    try {
+      const response = await fetch("/api/releases/work-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          releaseId: activeReleaseId,
+          title,
+          description: userStoryDescription,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create user story");
+      }
+
+      toast.success("User story created");
+      setShowCreateUserStory(false);
+      setUserStoryTitle("");
+      setUserStoryDescription("");
+      await loadWorkItemsForRelease(activeReleaseId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create user story");
+    } finally {
+      setUserStorySubmitting(false);
+    }
+  }, [activeReleaseId, loadWorkItemsForRelease, userStoryDescription, userStoryTitle]);
 
   const loadChildItemsForDialog = useCallback(
     async (parentId: number) => {
@@ -1190,7 +1217,14 @@ export default function ReleaseTrackingPage() {
   return (
     <div className="h-full flex flex-col">
       <div className="p-6 shrink-0">
-        {loading ? (
+        {projectRequired ? (
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold">Project required</h1>
+            <p className="text-sm text-muted-foreground">
+              Select or create a project before using Planning.
+            </p>
+          </div>
+        ) : loading ? (
           <div className="text-sm text-muted-foreground">Loading releases...</div>
         ) : sortedReleases.length === 0 ? (
           <div className="space-y-1">
@@ -1264,6 +1298,12 @@ export default function ReleaseTrackingPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={() => setShowCreateUserStory(true)}>
+                    <span className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      <span>Create user story</span>
+                    </span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setShowImport(true)}>
                     <span className="flex items-center gap-2">
                       <Upload className="h-4 w-4" />
@@ -1294,7 +1334,18 @@ export default function ReleaseTrackingPage() {
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        {activeRelease && (
+        {projectRequired ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center space-y-3">
+              <p className="text-muted-foreground">
+                Projects can be created in Settings.
+              </p>
+              <Button asChild>
+                <a href="/settings">Open Settings</a>
+              </Button>
+            </div>
+          </div>
+        ) : activeRelease && (
           <div className="overflow-auto h-full">
             <div className="p-6 space-y-3">
               {workItemsLoading ? (
@@ -1495,6 +1546,22 @@ export default function ReleaseTrackingPage() {
                                       >
                                         {item.state || "New"}
                                       </Badge>
+                                      {item.description?.trim() && (
+                                        <HoverCard openDelay={100} closeDelay={100}>
+                                          <HoverCardTrigger>
+                                            <Badge
+                                              variant="outline"
+                                              className="h-5 px-2 text-xs bg-background/80 text-muted-foreground border-border/70 flex items-center gap-1 flex-shrink-0 cursor-pointer"
+                                              title="Description"
+                                            >
+                                              <FileText className="w-3 h-3" />
+                                            </Badge>
+                                          </HoverCardTrigger>
+                                          <HoverCardContent className="w-96 max-w-[calc(100vw-2rem)]" align="start" side="top" sideOffset={5}>
+                                            <MarkdownContent content={item.description} className="max-h-72 overflow-y-auto text-sm" />
+                                          </HoverCardContent>
+                                        </HoverCard>
+                                      )}
                                       {hasBlockers && (
                                         <HoverCard openDelay={100} closeDelay={100}>
                                           <HoverCardTrigger>
@@ -1672,7 +1739,7 @@ export default function ReleaseTrackingPage() {
                                             design: previous.design || fallbackUserId,
                                           }));
                                           setShowCreateChild({
-                                            workItemId: item.id,
+                                            workItemId: Number(item.task_id || item.work_item_id || item.id),
                                             workItemTitle: item.title,
                                             workItemExternalId: item.external_id
                                               ? Number(item.external_id)
@@ -1721,7 +1788,7 @@ export default function ReleaseTrackingPage() {
             </div>
           </div>
         )}
-        {!activeRelease && !loading && sortedReleases.length === 0 && (
+        {!projectRequired && !activeRelease && !loading && sortedReleases.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-3">
               <p className="text-muted-foreground">
@@ -1969,6 +2036,62 @@ export default function ReleaseTrackingPage() {
               disabled={childDisciplines.size === 0 || childSubmitting || projectUsers.length === 0}
             >
               {childSubmitting ? "Creating..." : "Create Child Task"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCreateUserStory} onOpenChange={setShowCreateUserStory}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Create User Story</DialogTitle>
+            <DialogDescription>
+              Create a local user story for this release. Markdown is supported in the description.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="user-story-title">Title</Label>
+              <Input
+                id="user-story-title"
+                value={userStoryTitle}
+                onChange={(event) => setUserStoryTitle(event.target.value)}
+                placeholder="Enter user story title"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-story-description">Description</Label>
+              <textarea
+                id="user-story-description"
+                value={userStoryDescription}
+                onChange={(event) => setUserStoryDescription(event.target.value)}
+                placeholder="Markdown supported"
+                rows={6}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+              {userStoryDescription.trim() && (
+                <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-3">
+                  <MarkdownContent content={userStoryDescription} />
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowCreateUserStory(false)}
+              disabled={userStorySubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleCreateUserStory()}
+              disabled={userStorySubmitting}
+            >
+              {userStorySubmitting ? "Creating..." : "Create User Story"}
             </Button>
           </DialogFooter>
         </DialogContent>

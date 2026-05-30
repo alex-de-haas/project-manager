@@ -5,8 +5,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { HostIdentityBridge } from "@/components/HostIdentityBridge";
 
 export const metadata: Metadata = {
-  title: "Time Tracker",
-  description: "Track time spent on tasks and bugs",
+  title: "Project Manager",
+  description: "Plan releases and track project work",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

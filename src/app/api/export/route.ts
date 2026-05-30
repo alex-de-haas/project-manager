@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import db from '@/lib/db';
-import type { Task, TimeEntry } from '@/types';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import type { Task } from '@/types';
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from '@/lib/user-context';
 import { getAzureDevOpsProjectSettings } from '@/lib/azure-devops/settings';
+import { displayWorkItemStatus } from '@/lib/work-items';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -28,33 +33,47 @@ export async function GET(request: NextRequest) {
 
     // Fetch tasks that overlap with the selected period
     const tasks = db.prepare(`
-      SELECT * FROM tasks 
-      WHERE user_id = ?
+      SELECT
+        wi.*,
+        wi.assigned_user_id AS user_id,
+        link.provider AS external_source,
+        link.external_id
+      FROM work_items wi
+      LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
+      WHERE wi.assigned_user_id = ?
         AND project_id = ?
-        AND DATE(created_at) <= ?
-        AND (completed_at IS NULL OR DATE(completed_at) >= ?)
-      ORDER BY COALESCE(display_order, 999999), created_at ASC
+        AND wi.type IN ('task', 'bug')
+        AND DATE(wi.created_at) <= ?
+        AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
+      ORDER BY COALESCE(wi.display_order, 999999), wi.created_at ASC
     `).all(userId, projectId, endDate, startDate) as Task[];
 
-    // Fetch time entries for the specified month
     const timeEntries = db.prepare(
-      `SELECT te.*
+      `SELECT te.work_item_id, te.date, te.hours
        FROM time_entries te
-       INNER JOIN tasks t ON t.id = te.task_id
-       WHERE t.user_id = ? AND t.project_id = ? AND te.date >= ? AND te.date <= ?`
-    ).all(userId, projectId, startDate, endDate) as TimeEntry[];
+       INNER JOIN work_items wi ON wi.id = te.work_item_id
+       WHERE wi.assigned_user_id = ?
+         AND wi.project_id = ?
+         AND te.user_id = ?
+         AND te.date >= ?
+         AND te.date <= ?`
+    ).all(userId, projectId, userId, startDate, endDate) as Array<{
+      work_item_id: number;
+      date: string;
+      hours: number;
+    }>;
 
     // Calculate total hours per task
     const taskHours = new Map<number, number>();
     timeEntries.forEach(entry => {
-      const current = taskHours.get(entry.task_id) || 0;
-      taskHours.set(entry.task_id, current + entry.hours);
+      const current = taskHours.get(entry.work_item_id) || 0;
+      taskHours.set(entry.work_item_id, current + entry.hours);
     });
 
     // Filter out completed tasks (Resolved/Closed) without tracked time in the period
     const completedStatuses = ['Resolved', 'Closed'];
     const filteredTasks = tasks.filter(task => {
-      const status = task.status || 'New';
+      const status = displayWorkItemStatus(task.status);
       if (completedStatuses.includes(status)) {
         const totalHours = taskHours.get(task.id) || 0;
         return totalHours > 0;
@@ -153,6 +172,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Export error:', error);
     return NextResponse.json(
       { error: 'Failed to export work items' },

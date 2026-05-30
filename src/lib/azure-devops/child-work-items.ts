@@ -4,6 +4,11 @@ import {
   WorkItemExpand,
 } from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
 import db from "@/lib/db";
+import {
+  mapAzureDevOpsStatusToWorkItemStatus,
+  mapAzureDevOpsTypeToWorkItemType,
+  upsertExternalLink,
+} from "@/lib/work-items";
 
 export interface ChildWorkItemSnapshot {
   id: number;
@@ -270,68 +275,159 @@ export const syncChildWorkItemsSnapshot = (params: {
 
   const uniqueItems = Array.from(itemsById.values());
 
-  const insertStmt = db.prepare(`
-    INSERT INTO release_work_item_children (
-      project_id,
-      parent_external_id,
-      child_external_id,
-      title,
-      work_item_type,
-      state,
-      assigned_to,
-      updated_at
+  const parentRows = db
+    .prepare(
+      `
+        SELECT link.external_id, wi.id
+        FROM work_item_external_links link
+        INNER JOIN work_items wi ON wi.id = link.work_item_id
+        WHERE link.project_id = ?
+          AND link.provider = 'azure_devops'
+          AND wi.type = 'user_story'
+      `
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(project_id, child_external_id) DO UPDATE SET
-      parent_external_id = excluded.parent_external_id,
-      title = excluded.title,
-      work_item_type = excluded.work_item_type,
-      state = excluded.state,
-      assigned_to = excluded.assigned_to,
-      updated_at = CURRENT_TIMESTAMP
-  `);
-
-  const syncTransaction = db.transaction(
-    (transactionParentIds: number[], transactionItems: ChildWorkItemSnapshot[]) => {
-      let deleted = 0;
-      const deleteBatchSize = 200;
-
-      for (let i = 0; i < transactionParentIds.length; i += deleteBatchSize) {
-        const batch = transactionParentIds.slice(i, i + deleteBatchSize);
-        const placeholders = batch.map(() => "?").join(", ");
-        const deleteResult = db
-          .prepare(
-            `
-            DELETE FROM release_work_item_children
-            WHERE project_id = ?
-              AND parent_external_id IN (${placeholders})
-          `
-          )
-          .run(projectId, ...batch);
-        deleted += deleteResult.changes;
-      }
-
-      for (const item of transactionItems) {
-        insertStmt.run(
-          projectId,
-          item.parentId,
-          item.id,
-          item.title,
-          item.type,
-          item.state,
-          item.assignedTo ?? null
-        );
-      }
-
-      return deleted;
-    }
+    .all(projectId) as Array<{ external_id: string; id: number }>;
+  const parentInternalIdByExternalId = new Map(
+    parentRows.map((row) => [Number(row.external_id), row.id])
   );
 
-  const deleted = syncTransaction(parentIds, uniqueItems);
+  const findMappedUserId = (assignedTo?: string | null): number | null => {
+    const value = assignedTo?.trim();
+    if (!value) return null;
+
+    const row = db
+      .prepare(
+        `
+          SELECT user_id
+          FROM provider_user_identities
+          WHERE provider = 'azure_devops'
+            AND (
+              lower(COALESCE(email, '')) = lower(?)
+              OR lower(COALESCE(display_name, '')) = lower(?)
+              OR lower(COALESCE(external_user_id, '')) = lower(?)
+              OR lower(COALESCE(descriptor, '')) = lower(?)
+            )
+          LIMIT 1
+        `
+      )
+      .get(value, value, value, value) as { user_id: number } | undefined;
+
+    return row?.user_id ?? null;
+  };
+
+  const existingLinkStmt = db.prepare(
+    `
+      SELECT wi.id
+      FROM work_item_external_links link
+      INNER JOIN work_items wi ON wi.id = link.work_item_id
+      WHERE link.project_id = ?
+        AND link.provider = 'azure_devops'
+        AND link.external_id = ?
+      LIMIT 1
+    `
+  );
+
+  const maxOrderStmt = db.prepare(
+    `
+      SELECT MAX(display_order) AS max_order
+      FROM work_items
+      WHERE project_id = ?
+        AND assigned_user_id = ?
+        AND type IN ('task', 'bug')
+    `
+  );
+
+  const insertWorkItemStmt = db.prepare(
+    `
+      INSERT INTO work_items (
+        project_id,
+        title,
+        type,
+        status,
+        assigned_user_id,
+        parent_work_item_id,
+        display_order,
+        sync_state
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'synced')
+    `
+  );
+
+  const updateWorkItemStmt = db.prepare(
+    `
+      UPDATE work_items
+      SET title = ?,
+          type = ?,
+          status = ?,
+          assigned_user_id = ?,
+          parent_work_item_id = ?,
+          completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE NULL END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND project_id = ?
+    `
+  );
+
+  const syncTransaction = db.transaction((transactionItems: ChildWorkItemSnapshot[]) => {
+    for (const item of transactionItems) {
+      const parentWorkItemId = parentInternalIdByExternalId.get(item.parentId);
+      if (!parentWorkItemId) continue;
+
+      const type = mapAzureDevOpsTypeToWorkItemType(item.type);
+      if (type !== "task" && type !== "bug") continue;
+      const status = mapAzureDevOpsStatusToWorkItemStatus(item.state);
+      const assignedUserId = findMappedUserId(item.assignedTo);
+      const existing = existingLinkStmt.get(projectId, String(item.id)) as
+        | { id: number }
+        | undefined;
+
+      let workItemId: number;
+      if (existing) {
+        workItemId = existing.id;
+        updateWorkItemStmt.run(
+          item.title,
+          type,
+          status,
+          assignedUserId,
+          parentWorkItemId,
+          status,
+          workItemId,
+          projectId
+        );
+      } else {
+        const maxOrder = assignedUserId
+          ? (maxOrderStmt.get(projectId, assignedUserId) as { max_order: number | null })
+          : { max_order: null };
+        const displayOrder = assignedUserId ? (maxOrder.max_order ?? -1) + 1 : 0;
+        const result = insertWorkItemStmt.run(
+          projectId,
+          item.title,
+          type,
+          status,
+          assignedUserId,
+          parentWorkItemId,
+          displayOrder
+        );
+        workItemId = Number(result.lastInsertRowid);
+      }
+
+      upsertExternalLink({
+        workItemId,
+        projectId,
+        provider: "azure_devops",
+        externalId: item.id,
+        nativeType: item.type,
+        nativeStatus: item.state,
+        nativeAssigneeName: item.assignedTo ?? null,
+        sanitizedSnapshot: item,
+      });
+    }
+  });
+
+  syncTransaction(uniqueItems);
 
   return {
     parents: parentIds.length,
     items: uniqueItems.length,
-    deleted,
+    deleted: 0,
   };
 };

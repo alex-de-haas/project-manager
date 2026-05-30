@@ -1,19 +1,28 @@
 export const dynamic = "force-dynamic";
 
-import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
-import type { Task } from '@/types';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import { NextRequest, NextResponse } from "next/server";
+import db from "@/lib/db";
+import type { Task } from "@/types";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 import {
   createAzureDevOpsConnectionContext,
   getAzureDevOpsAuthenticatedUser,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
-} from '@/lib/azure-devops/settings';
+} from "@/lib/azure-devops/settings";
 import {
   isAzureDevOpsIdentityAssignedToUser,
   normalizeAzureDevOpsWorkItemIdentity,
-} from '@/lib/azure-devops/identity';
+} from "@/lib/azure-devops/identity";
+import {
+  mapAzureDevOpsStatusToWorkItemStatus,
+  mapAzureDevOpsTypeToWorkItemType,
+  upsertExternalLink,
+} from "@/lib/work-items";
 
 interface ImportRequest {
   workItemIds?: number[];
@@ -41,22 +50,18 @@ export async function POST(request: NextRequest) {
 
     const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
     if (isAzureDevOpsConfigProblem(settingsResult)) {
-      return NextResponse.json(
-        { error: settingsResult.message },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: settingsResult.message }, { status: 400 });
     }
 
-    const { settings, connection, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+    const { settings, connection, witApi } =
+      await createAzureDevOpsConnectionContext(settingsResult);
     const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
 
     let workItemIds: number[] = [];
 
-    // Determine which work items to import
     if (body.workItemIds && body.workItemIds.length > 0) {
       workItemIds = body.workItemIds;
     } else if (body.assignedToMe) {
-      // @Me is resolved by Azure DevOps from the PAT-authenticated request identity.
       const wiql = {
         query: `
           SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State]
@@ -66,13 +71,12 @@ export async function POST(request: NextRequest) {
             AND [System.State] <> 'Closed'
             AND [System.State] <> 'Removed'
           ORDER BY [System.ChangedDate] DESC
-        `
+        `,
       };
 
       const queryResult = await witApi.queryByWiql(wiql, { project: settings.project });
-      workItemIds = queryResult?.workItems?.map(wi => wi.id!).filter(Boolean) || [];
+      workItemIds = queryResult?.workItems?.map((wi) => wi.id!).filter(Boolean) || [];
     } else if (body.query) {
-      // Custom WIQL query
       if (!hasCurrentProjectScope(body.query, settings.project)) {
         return NextResponse.json(
           {
@@ -82,21 +86,29 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      const wiql = { query: body.query };
-      const queryResult = await witApi.queryByWiql(wiql, { project: settings.project });
-      workItemIds = queryResult?.workItems?.map(wi => wi.id!).filter(Boolean) || [];
+      const queryResult = await witApi.queryByWiql(
+        { query: body.query },
+        { project: settings.project }
+      );
+      workItemIds = queryResult?.workItems?.map((wi) => wi.id!).filter(Boolean) || [];
     } else {
       return NextResponse.json(
-        { error: 'No work items specified. Provide workItemIds, set assignedToMe=true, or provide a WIQL query.' },
+        {
+          error:
+            "No work items specified. Provide workItemIds, set assignedToMe=true, or provide a WIQL query.",
+        },
         { status: 400 }
       );
     }
 
     if (workItemIds.length === 0) {
-      return NextResponse.json({ imported: 0, skipped: 0, message: 'No work items found to import' });
+      return NextResponse.json({
+        imported: 0,
+        skipped: 0,
+        message: "No work items found to import",
+      });
     }
 
-    // Fetch work item details
     const workItems = await witApi.getWorkItems(
       workItemIds,
       undefined,
@@ -109,88 +121,135 @@ export async function POST(request: NextRequest) {
     const skipped: Array<{ id: number; reason: string }> = [];
 
     for (const workItem of workItems || []) {
-      if (!workItem.id || !workItem.fields) {
+      if (!workItem.id || !workItem.fields) continue;
+
+      const title = (workItem.fields["System.Title"] as string) || `Work Item ${workItem.id}`;
+      const nativeType = (workItem.fields["System.WorkItemType"] as string) || "Task";
+      const type = mapAzureDevOpsTypeToWorkItemType(nativeType);
+      if (type === "user_story") {
+        skipped.push({ id: workItem.id, reason: "User stories are imported in Planning" });
         continue;
       }
 
-      const title = workItem.fields['System.Title'] as string || `Work Item ${workItem.id}`;
-      const workItemType = (workItem.fields['System.WorkItemType'] as string || 'Task').toLowerCase();
-      const status = workItem.fields['System.State'] as string || null;
-      const tags = workItem.fields['System.Tags'] as string || null;
+      const nativeStatus = (workItem.fields["System.State"] as string) || null;
+      const status = mapAzureDevOpsStatusToWorkItemStatus(nativeStatus);
+      const tags = (workItem.fields["System.Tags"] as string) || null;
       const assignedTo = normalizeAzureDevOpsWorkItemIdentity(
-        workItem.fields['System.AssignedTo']
+        workItem.fields["System.AssignedTo"]
       );
       const isAssignedToCurrentUser = isAzureDevOpsIdentityAssignedToUser(
         assignedTo,
         authenticatedUser
       );
-      const closedDate = workItem.fields['Microsoft.VSTS.Common.ClosedDate'] as string || 
-                        workItem.fields['Microsoft.VSTS.Common.ResolvedDate'] as string || 
-                        workItem.fields['System.ClosedDate'] as string || 
-                        null;
-      
-      // Map Azure DevOps work item types to our task types
-      let taskType: 'task' | 'bug' = 'task';
-      if (workItemType === 'bug') {
-        taskType = 'bug';
-      }
+      const assignedUserId = isAssignedToCurrentUser === false ? null : userId;
+      const closedDate =
+        (workItem.fields["Microsoft.VSTS.Common.ClosedDate"] as string) ||
+        (workItem.fields["Microsoft.VSTS.Common.ResolvedDate"] as string) ||
+        (workItem.fields["System.ClosedDate"] as string) ||
+        null;
 
-      // Check if already imported
       const existing = db
-        .prepare('SELECT id FROM tasks WHERE external_id = ? AND user_id = ? AND project_id = ?')
-        .get(workItem.id, userId, projectId);
-      
+        .prepare(
+          `
+            SELECT wi.id
+            FROM work_item_external_links link
+            INNER JOIN work_items wi ON wi.id = link.work_item_id
+            WHERE link.project_id = ?
+              AND link.provider = 'azure_devops'
+              AND link.external_id = ?
+              AND wi.type IN ('task', 'bug')
+            LIMIT 1
+          `
+        )
+        .get(projectId, String(workItem.id)) as { id: number } | undefined;
+
       if (existing) {
-        skipped.push({ id: workItem.id, reason: 'Already imported' });
+        skipped.push({ id: workItem.id, reason: "Already imported" });
         continue;
       }
 
-      // Get the current max display_order and add 1 for the new task
-      const maxOrder = db
-        .prepare('SELECT MAX(display_order) as max_order FROM tasks WHERE user_id = ? AND project_id = ?')
-        .get(userId, projectId) as { max_order: number | null };
-      const newOrder = (maxOrder.max_order ?? -1) + 1;
+      const maxOrder = assignedUserId
+        ? (db
+            .prepare(
+              `
+                SELECT MAX(display_order) as max_order
+                FROM work_items
+                WHERE assigned_user_id = ?
+                  AND project_id = ?
+                  AND type IN ('task', 'bug')
+              `
+            )
+            .get(assignedUserId, projectId) as { max_order: number | null })
+        : { max_order: null };
+      const displayOrder = assignedUserId ? (maxOrder.max_order ?? -1) + 1 : 0;
 
-      // Insert task
-      const stmt = db.prepare(`
-        INSERT INTO tasks (
-          user_id,
-          project_id,
+      const result = db
+        .prepare(
+          `
+            INSERT INTO work_items (
+              project_id,
+              title,
+              type,
+              status,
+              tags,
+              assigned_user_id,
+              display_order,
+              completed_at,
+              sync_state,
+              created_by_user_id,
+              updated_by_user_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?)
+          `
+        )
+        .run(
+          projectId,
           title,
           type,
           status,
           tags,
-          external_id,
-          external_source,
-          azure_assigned_to_id,
-          azure_assigned_to_name,
-          azure_assigned_to_unique_name,
-          azure_assignee_is_current_user,
-          display_order,
-          completed_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'azure_devops', ?, ?, ?, ?, ?, ?)
-      `);
+          assignedUserId,
+          displayOrder,
+          status === "completed" ? closedDate ?? new Date().toISOString() : null,
+          userId,
+          userId
+        );
 
-      const result = stmt.run(
-        userId,
+      const workItemId = Number(result.lastInsertRowid);
+      upsertExternalLink({
+        workItemId,
         projectId,
-        title,
-        taskType,
-        status,
-        tags,
-        workItem.id,
-        assignedTo?.id ?? null,
-        assignedTo?.displayName ?? null,
-        assignedTo?.uniqueName ?? null,
-        isAssignedToCurrentUser === null ? null : isAssignedToCurrentUser ? 1 : 0,
-        newOrder,
-        closedDate
-      );
-      
+        provider: "azure_devops",
+        externalId: workItem.id,
+        nativeType,
+        nativeStatus,
+        nativeAssigneeId: assignedTo?.id ?? null,
+        nativeAssigneeName: assignedTo?.displayName ?? null,
+        nativeAssigneeUniqueName: assignedTo?.uniqueName ?? null,
+        nativeAssigneeIsCurrentUser: isAssignedToCurrentUser,
+        sanitizedSnapshot: {
+          id: workItem.id,
+          title,
+          type: nativeType,
+          state: nativeStatus,
+          tags,
+        },
+      });
+
       const newTask = db
-        .prepare('SELECT * FROM tasks WHERE id = ? AND user_id = ? AND project_id = ?')
-        .get(result.lastInsertRowid, userId, projectId) as Task;
+        .prepare(
+          `
+            SELECT
+              wi.*,
+              wi.assigned_user_id AS user_id,
+              link.external_id,
+              link.provider AS external_source
+            FROM work_items wi
+            LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
+            WHERE wi.id = ?
+          `
+        )
+        .get(workItemId) as Task;
       imported.push(newTask);
     }
 
@@ -198,14 +257,18 @@ export async function POST(request: NextRequest) {
       imported: imported.length,
       skipped: skipped.length,
       tasks: imported,
-      skippedDetails: skipped
+      skippedDetails: skipped,
     });
-
   } catch (error) {
-    console.error('Azure DevOps import error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
+    console.error("Azure DevOps import error:", error);
     return NextResponse.json(
-      { error: 'Failed to import from Azure DevOps', details: errorMessage },
+      {
+        error: "Failed to import from Azure DevOps",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
       { status: 500 }
     );
   }

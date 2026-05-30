@@ -67,6 +67,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import {
   Bug,
   ChevronLeft,
@@ -74,6 +75,7 @@ import {
   ClipboardCheck,
   Clock3,
   Download,
+  FileText,
   Filter,
   GripVertical,
   ListChecks,
@@ -215,6 +217,7 @@ interface SortableRowProps {
 interface TaskMetaRowProps {
   status?: string | null;
   tags?: string | null;
+  description?: string | null;
   activeBlockers: Blocker[];
   checklistSummary?: TaskWithTimeEntries["checklistSummary"];
   onOpenBlockers: () => void;
@@ -229,6 +232,7 @@ const estimateChipWidth = (label: string, hasIcon = false) => {
 function TaskMetaRow({
   status,
   tags,
+  description,
   activeBlockers,
   checklistSummary,
   onOpenBlockers,
@@ -237,6 +241,7 @@ function TaskMetaRow({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const parsedTags = useMemo(() => parseTaskTags(tags), [tags]);
+  const hasDescription = Boolean(description?.trim());
   const statusTone = getStatusTone(status);
 
   useEffect(() => {
@@ -281,6 +286,7 @@ function TaskMetaRow({
             ),
           ]
         : []),
+      ...(hasDescription ? [estimateChipWidth("", true)] : []),
     ];
 
     let usedWidth =
@@ -315,7 +321,7 @@ function TaskMetaRow({
       tags: nextVisibleTags,
       hiddenCount: Math.max(parsedTags.length - nextVisibleTags.length, 0),
     };
-  }, [activeBlockers.length, checklistSummary, containerWidth, parsedTags, status]);
+  }, [activeBlockers.length, checklistSummary, containerWidth, hasDescription, parsedTags, status]);
 
   return (
     <div
@@ -394,6 +400,22 @@ function TaskMetaRow({
             {checklistSummary.completed}/{checklistSummary.total}
           </span>
         </Badge>
+      )}
+      {hasDescription && description && (
+        <HoverCard openDelay={100} closeDelay={100}>
+          <HoverCardTrigger>
+            <Badge
+              variant="outline"
+              className="h-5 flex-shrink-0 cursor-pointer gap-1 border-border/70 bg-background/80 px-2 text-[11px] text-muted-foreground"
+              title="Description"
+            >
+              <FileText className="h-3 w-3" />
+            </Badge>
+          </HoverCardTrigger>
+          <HoverCardContent className="w-96 max-w-[calc(100vw-2rem)]" align="start" side="top" sideOffset={5}>
+            <MarkdownContent content={description} className="max-h-72 overflow-y-auto text-sm" />
+          </HoverCardContent>
+        </HoverCard>
       )}
       {visibleTags.tags.map((tag) => (
         <Badge
@@ -474,6 +496,7 @@ export default function Home() {
   const [dayOffs, setDayOffs] = useState<DayOff[]>([]);
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [projectRequired, setProjectRequired] = useState(false);
   const [defaultDayLength, setDefaultDayLength] = useState<number | null>(null);
   const [defaultDayLengthLoading, setDefaultDayLengthLoading] = useState(true);
   const expectedDayLength = defaultDayLength ?? 0;
@@ -515,8 +538,8 @@ export default function Home() {
   const [timeEntriesByTask, setTimeEntriesByTask] = useState<Record<number, { date: string; hours: number }[]>>({});
   const [timeEntriesLoading, setTimeEntriesLoading] = useState(false);
   const [timeEntriesError, setTimeEntriesError] = useState<string | null>(null);
-  const [editingTask, setEditingTask] = useState<{ id: number; title: string; type: "task" | "bug" } | null>(null);
-  const [exportToDevOps, setExportToDevOps] = useState<{ id: number; title: string; type: "task" | "bug" } | null>(null);
+  const [editingTask, setEditingTask] = useState<{ id: number; title: string; description?: string | null; type: "task" | "bug" } | null>(null);
+  const [exportToDevOps, setExportToDevOps] = useState<{ id: number; title: string; description?: string | null; type: "task" | "bug" } | null>(null);
   const [editingCell, setEditingCell] = useState<{
     taskId: number;
     date: string;
@@ -578,7 +601,15 @@ export default function Home() {
           endDate: dateRange.endDate,
         });
         const response = await fetch(`/api/tasks?${params.toString()}`);
-        if (!response.ok) throw new Error("Failed to fetch tasks");
+        if (!response.ok) {
+          if (response.status === 400 || response.status === 403 || response.status === 404) {
+            setProjectRequired(true);
+            setTasks([]);
+            return;
+          }
+          throw new Error("Failed to fetch tasks");
+        }
+        setProjectRequired(false);
         const data = await response.json();
         setTasks(data);
       } catch (err) {
@@ -711,6 +742,9 @@ export default function Home() {
           setDefaultDayLength(
             Number.isFinite(parsed) && parsed >= 0.5 && parsed <= 24 ? parsed : null
           );
+        } else if (response.status === 400 || response.status === 403 || response.status === 404) {
+          setProjectRequired(true);
+          setDefaultDayLength(null);
         } else {
           setDefaultDayLength(null);
         }
@@ -1305,6 +1339,26 @@ export default function Home() {
     );
   }
 
+  if (projectRequired) {
+    return (
+      <div className="h-full overflow-auto p-6">
+        <Card>
+          <CardHeader>
+            <h1 className="text-2xl font-semibold">Project required</h1>
+            <p className="text-sm text-muted-foreground">
+              Select or create a project before using Time Management.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <a href="/settings">Open Settings</a>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (defaultDayLength === null) {
     return (
       <div className="h-full overflow-auto p-6">
@@ -1769,6 +1823,7 @@ export default function Home() {
                               <TaskMetaRow
                                 status={task.status}
                                 tags={task.tags}
+                                description={task.description}
                                 activeBlockers={activeBlockers}
                                 checklistSummary={task.checklistSummary}
                                 onOpenBlockers={() =>
@@ -1833,19 +1888,17 @@ export default function Home() {
                                       Resolved
                                     </DropdownMenuItem>
                                   )}
-                                  {task.type !== "bug" && (
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleStatusChange(
-                                          task.id,
-                                          "Closed",
-                                          task.external_source === "azure_devops"
-                                        )
-                                      }
-                                    >
-                                      Closed
-                                    </DropdownMenuItem>
-                                  )}
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleStatusChange(
+                                        task.id,
+                                        "Closed",
+                                        task.external_source === "azure_devops"
+                                      )
+                                    }
+                                  >
+                                    Closed
+                                  </DropdownMenuItem>
                                 </DropdownMenuSubContent>
                               </DropdownMenuSub>
                               )}
@@ -1855,6 +1908,7 @@ export default function Home() {
                                     setEditingTask({
                                       id: task.id,
                                       title: task.title,
+                                      description: task.description,
                                       type: task.type,
                                     })
                                   }
@@ -1869,9 +1923,10 @@ export default function Home() {
                                 <DropdownMenuItem
                                   onClick={() =>
                                     setExportToDevOps({
-                                      id: task.id,
-                                      title: task.title,
-                                      type: task.type,
+                                    id: task.id,
+                                    title: task.title,
+                                    description: task.description,
+                                    type: task.type,
                                     })
                                   }
                                 >

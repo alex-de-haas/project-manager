@@ -2,16 +2,26 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  displayWorkItemStatus,
+  displayWorkItemType,
+} from "@/lib/work-items";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 
 interface ChildWorkItemRow {
-  id: number;
-  parent_external_id: number;
-  child_external_id: number;
+  parent_external_id: string;
+  child_external_id: string;
   title: string;
-  work_item_type: string;
+  work_item_type: string | null;
   state: string | null;
+  status: string;
   assigned_to: string | null;
+  assigned_user_name?: string | null;
+  assigned_user_email?: string | null;
 }
 
 const parseParentId = (value: unknown): number | null => {
@@ -22,11 +32,42 @@ const parseParentId = (value: unknown): number | null => {
 
 const isTaskResolvedOrClosed = (state?: string | null): boolean => {
   const normalized = state?.trim().toLowerCase();
-  return normalized === "resolved" || normalized === "closed";
+  return (
+    normalized === "resolved" ||
+    normalized === "closed" ||
+    normalized === "done" ||
+    normalized === "completed"
+  );
 };
 
 const normalizeItemType = (type?: string | null): string =>
   type?.trim().toLowerCase() ?? "";
+
+const childQuery = `
+  SELECT
+    parent_link.external_id AS parent_external_id,
+    child_link.external_id AS child_external_id,
+    child.title,
+    COALESCE(child_link.native_type, child.type) AS work_item_type,
+    COALESCE(child_link.native_status, child.status) AS state,
+    child.status,
+    child_link.native_assignee_name AS assigned_to,
+    assigned_user.name AS assigned_user_name,
+    assigned_user.email AS assigned_user_email
+  FROM work_items parent
+  INNER JOIN work_item_external_links parent_link
+    ON parent_link.work_item_id = parent.id
+    AND parent_link.provider = 'azure_devops'
+  INNER JOIN work_items child
+    ON child.parent_work_item_id = parent.id
+  LEFT JOIN work_item_external_links child_link
+    ON child_link.work_item_id = child.id
+    AND child_link.provider = 'azure_devops'
+  LEFT JOIN users assigned_user ON assigned_user.id = child.assigned_user_id
+  WHERE parent.project_id = ?
+    AND parent_link.external_id = ?
+    AND child.type IN ('task', 'bug')
+`;
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,37 +82,34 @@ export async function GET(request: NextRequest) {
     const rows = db
       .prepare(
         `
-          SELECT
-            id,
-            parent_external_id,
-            child_external_id,
-            title,
-            work_item_type,
-            state,
-            assigned_to
-          FROM release_work_item_children
-          WHERE project_id = ?
-            AND parent_external_id = ?
+          ${childQuery}
           ORDER BY
-            CASE LOWER(TRIM(work_item_type))
+            CASE child.type
               WHEN 'task' THEN 0
               WHEN 'bug' THEN 1
               ELSE 2
             END,
-            updated_at DESC,
-            child_external_id DESC
+            child.updated_at DESC,
+            CAST(COALESCE(child_link.external_id, child.id) AS INTEGER) DESC
         `
       )
-      .all(projectId, parentId) as ChildWorkItemRow[];
+      .all(projectId, String(parentId)) as ChildWorkItemRow[];
 
-    const items = rows.map((row) => ({
-      id: row.child_external_id,
-      parentId: row.parent_external_id,
-      title: row.title,
-      type: row.work_item_type,
-      state: row.state ?? "Unknown",
-      assignedTo: row.assigned_to ?? undefined,
-    }));
+    const items = rows.map((row) => {
+      const state = row.state ? displayWorkItemStatus(row.status) : displayWorkItemStatus(row.status);
+      return {
+        id: Number(row.child_external_id),
+        parentId,
+        title: row.title,
+        type: displayWorkItemType(row.work_item_type),
+        state: row.state ?? state,
+        assignedTo:
+          row.assigned_user_name ||
+          row.assigned_user_email ||
+          row.assigned_to ||
+          undefined,
+      };
+    });
 
     const counts = items.reduce(
       (acc, item) => {
@@ -88,14 +126,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ parentId, counts, items });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Child work item query error:", error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to fetch child work items from database",
-      },
+      { error: error instanceof Error ? error.message : "Failed to fetch child work items" },
       { status: 500 }
     );
   }
@@ -124,25 +160,31 @@ export async function POST(request: NextRequest) {
       .prepare(
         `
           SELECT
-            parent_external_id,
-            SUM(CASE WHEN LOWER(TRIM(work_item_type)) = 'task' THEN 1 ELSE 0 END) as tasks_total,
-            SUM(CASE WHEN LOWER(TRIM(work_item_type)) = 'bug' THEN 1 ELSE 0 END) as bugs_total,
+            parent_link.external_id AS parent_external_id,
+            SUM(CASE WHEN child.type = 'task' THEN 1 ELSE 0 END) as tasks_total,
+            SUM(CASE WHEN child.type = 'bug' THEN 1 ELSE 0 END) as bugs_total,
             SUM(
               CASE
-                WHEN LOWER(TRIM(work_item_type)) = 'task'
-                  AND LOWER(TRIM(COALESCE(state, ''))) IN ('resolved', 'closed')
+                WHEN child.type = 'task'
+                  AND child.status IN ('resolved', 'completed')
                 THEN 1
                 ELSE 0
               END
             ) as tasks_completed
-          FROM release_work_item_children
-          WHERE project_id = ?
-            AND parent_external_id IN (${placeholders})
-          GROUP BY parent_external_id
+          FROM work_items parent
+          INNER JOIN work_item_external_links parent_link
+            ON parent_link.work_item_id = parent.id
+            AND parent_link.provider = 'azure_devops'
+          INNER JOIN work_items child
+            ON child.parent_work_item_id = parent.id
+          WHERE parent.project_id = ?
+            AND parent_link.external_id IN (${placeholders})
+            AND child.type IN ('task', 'bug')
+          GROUP BY parent_link.external_id
         `
       )
-      .all(projectId, ...parentIds) as Array<{
-      parent_external_id: number;
+      .all(projectId, ...parentIds.map(String)) as Array<{
+      parent_external_id: string;
       tasks_total: number;
       bugs_total: number;
       tasks_completed: number;
@@ -163,14 +205,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ counts });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Child work item count query error:", error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to fetch child work item counts from database",
-      },
+      { error: error instanceof Error ? error.message : "Failed to fetch child work item counts" },
       { status: 500 }
     );
   }

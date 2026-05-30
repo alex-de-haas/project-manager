@@ -2,7 +2,12 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
+import { upsertExternalLink } from "@/lib/work-items";
 
 interface JsonImportEntry {
   date?: unknown;
@@ -73,11 +78,12 @@ const getOrCreateTaskForWorkItem = (
     .prepare(
       `
       SELECT id
-      FROM tasks
-      WHERE user_id = ?
-        AND project_id = ?
-        AND external_source = 'azure_devops'
-        AND external_id = ?
+      FROM work_items wi
+      INNER JOIN work_item_external_links link ON link.work_item_id = wi.id
+      WHERE wi.assigned_user_id = ?
+        AND wi.project_id = ?
+        AND link.provider = 'azure_devops'
+        AND link.external_id = ?
       ORDER BY id ASC
       LIMIT 1
     `
@@ -89,26 +95,39 @@ const getOrCreateTaskForWorkItem = (
   }
 
   const maxOrder = db
-    .prepare("SELECT MAX(display_order) AS max_order FROM tasks WHERE user_id = ? AND project_id = ?")
+    .prepare(
+      "SELECT MAX(display_order) AS max_order FROM work_items WHERE assigned_user_id = ? AND project_id = ? AND type IN ('task', 'bug')"
+    )
     .get(userId, projectId) as { max_order: number | null };
   const displayOrder = (maxOrder.max_order ?? -1) + 1;
 
   const result = db
     .prepare(
       `
-      INSERT INTO tasks (
-        user_id,
+      INSERT INTO work_items (
         project_id,
         title,
         type,
-        external_id,
-        external_source,
-        display_order
+        status,
+        assigned_user_id,
+        display_order,
+        sync_state,
+        created_by_user_id,
+        updated_by_user_id
       )
-      VALUES (?, ?, ?, 'task', ?, 'azure_devops', ?)
+      VALUES (?, ?, 'task', 'new', ?, ?, 'synced', ?, ?)
     `
     )
-    .run(userId, projectId, `Azure DevOps #${workItemId}`, externalId, displayOrder);
+    .run(projectId, `Azure DevOps #${workItemId}`, userId, displayOrder, userId, userId);
+
+  upsertExternalLink({
+    workItemId: Number(result.lastInsertRowid),
+    projectId,
+    provider: "azure_devops",
+    externalId,
+    nativeType: "Task",
+    nativeStatus: "New",
+  });
 
   return { taskId: Number(result.lastInsertRowid), created: true };
 };
@@ -117,12 +136,6 @@ export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
-    if (projectId <= 0) {
-      return NextResponse.json(
-        { error: "Select or create a project before importing JSON data." },
-        { status: 400 }
-      );
-    }
 
     const payload = (await request.json()) as JsonImportPayload;
 
@@ -178,11 +191,13 @@ export async function POST(request: NextRequest) {
           const hours = parseHours(normalizedEntry.hours);
           db.prepare(
             `
-            INSERT INTO time_entries (task_id, date, hours)
-            VALUES (?, ?, ?)
-            ON CONFLICT(task_id, date) DO UPDATE SET hours = excluded.hours
+            INSERT INTO time_entries (work_item_id, user_id, date, hours, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(work_item_id, user_id, date) DO UPDATE SET
+              hours = excluded.hours,
+              updated_at = CURRENT_TIMESTAMP
           `
-          ).run(taskId, normalizedEntry.date, hours);
+          ).run(taskId, userId, normalizedEntry.date, hours);
           importedTimeEntries += 1;
         }
       }
@@ -198,15 +213,15 @@ export async function POST(request: NextRequest) {
 
         db.prepare(
           `
-          INSERT INTO day_offs (user_id, project_id, date, description, is_half_day)
-          VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(user_id, project_id, date) DO UPDATE SET
+          INSERT INTO day_offs (user_id, date, description, is_half_day)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(user_id, date) DO UPDATE SET
             description = excluded.description,
-            is_half_day = excluded.is_half_day
+            is_half_day = excluded.is_half_day,
+            updated_at = CURRENT_TIMESTAMP
         `
         ).run(
           userId,
-          projectId,
           normalizedDayOff.date,
           normalizeDescription(normalizedDayOff.description),
           normalizedDayOff.isHalfDay === true ? 1 : 0
@@ -226,6 +241,9 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("JSON import error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to import JSON data" },

@@ -1,146 +1,198 @@
 export const dynamic = "force-dynamic";
 
-import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
-import type { Task, TimeEntry, TaskWithTimeEntries, Blocker } from '@/types';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import { NextRequest, NextResponse } from "next/server";
+import db from "@/lib/db";
+import type { Blocker, TaskWithTimeEntries, TrackableWorkItemType, WorkItem } from "@/types";
+import {
+  applyLocalStatusChange,
+  displayWorkItemStatus,
+  getUserProjectMembership,
+  getWorkItemForUser,
+  isTrackableWorkItemType,
+  normalizeWorkItemType,
+} from "@/lib/work-items";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 
 interface ChecklistSummary {
-  task_id: number;
+  work_item_id: number;
   total: number;
   completed: number;
 }
 
 interface TimeEntryTotal {
-  task_id: number;
+  work_item_id: number;
   total_hours: number;
 }
 
-type TaskRow = Task & {
+type WorkItemRow = Omit<WorkItem, "type"> & {
+  type: TrackableWorkItemType;
   assignedUserName?: string | null;
   assignedUserEmail?: string | null;
-  azure_assigned_to_name?: string | null;
-  azure_assigned_to_unique_name?: string | null;
-  azure_assignee_is_current_user?: number | null;
 };
+
+const parsePositiveInteger = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const serializeWorkItemStatus = <T extends { status?: string | null }>(item: T): T => ({
+  ...item,
+  status: displayWorkItemStatus(item.status),
+});
 
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const searchParams = request.nextUrl.searchParams;
-    const month = searchParams.get('month'); // Format: YYYY-MM
-    const startDateParam = searchParams.get('startDate'); // Format: YYYY-MM-DD
-    const endDateParam = searchParams.get('endDate'); // Format: YYYY-MM-DD
+    const month = searchParams.get("month");
+    const startDateParam = searchParams.get("startDate");
+    const endDateParam = searchParams.get("endDate");
     let startDate: string;
     let endDate: string;
 
-    // Support both month parameter and explicit date range
     if (startDateParam && endDateParam) {
       startDate = startDateParam;
       endDate = endDateParam;
     } else if (month) {
-      const [year, monthNum] = month.split('-');
+      const [year, monthNum] = month.split("-");
       startDate = `${year}-${monthNum}-01`;
       endDate = `${year}-${monthNum}-31`;
     } else {
-      return NextResponse.json({ error: 'Either month or startDate/endDate parameters are required' }, { status: 400 });
+      return NextResponse.json(
+        { error: "Either month or startDate/endDate parameters are required" },
+        { status: 400 }
+      );
     }
 
-    // Fetch tasks that overlap with the selected period
-    // A task overlaps if:
-    // - It was created before or during the period AND
-    // - It was either not completed yet OR completed during or after the period start
-    const tasks = db.prepare(`
-      SELECT
-        t.*,
-        u.name AS assignedUserName,
-        u.email AS assignedUserEmail
-      FROM tasks t
-      LEFT JOIN users u ON u.id = t.user_id
-      WHERE t.project_id = ?
-        AND DATE(t.created_at) <= ?
-        AND (t.completed_at IS NULL OR DATE(t.completed_at) >= ?)
-        AND t.user_id = ?
-      ORDER BY
-        CASE WHEN t.user_id = ? THEN 0 ELSE 1 END,
-        COALESCE(t.display_order, 999999),
-        t.created_at ASC
-    `).all(
-      projectId,
-      endDate,
-      startDate,
-      userId,
-      userId
-    ) as TaskRow[];
+    const tasks = db
+      .prepare(
+        `
+          SELECT
+            wi.*,
+            wi.assigned_user_id AS user_id,
+            u.name AS assignedUserName,
+            u.email AS assignedUserEmail,
+            link.provider AS external_source,
+            link.external_id,
+            link.native_assignee_id AS azure_assigned_to_id,
+            link.native_assignee_name AS azure_assigned_to_name,
+            link.native_assignee_unique_name AS azure_assigned_to_unique_name,
+            link.native_assignee_is_current_user AS azure_assignee_is_current_user
+          FROM work_items wi
+          LEFT JOIN users u ON u.id = wi.assigned_user_id
+          LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
+          WHERE wi.project_id = ?
+            AND wi.type IN ('task', 'bug')
+            AND wi.assigned_user_id = ?
+            AND DATE(wi.created_at) <= ?
+            AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
+          ORDER BY
+            COALESCE(wi.display_order, 999999),
+            wi.created_at ASC
+        `
+      )
+      .all(projectId, userId, endDate, startDate) as WorkItemRow[];
 
-    // Fetch time entries for the specified month
-    const timeEntries = db.prepare(
-      `SELECT te.*
-       FROM time_entries te
-       INNER JOIN tasks t ON t.id = te.task_id
-       WHERE t.user_id = ? AND t.project_id = ? AND te.date >= ? AND te.date <= ?`
-    ).all(userId, projectId, startDate, endDate) as TimeEntry[];
+    const timeEntries = db
+      .prepare(
+        `
+          SELECT te.work_item_id, te.date, te.hours
+          FROM time_entries te
+          INNER JOIN work_items wi ON wi.id = te.work_item_id
+          WHERE wi.assigned_user_id = ?
+            AND wi.project_id = ?
+            AND te.user_id = ?
+            AND te.date >= ?
+            AND te.date <= ?
+        `
+      )
+      .all(userId, projectId, userId, startDate, endDate) as Array<{
+      work_item_id: number;
+      date: string;
+      hours: number;
+    }>;
 
-    // Fetch all active blockers
-    const blockers = db.prepare(
-      'SELECT * FROM blockers WHERE user_id = ? AND project_id = ? AND is_resolved = 0 ORDER BY task_id, created_at DESC'
-    ).all(userId, projectId) as Blocker[];
+    const blockers = db
+      .prepare(
+        `
+          SELECT b.*, b.work_item_id AS task_id
+          FROM blockers b
+          INNER JOIN work_items wi ON wi.id = b.work_item_id
+          WHERE wi.assigned_user_id = ?
+            AND wi.project_id = ?
+            AND b.is_resolved = 0
+          ORDER BY b.work_item_id, b.created_at DESC
+        `
+      )
+      .all(userId, projectId) as Blocker[];
 
-    // Fetch checklist summary for all tasks
-    const checklistSummaries = db.prepare(`
-      SELECT 
-        task_id,
-        COUNT(*) as total,
-        SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) as completed
-      FROM checklist_items
-      WHERE user_id = ? AND project_id = ?
-      GROUP BY task_id
-    `).all(userId, projectId) as ChecklistSummary[];
+    const checklistSummaries = db
+      .prepare(
+        `
+          SELECT
+            ci.work_item_id,
+            COUNT(*) as total,
+            SUM(CASE WHEN ci.is_completed = 1 THEN 1 ELSE 0 END) as completed
+          FROM checklist_items ci
+          INNER JOIN work_items wi ON wi.id = ci.work_item_id
+          WHERE ci.user_id = ?
+            AND wi.project_id = ?
+          GROUP BY ci.work_item_id
+        `
+      )
+      .all(userId, projectId) as ChecklistSummary[];
 
-    // Create a map of task_id to checklist summary
     const checklistMap = new Map<number, { total: number; completed: number }>();
-    checklistSummaries.forEach(summary => {
-      checklistMap.set(summary.task_id, {
+    checklistSummaries.forEach((summary) => {
+      checklistMap.set(summary.work_item_id, {
         total: summary.total,
         completed: summary.completed,
       });
     });
 
-    // Fetch all-time tracked hours so completion confirmation is not limited to the selected period.
-    const timeEntryTotals = db.prepare(
-      `SELECT te.task_id, SUM(te.hours) as total_hours
-       FROM time_entries te
-       INNER JOIN tasks t ON t.id = te.task_id
-       WHERE t.user_id = ? AND t.project_id = ?
-       GROUP BY te.task_id`
-    ).all(userId, projectId) as TimeEntryTotal[];
+    const timeEntryTotals = db
+      .prepare(
+        `
+          SELECT te.work_item_id, SUM(te.hours) as total_hours
+          FROM time_entries te
+          INNER JOIN work_items wi ON wi.id = te.work_item_id
+          WHERE wi.assigned_user_id = ?
+            AND wi.project_id = ?
+            AND te.user_id = ?
+          GROUP BY te.work_item_id
+        `
+      )
+      .all(userId, projectId, userId) as TimeEntryTotal[];
 
     const timeEntryTotalMap = new Map<number, number>();
     timeEntryTotals.forEach((entry) => {
-      timeEntryTotalMap.set(entry.task_id, entry.total_hours ?? 0);
+      timeEntryTotalMap.set(entry.work_item_id, entry.total_hours ?? 0);
     });
 
-    // Combine tasks with their time entries, blockers, and checklist summary
-    const tasksWithEntries: TaskWithTimeEntries[] = tasks.map(task => {
+    const tasksWithEntries: TaskWithTimeEntries[] = tasks.map((task) => {
       const entries: Record<string, number> = {};
-      
+
       timeEntries
-        .filter(entry => entry.task_id === task.id)
-        .forEach(entry => {
+        .filter((entry) => entry.work_item_id === task.id)
+        .forEach((entry) => {
           entries[entry.date] = entry.hours;
         });
 
-      const taskBlockers = blockers.filter(b => b.task_id === task.id);
+      const taskBlockers = blockers.filter((blocker) => blocker.work_item_id === task.id);
       const checklistSummary = checklistMap.get(task.id);
 
-      return {
+      return serializeWorkItemStatus({
         ...task,
         timeEntries: entries,
         totalHoursTracked: timeEntryTotalMap.get(task.id) ?? 0,
         assignedUserName: task.assignedUserName ?? null,
         assignedUserEmail: task.assignedUserEmail ?? null,
-        isAssignedToCurrentUser: task.user_id === userId,
+        isAssignedToCurrentUser: task.assigned_user_id === userId,
         azureAssignedToName: task.azure_assigned_to_name ?? null,
         azureAssignedToUniqueName: task.azure_assigned_to_unique_name ?? null,
         isAzureAssignedToCurrentUser:
@@ -150,16 +202,16 @@ export async function GET(request: NextRequest) {
             : Boolean(task.azure_assignee_is_current_user),
         blockers: taskBlockers,
         checklistSummary,
-      };
+      });
     });
 
     return NextResponse.json(tasksWithEntries);
   } catch (error) {
-    console.error('Database error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch tasks' },
-      { status: 500 }
-    );
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
+    console.error("Database error:", error);
+    return NextResponse.json({ error: "Failed to fetch work items" }, { status: 500 });
   }
 }
 
@@ -168,78 +220,102 @@ export async function POST(request: NextRequest) {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
-    const { title, type, userId: requestedUserId } = body;
+    const title = typeof body?.title === "string" ? body.title.trim() : "";
+    const description =
+      typeof body?.description === "string" && body.description.trim()
+        ? body.description.trim()
+        : null;
+    const type = normalizeWorkItemType(body?.type);
+    const requestedUserId = parsePositiveInteger(body?.userId);
+    const parentWorkItemId = parsePositiveInteger(body?.parentWorkItemId);
 
-    if (!title || !type) {
-      return NextResponse.json(
-        { error: 'Title and type are required' },
-        { status: 400 }
-      );
+    if (!title) {
+      return NextResponse.json({ error: "Title is required" }, { status: 400 });
     }
 
-    if (type !== 'task' && type !== 'bug') {
+    if (!isTrackableWorkItemType(type)) {
       return NextResponse.json(
         { error: 'Type must be either "task" or "bug"' },
         { status: 400 }
       );
     }
 
-    let targetUserId = userId;
-    if (requestedUserId !== undefined) {
-      const parsedTargetUserId = Number(requestedUserId);
-      if (!Number.isInteger(parsedTargetUserId) || parsedTargetUserId <= 0) {
-        return NextResponse.json(
-          { error: 'userId must be a positive integer' },
-          { status: 400 }
-        );
-      }
-
-      const isProjectMember = db
-        .prepare(`
-          SELECT 1 as ok
-          FROM users u
-          WHERE u.id = ?
-            AND (
-              u.is_admin = 1
-              OR EXISTS (
-                SELECT 1
-                FROM project_members pm
-                WHERE pm.project_id = ? AND pm.user_id = u.id
-              )
-            )
-        `)
-        .get(parsedTargetUserId, projectId) as { ok: number } | undefined;
-
-      if (!isProjectMember) {
-        return NextResponse.json(
-          { error: 'Selected user is not assigned to this project' },
-          { status: 400 }
-        );
-      }
-
-      targetUserId = parsedTargetUserId;
+    const targetUserId = requestedUserId ?? userId;
+    if (!getUserProjectMembership(projectId, targetUserId)) {
+      return NextResponse.json(
+        { error: "Selected user is not assigned to this project" },
+        { status: 400 }
+      );
     }
 
-    // Get the current max display_order and add 1 for the new task
+    if (parentWorkItemId) {
+      const parent = db
+        .prepare(
+          "SELECT id FROM work_items WHERE id = ? AND project_id = ? AND type = 'user_story'"
+        )
+        .get(parentWorkItemId, projectId) as { id: number } | undefined;
+      if (!parent) {
+        return NextResponse.json(
+          { error: "Parent user story not found" },
+          { status: 400 }
+        );
+      }
+    }
+
     const maxOrder = db
-      .prepare('SELECT MAX(display_order) as max_order FROM tasks WHERE user_id = ? AND project_id = ?')
+      .prepare(
+        `
+          SELECT MAX(display_order) as max_order
+          FROM work_items
+          WHERE assigned_user_id = ?
+            AND project_id = ?
+            AND type IN ('task', 'bug')
+        `
+      )
       .get(targetUserId, projectId) as { max_order: number | null };
     const newOrder = (maxOrder.max_order ?? -1) + 1;
 
-    const result = db.prepare(
-      'INSERT INTO tasks (user_id, project_id, title, type, display_order) VALUES (?, ?, ?, ?, ?)'
-    ).run(targetUserId, projectId, title, type, newOrder);
+    const result = db
+      .prepare(
+        `
+          INSERT INTO work_items (
+            project_id,
+            title,
+            description,
+            type,
+            status,
+            assigned_user_id,
+            parent_work_item_id,
+            display_order,
+            sync_state,
+            created_by_user_id,
+            updated_by_user_id
+          )
+          VALUES (?, ?, ?, ?, 'new', ?, ?, ?, 'not_synced', ?, ?)
+        `
+      )
+      .run(
+        projectId,
+        title,
+        description,
+        type,
+        targetUserId,
+        parentWorkItemId,
+        newOrder,
+        userId,
+        userId
+      );
 
     return NextResponse.json(
-      { message: 'Task created successfully', id: result.lastInsertRowid },
+      { message: "Work item created successfully", id: result.lastInsertRowid },
       { status: 201 }
     );
   } catch (error) {
-    console.error('Database error:', error);
-    return NextResponse.json(
-      { error: 'Failed to create task' },
-      { status: 500 }
-    );
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
+    console.error("Database error:", error);
+    return NextResponse.json({ error: "Failed to create work item" }, { status: 500 });
   }
 }
 
@@ -248,133 +324,130 @@ export async function PATCH(request: NextRequest) {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
-    const { id, status, title, type } = body;
+    const id = parsePositiveInteger(body?.id ?? body?.taskId);
 
     if (!id) {
-      return NextResponse.json(
-        { error: 'Task ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Work item ID is required" }, { status: 400 });
     }
 
-    // Handle status update
-    if (status !== undefined) {
-      // Determine if status is a "completed" state
-      const completedStatuses = ['closed', 'resolved', 'done', 'completed'];
-      const isCompleted = completedStatuses.includes(status.toLowerCase());
-
-      if (isCompleted) {
-        const checklistSummary = db.prepare(
-          `SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) as completed
-           FROM checklist_items
-           WHERE task_id = ? AND user_id = ? AND project_id = ?`
-        ).get(id, userId, projectId) as { total: number; completed: number | null } | undefined;
-
-        if (checklistSummary && checklistSummary.total > 0) {
-          const completedCount = checklistSummary.completed ?? 0;
-          if (completedCount < checklistSummary.total) {
-            return NextResponse.json(
-              { error: 'Cannot resolve or close a work item until all checklist items are completed.' },
-              { status: 400 }
-            );
-          }
-        }
-      }
-      
-      // Get current task to check if status changed
-      const currentTask = db
-        .prepare('SELECT status FROM tasks WHERE id = ? AND user_id = ? AND project_id = ?')
-        .get(id, userId, projectId) as { status?: string | null } | undefined;
-      
-      if (!currentTask) {
-        return NextResponse.json(
-          { error: 'Task not found' },
-          { status: 404 }
-        );
-      }
-
-      const wasCompleted = currentTask.status ? completedStatuses.includes(currentTask.status.toLowerCase()) : false;
-      
-      // Update status and completed_at
-      let result;
-      if (isCompleted && !wasCompleted) {
-        // Task is being completed - set completed_at to now
-        result = db.prepare('UPDATE tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND project_id = ?').run(status, id, userId, projectId);
-      } else if (!isCompleted && wasCompleted) {
-        // Task is being reopened - clear completed_at
-        result = db.prepare('UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ? AND user_id = ? AND project_id = ?').run(status, id, userId, projectId);
-      } else {
-        // Status change doesn't affect completion - just update status
-        result = db.prepare('UPDATE tasks SET status = ? WHERE id = ? AND user_id = ? AND project_id = ?').run(status, id, userId, projectId);
-      }
-
-      if (result.changes === 0) {
-        return NextResponse.json(
-          { error: 'Task not found' },
-          { status: 404 }
-        );
-      }
-
-      return NextResponse.json(
-        { message: 'Task updated successfully' },
-        { status: 200 }
-      );
+    const item = getWorkItemForUser(id, projectId, userId, {
+      requireAssigned: true,
+      requireTrackable: true,
+    });
+    if (!item) {
+      return NextResponse.json({ error: "Work item not found" }, { status: 404 });
     }
 
-    // Handle title and type update
-    if (title !== undefined || type !== undefined) {
-      const updates: string[] = [];
-      const values: any[] = [];
-
-      if (title !== undefined) {
-        updates.push('title = ?');
-        values.push(title);
+    if (body?.status !== undefined) {
+      const result = applyLocalStatusChange({
+        workItemId: id,
+        projectId,
+        userId,
+        status: String(body.status),
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
       }
 
-      if (type !== undefined) {
-        if (type !== 'task' && type !== 'bug') {
+      return NextResponse.json({ message: "Work item updated successfully" });
+    }
+
+    const updates: string[] = [];
+    const values: Array<string | number | null> = [];
+
+    if (body?.title !== undefined) {
+      const title = String(body.title).trim();
+      if (!title) {
+        return NextResponse.json({ error: "Title is required" }, { status: 400 });
+      }
+      updates.push("title = ?");
+      values.push(title);
+    }
+
+    if (body?.description !== undefined) {
+      const description =
+        typeof body.description === "string" && body.description.trim()
+          ? body.description.trim()
+          : null;
+      updates.push("description = ?");
+      values.push(description);
+    }
+
+    if (body?.type !== undefined) {
+      const type = normalizeWorkItemType(body.type, item.type);
+      if (!isTrackableWorkItemType(type)) {
+        return NextResponse.json(
+          { error: 'Type must be either "task" or "bug"' },
+          { status: 400 }
+        );
+      }
+      updates.push("type = ?");
+      values.push(type);
+    }
+
+    if (body?.userId !== undefined) {
+      const targetUserId = parsePositiveInteger(body.userId);
+      if (!targetUserId || !getUserProjectMembership(projectId, targetUserId)) {
+        return NextResponse.json(
+          { error: "Selected user is not assigned to this project" },
+          { status: 400 }
+        );
+      }
+      updates.push("assigned_user_id = ?");
+      values.push(targetUserId);
+    }
+
+    if (body?.parentWorkItemId !== undefined) {
+      const parentWorkItemId = parsePositiveInteger(body.parentWorkItemId);
+      if (parentWorkItemId) {
+        const parent = db
+          .prepare(
+            "SELECT id FROM work_items WHERE id = ? AND project_id = ? AND type = 'user_story'"
+          )
+          .get(parentWorkItemId, projectId) as { id: number } | undefined;
+        if (!parent) {
           return NextResponse.json(
-            { error: 'Type must be either "task" or "bug"' },
+            { error: "Parent user story not found" },
             { status: 400 }
           );
         }
-        updates.push('type = ?');
-        values.push(type);
       }
-
-      values.push(id);
-      values.push(userId);
-      values.push(projectId);
-
-      const result = db.prepare(
-        `UPDATE tasks SET ${updates.join(', ')} WHERE id = ? AND user_id = ? AND project_id = ?`
-      ).run(...values);
-
-      if (result.changes === 0) {
-        return NextResponse.json(
-          { error: 'Task not found' },
-          { status: 404 }
-        );
-      }
-
-      return NextResponse.json(
-        { message: 'Task updated successfully' },
-        { status: 200 }
-      );
+      updates.push("parent_work_item_id = ?");
+      values.push(parentWorkItemId);
     }
 
-    return NextResponse.json(
-      { error: 'No valid update fields provided' },
-      { status: 400 }
-    );
+    if (updates.length === 0) {
+      return NextResponse.json({ error: "No valid update fields provided" }, { status: 400 });
+    }
+
+    updates.push("updated_by_user_id = ?");
+    values.push(userId);
+    updates.push("updated_at = CURRENT_TIMESTAMP");
+
+    const result = db
+      .prepare(
+        `
+          UPDATE work_items
+          SET ${updates.join(", ")}
+          WHERE id = ?
+            AND project_id = ?
+            AND assigned_user_id = ?
+            AND type IN ('task', 'bug')
+        `
+      )
+      .run(...values, id, projectId, userId);
+
+    if (result.changes === 0) {
+      return NextResponse.json({ error: "Work item not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ message: "Work item updated successfully" });
   } catch (error) {
-    console.error('Database error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update task' },
-      { status: 500 }
-    );
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
+    console.error("Database error:", error);
+    return NextResponse.json({ error: "Failed to update work item" }, { status: 500 });
   }
 }
 
@@ -382,42 +455,34 @@ export async function DELETE(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
-    const searchParams = request.nextUrl.searchParams;
-    const taskId = searchParams.get('id');
+    const id = parsePositiveInteger(request.nextUrl.searchParams.get("id"));
 
-    if (!taskId) {
-      return NextResponse.json(
-        { error: 'Task ID is required' },
-        { status: 400 }
-      );
+    if (!id) {
+      return NextResponse.json({ error: "Work item ID is required" }, { status: 400 });
     }
 
-    // Delete associated time entries first (cascade delete)
-    db.prepare(`
-      DELETE FROM time_entries
-      WHERE task_id = ?
-        AND task_id IN (SELECT id FROM tasks WHERE id = ? AND user_id = ? AND project_id = ?)
-    `).run(taskId, taskId, userId, projectId);
-    
-    // Delete the task
-    const result = db.prepare('DELETE FROM tasks WHERE id = ? AND user_id = ? AND project_id = ?').run(taskId, userId, projectId);
+    const result = db
+      .prepare(
+        `
+          DELETE FROM work_items
+          WHERE id = ?
+            AND assigned_user_id = ?
+            AND project_id = ?
+            AND type IN ('task', 'bug')
+        `
+      )
+      .run(id, userId, projectId);
 
     if (result.changes === 0) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Work item not found" }, { status: 404 });
     }
 
-    return NextResponse.json(
-      { message: 'Task deleted successfully' },
-      { status: 200 }
-    );
+    return NextResponse.json({ message: "Work item deleted successfully" });
   } catch (error) {
-    console.error('Database error:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete task' },
-      { status: 500 }
-    );
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
+    console.error("Database error:", error);
+    return NextResponse.json({ error: "Failed to delete work item" }, { status: 500 });
   }
 }

@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
 import { parseIcsDayOffs } from "@/lib/ics";
 import { safeServerFetch, validateHttpUrlForServerFetch } from "@/lib/safe-fetch";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import { getRequestUserId } from "@/lib/user-context";
 
 const MAX_ICS_CONTENT_LENGTH = 2_000_000;
 
@@ -49,7 +49,6 @@ const loadCalendarContent = async (url: string) => {
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
-    const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
     const url =
       typeof body.url === "string" && body.url.trim().length > 0
@@ -89,7 +88,7 @@ export async function POST(request: NextRequest) {
       "SELECT id FROM day_offs WHERE user_id = ? AND date = ?"
     );
     const insertDayOff = db.prepare(
-      "INSERT INTO day_offs (user_id, project_id, date, description, is_half_day) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO day_offs (user_id, date, description, is_half_day) VALUES (?, ?, ?, ?)"
     );
 
     const transaction = db.transaction((entries: typeof importedDayOffs) => {
@@ -108,7 +107,6 @@ export async function POST(request: NextRequest) {
 
         insertDayOff.run(
           userId,
-          projectId,
           entry.date,
           entry.description,
           entry.isHalfDay ? 1 : 0
