@@ -26,8 +26,11 @@ interface ExportRequest {
   parentWorkItemId?: number;
 }
 
-const getAzureDevOpsAssignmentValue = (userId: number): string | null => {
-  const identity = getStoredAzureDevOpsUserIdentity(userId);
+const getAzureDevOpsAssignmentValue = (
+  userId: number,
+  projectId: number
+): string | null => {
+  const identity = getStoredAzureDevOpsUserIdentity(userId, projectId);
   return (
     identity?.uniqueName?.trim() ||
     identity?.displayName?.trim() ||
@@ -99,8 +102,8 @@ export async function POST(request: NextRequest) {
 
     const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
     const assigneeUserId = task.user_id ?? userId;
-    const assignedUserIdentity = getStoredAzureDevOpsUserIdentity(assigneeUserId);
-    const assignedUserValue = getAzureDevOpsAssignmentValue(assigneeUserId);
+    const assignedUserIdentity = getStoredAzureDevOpsUserIdentity(assigneeUserId, projectId);
+    const assignedUserValue = getAzureDevOpsAssignmentValue(assigneeUserId, projectId);
     const workItemType = task.type === "bug" ? "Bug" : "Task";
     const nativeStatus = displayWorkItemStatus(task.status);
 

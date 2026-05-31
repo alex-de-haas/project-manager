@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
       await createAzureDevOpsConnectionContext(settingsResult);
     const authenticatedUser = await getOrResolveAzureDevOpsUserIdentity(
       userId,
+      projectId,
       connection
     );
 

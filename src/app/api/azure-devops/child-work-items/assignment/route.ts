@@ -30,8 +30,11 @@ const parsePositiveInteger = (value: unknown): number | null => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
-const getAzureDevOpsAssignmentValue = (userId: number): string | null => {
-  const identity = getStoredAzureDevOpsUserIdentity(userId);
+const getAzureDevOpsAssignmentValue = (
+  userId: number,
+  projectId: number
+): string | null => {
+  const identity = getStoredAzureDevOpsUserIdentity(userId, projectId);
   return (
     identity?.uniqueName?.trim() ||
     identity?.displayName?.trim() ||
@@ -64,12 +67,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const targetAzureDevOpsAssignee = getAzureDevOpsAssignmentValue(assignedUserId);
+    const targetAzureDevOpsAssignee = getAzureDevOpsAssignmentValue(assignedUserId, projectId);
     if (!targetAzureDevOpsAssignee) {
       return NextResponse.json(
         {
           error:
-            "Selected user has no saved Azure DevOps identity. Ask the user to save a PAT in Profile first.",
+            "Selected user has no Azure DevOps account link for this project. Ask the user to link Azure DevOps in Profile first.",
         },
         { status: 400 }
       );
@@ -155,7 +158,7 @@ export async function POST(request: NextRequest) {
       `
     ).run(assignedUserId, displayOrder, currentUserId, linked.id, projectId);
 
-    const assignedUserIdentity = getStoredAzureDevOpsUserIdentity(assignedUserId);
+    const assignedUserIdentity = getStoredAzureDevOpsUserIdentity(assignedUserId, projectId);
     upsertExternalLink({
       workItemId: linked.id,
       projectId,

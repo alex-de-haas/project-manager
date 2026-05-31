@@ -4,13 +4,13 @@
 
 Settings configure personal profile preferences and credentials, project administration, releases, AI provider settings, and database backups.
 
-All assigned module users can open Settings. Non-admin users see only the Profile tab. Docker Host administrators see Profile plus administrative tabs for projects, releases, backups, and AI provider settings.
+All assigned module users can open Settings. Non-admin users see only the Profile tab. Docker Host administrators see Profile plus administrative tabs for projects, releases, backups, and AI provider settings. Profile and Releases are disabled until an active project exists because both edit project-scoped data.
 
 ## Profile Settings
 
-Profile settings are scoped to the current Host user and active Project Manager project where project context is required. Each user has a default day length for each project. Project Manager starts missing profile schedules from the module-level `PROJECT_MANAGER_DEFAULT_DAY_LENGTH` environment value, which defaults to 8 hours.
+Profile settings are scoped to the current Host user and active Project Manager project where project context is required. Each user has a default day length for each project. Project Manager starts missing profile schedules from the module-level `PROJECT_MANAGER_DEFAULT_DAY_LENGTH` environment value, which defaults to 8 hours. When no project exists or no project is selected, the Profile tab does not request project-scoped settings.
 
-Profile also stores the current user's Azure DevOps Personal Access Token when the active project uses Azure DevOps. Saving a PAT resolves the provider identity represented by that token, stores the technical identity fields for assignment mapping, and updates the user's Project Manager display name from Azure DevOps. The Docker Host user name is not changed. When a PAT is saved, Profile shows the resolved Azure DevOps name and email so the user can verify which external account will be used for synchronization.
+Profile also shows the external account link for the active project. Azure DevOps currently links the current Project Manager user to Azure DevOps with a project-scoped Personal Access Token. Saving the link resolves the provider identity represented by that token, stores the technical identity fields for assignment mapping by project, provider, and user, and shows the resolved Azure DevOps name and email so the user can verify which external account will be used for synchronization. The local user display name remains based on Docker Host identity.
 
 JSON import lives in Profile because imported time entries and days off are user-owned data. Time entries require an active project and are matched to work items. Days off are global per user and do not belong to a project.
 
@@ -38,13 +38,13 @@ Administrators can delete any project, including the final remaining project. De
 
 External integrations are optional project-level settings. A project can have no provider.
 
-Azure DevOps integration is configured from the project dialog. Each Host user stores their own Personal Access Token in Profile, and users can test the connection with their personal credential.
+Azure DevOps integration is configured from the project dialog. Each Host user links their external account from Profile for the active project. Azure DevOps uses a project-scoped Personal Access Token for that link today; future providers can use their own account-linking method.
 
 Administrators can disable provider sync for a project. Existing provider links are preserved as historical metadata and marked sync-disabled. Project Manager blocks switching to a different provider while provider-linked work items still exist.
 
 ## Release Management
 
-The Releases tab lists releases for the active project as compact reorderable cards. Administrators create and edit releases from dialogs. Release items link releases to canonical Project Manager work items and store release-specific order and notes.
+The Releases tab lists releases for the active project as compact reorderable cards. Administrators create and edit releases from dialogs. Release items link releases to canonical Project Manager work items and store release-specific order and notes. When no project exists or no project is selected, the Releases tab is disabled and Project Manager does not request release data.
 
 ## Backups
 
@@ -68,7 +68,7 @@ Checklist generation is available only after both the provider base URL and mode
 4. Configure the Azure DevOps URL if Azure DevOps is selected.
 5. Assign non-admin Host users to the projects they should access.
 6. Open Profile to change the module default work schedule for the active project.
-7. Save a personal Azure DevOps PAT if you use Azure DevOps features.
+7. Link your external account in Profile if you use external provider features.
 8. Create a database backup before major operational changes.
 
 ## Operational Notes
@@ -76,5 +76,5 @@ Checklist generation is available only after both the provider base URL and mode
 - Access to Settings requires a valid Docker Host identity.
 - Administrative tabs require Docker Host administrator rights.
 - Profile is available to all assigned module users.
-- Keep Azure DevOps tokens current and scoped to the permissions needed by the team.
+- Keep Azure DevOps tokens current, project-specific, and scoped to the permissions needed by the team.
 - Create backups before restoring data or making broad administrative changes.

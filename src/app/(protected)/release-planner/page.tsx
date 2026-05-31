@@ -80,7 +80,7 @@ import {
   ShieldAlert,
   Upload,
 } from "lucide-react";
-import { readLocalStorage, writeLocalStorage } from "@/lib/browser-storage";
+import { readLocalStorage, removeLocalStorage, writeLocalStorage } from "@/lib/browser-storage";
 
 const ReleaseImportModal = dynamic(
   () => import("@/features/release-planner/components/ReleaseImportModal"),
@@ -313,6 +313,7 @@ export default function ReleaseTrackingPage() {
         if (response.status === 400 || response.status === 403 || response.status === 404) {
           setProjectRequired(true);
           setReleases([]);
+          setActiveReleaseId(null);
           return;
         }
         throw new Error("Failed to fetch releases");
@@ -320,6 +321,9 @@ export default function ReleaseTrackingPage() {
       setProjectRequired(false);
       const data = (await response.json()) as Release[];
       setReleases(data);
+      if (data.length === 0) {
+        setActiveReleaseId(null);
+      }
     } catch (err) {
       console.error(err);
       toast.error("Failed to load releases");
@@ -408,8 +412,9 @@ export default function ReleaseTrackingPage() {
   }, []);
 
   useEffect(() => {
-    if (!activeReleaseId) {
+    if (projectRequired || !activeReleaseId) {
       setWorkItems([]);
+      setWorkItemsLoading(false);
       return;
     }
 
@@ -445,7 +450,7 @@ export default function ReleaseTrackingPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeReleaseId]);
+  }, [activeReleaseId, projectRequired]);
 
   useEffect(() => {
     if (sortedReleases.length === 0) return;
@@ -458,7 +463,10 @@ export default function ReleaseTrackingPage() {
   }, [sortedReleases, activeReleaseIndex, activeReleaseId]);
 
   useEffect(() => {
-    if (activeReleaseId === null) return;
+    if (activeReleaseId === null) {
+      removeLocalStorage(ACTIVE_RELEASE_STORAGE_KEY);
+      return;
+    }
     writeLocalStorage(ACTIVE_RELEASE_STORAGE_KEY, String(activeReleaseId));
   }, [activeReleaseId]);
 

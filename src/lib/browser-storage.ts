@@ -17,3 +17,13 @@ export const writeLocalStorage = (key: string, value: string) => {
     // Docker Host embeds module apps in a sandboxed iframe where localStorage may be unavailable.
   }
 };
+
+export const removeLocalStorage = (key: string) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Docker Host embeds module apps in a sandboxed iframe where localStorage may be unavailable.
+  }
+};

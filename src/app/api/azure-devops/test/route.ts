@@ -25,12 +25,12 @@ export async function POST(request: NextRequest) {
     const effectiveProject =
       parsedProjectUrl?.project || project?.trim() || savedProjectSettings?.project || "";
     const requestPat = pat?.trim() || "";
-    const savedPat = getAzureDevOpsUserPat(userId) || "";
+    const savedPat = getAzureDevOpsUserPat(userId, projectId) || "";
     const effectivePat = requestPat || savedPat;
 
     if (!effectiveOrganization || !effectiveProject || !effectivePat) {
       return NextResponse.json(
-        { error: 'Azure DevOps project URL and PAT are required' },
+        { error: 'Azure DevOps project URL and account token are required' },
         { status: 400 }
       );
     }
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     const projectInfo = await coreApi.getProject(effectiveProject);
     const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
     if (authenticatedUser && !requestPat) {
-      upsertAzureDevOpsUserIdentity(userId, authenticatedUser);
+      upsertAzureDevOpsUserIdentity(userId, projectId, authenticatedUser);
     }
 
     if (!projectInfo) {

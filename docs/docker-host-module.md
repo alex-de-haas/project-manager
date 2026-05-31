@@ -57,7 +57,7 @@ The main data groups are:
 - Host user mappings and cached Host administrator flags.
 - Projects, project membership, and project settings.
 - Module-level settings, including AI provider base URL and selected model.
-- Per-user credentials such as Azure DevOps Personal Access Tokens.
+- Project-scoped per-user external account credentials such as Azure DevOps Personal Access Tokens.
 - Tasks, time entries, days off, blockers, and checklist items.
 - Releases, release work items, and release work item children.
 - Module backup files under `/app/data/backups`.
@@ -68,8 +68,8 @@ Docker Host owns module access. Project Manager owns project-level configuration
 
 - Project creation requires a project name. Host administrators can assign non-admin Host users to a project.
 - Azure DevOps project configuration is project-level data. Project Manager stores the organization and project parsed from the configured Azure DevOps project URL.
-- Azure DevOps PAT credentials are per-user profile credentials. API responses expose only whether a PAT exists and never return the secret value.
-- Azure DevOps import, export, refresh, and status synchronization use the current Host user's PAT.
+- Azure DevOps PAT credentials are project-scoped per-user profile credentials. API responses expose only whether a link exists for the active project and never return the secret value.
+- Azure DevOps import, export, refresh, and status synchronization use the current Host user's PAT for the active project.
 - Manual project, release, task, time-management, blocker, and checklist workflows remain available without an Azure DevOps PAT.
 - AI provider configuration is module-level data restricted to Host administrators. It stores an OpenAI-compatible provider base URL and selected model.
 - Checklist generation is available only when the AI provider URL and model are configured.
@@ -142,4 +142,4 @@ Use these checks when changing the module contract or preparing a release:
 - Verify non-admin users cannot access administrative Settings APIs or administrative Settings UI.
 - Verify Host administrators can manage projects, project settings, releases, backups, and AI provider settings.
 - Verify JSON import with a supported legacy export file when migration behavior changes.
-- Verify per-user Azure DevOps PAT behavior after Azure DevOps-related changes.
+- Verify project-scoped per-user Azure DevOps link behavior after Azure DevOps-related changes.

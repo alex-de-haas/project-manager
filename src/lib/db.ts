@@ -7,7 +7,7 @@ const dataDirPath = getDataDirPath();
 const dbPath = path.join(dataDirPath, "project_manager.db");
 const backupDirPath = getBackupDirPath();
 const backupAlias = "restore_source";
-const schemaVersion = "domain-model-v2";
+const schemaVersion = "domain-model-v3";
 
 const ensureDataDirectory = () => {
   if (!fs.existsSync(dataDirPath)) {
@@ -191,15 +191,18 @@ const initDb = () => {
 
     CREATE TABLE IF NOT EXISTS provider_user_identities (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
       provider TEXT NOT NULL,
       external_user_id TEXT,
       descriptor TEXT,
+      display_name TEXT,
       email TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      UNIQUE(user_id, provider)
+      UNIQUE(project_id, user_id, provider)
     );
 
     CREATE TABLE IF NOT EXISTS time_entries (
@@ -230,13 +233,15 @@ const initDb = () => {
 
     CREATE TABLE IF NOT EXISTS user_credentials (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
       key TEXT NOT NULL,
       value TEXT NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      UNIQUE(user_id, key)
+      UNIQUE(user_id, project_id, key)
     );
 
     CREATE TABLE IF NOT EXISTS module_settings (
@@ -338,11 +343,11 @@ const initDb = () => {
     CREATE INDEX IF NOT EXISTS idx_work_items_created_at ON work_items(created_at);
     CREATE INDEX IF NOT EXISTS idx_work_item_external_links_work_item_id ON work_item_external_links(work_item_id);
     CREATE INDEX IF NOT EXISTS idx_work_item_external_links_provider_external ON work_item_external_links(provider, external_id);
-    CREATE INDEX IF NOT EXISTS idx_provider_user_identities_provider ON provider_user_identities(provider);
+    CREATE INDEX IF NOT EXISTS idx_provider_user_identities_project_provider ON provider_user_identities(project_id, provider);
     CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(date);
     CREATE INDEX IF NOT EXISTS idx_time_entries_work_item_date ON time_entries(work_item_id, user_id, date);
     CREATE INDEX IF NOT EXISTS idx_settings_user_project_key ON settings(user_id, project_id, key);
-    CREATE INDEX IF NOT EXISTS idx_user_credentials_user_key ON user_credentials(user_id, key);
+    CREATE INDEX IF NOT EXISTS idx_user_credentials_user_project_key ON user_credentials(user_id, project_id, key);
     CREATE INDEX IF NOT EXISTS idx_module_settings_key ON module_settings(key);
     CREATE INDEX IF NOT EXISTS idx_dayoffs_user_date ON day_offs(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_dayoffs_date ON day_offs(date);
@@ -373,35 +378,6 @@ const initDb = () => {
       WHERE app_display_name IS NULL
     `
   ).run();
-  const providerIdentityColumns = db
-    .prepare("PRAGMA table_info(provider_user_identities)")
-    .all() as Array<{ name: string }>;
-  if (providerIdentityColumns.some((column) => column.name === "display_name")) {
-    db.prepare(
-      `
-        UPDATE users
-        SET app_display_name = (
-          SELECT identity.display_name
-          FROM provider_user_identities identity
-          WHERE identity.user_id = users.id
-            AND identity.provider = 'azure_devops'
-            AND identity.display_name IS NOT NULL
-            AND trim(identity.display_name) <> ''
-          LIMIT 1
-        )
-        WHERE EXISTS (
-          SELECT 1
-          FROM provider_user_identities identity
-          WHERE identity.user_id = users.id
-            AND identity.provider = 'azure_devops'
-            AND identity.display_name IS NOT NULL
-            AND trim(identity.display_name) <> ''
-        )
-          AND (users.app_display_name IS NULL OR users.app_display_name = users.name)
-      `
-    ).run();
-  }
-
   db.prepare(`
     INSERT INTO module_settings (key, value, updated_at)
     VALUES ('schema_version', ?, CURRENT_TIMESTAMP)

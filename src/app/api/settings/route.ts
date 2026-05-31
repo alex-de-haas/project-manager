@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (typeof nextValue.pat === "string" && nextValue.pat.trim()) {
-        upsertAzureDevOpsUserPat(userId, nextValue.pat);
+        upsertAzureDevOpsUserPat(userId, projectId, nextValue.pat);
         const settingsForUser = getAzureDevOpsSettingsForUser(userId, projectId);
         if (!isAzureDevOpsConfigProblem(settingsForUser)) {
           try {
@@ -202,7 +202,7 @@ export async function POST(request: NextRequest) {
             if (!identity) {
               throw new Error("Azure DevOps identity not found");
             }
-            upsertAzureDevOpsUserIdentity(userId, identity);
+            upsertAzureDevOpsUserIdentity(userId, projectId, identity);
           } catch (identityError) {
             console.warn("Failed to resolve Azure DevOps user identity:", identityError);
           }
@@ -313,10 +313,11 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (key === "azure_devops" && request.nextUrl.searchParams.get("credential") === "pat") {
-      deleteAzureDevOpsUserPat(userId);
+      const projectId = getRequestProjectId(request, userId);
+      deleteAzureDevOpsUserPat(userId, projectId);
       db.prepare(
-        "DELETE FROM provider_user_identities WHERE user_id = ? AND provider = 'azure_devops'"
-      ).run(userId);
+        "DELETE FROM provider_user_identities WHERE user_id = ? AND project_id = ? AND provider = 'azure_devops'"
+      ).run(userId, projectId);
       db.prepare(
         "UPDATE users SET app_display_name = name, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
       ).run(userId);

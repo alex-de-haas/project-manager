@@ -104,6 +104,7 @@ export async function POST(request: NextRequest) {
         await createAzureDevOpsConnectionContext(settingsResult);
       const authenticatedUser = await getOrResolveAzureDevOpsUserIdentity(
         userId,
+        projectId,
         connection
       );
       const externalWorkItemId = Number.parseInt(task.external_id, 10);

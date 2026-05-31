@@ -319,10 +319,16 @@ export function GeneralSettingsForm({
     }
   };
 
-  const loadReleases = async () => {
+  const loadReleases = async (projectId = activeProjectId) => {
+    if (!projectId) {
+      setReleases([]);
+      setLoadingReleases(false);
+      return;
+    }
+
     setLoadingReleases(true);
     try {
-      const response = await fetch("/api/releases");
+      const response = await fetch(`/api/releases?projectId=${encodeURIComponent(projectId)}`);
       if (!response.ok) {
         throw new Error("Failed to fetch releases");
       }
@@ -403,9 +409,9 @@ export function GeneralSettingsForm({
     if (!isAdmin) {
       setLoading(false);
       setLoadingUsers(false);
-      setLoadingProjects(false);
       setLoadingBackups(false);
       setLoadingReleases(false);
+      loadProjects();
       return;
     }
 
@@ -413,10 +419,31 @@ export function GeneralSettingsForm({
     loadProjects();
     loadSettings();
     loadBackups();
-    loadReleases();
     // load* functions are intentionally run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || loadingProjects || activeProjectId) return;
+
+    if (activeTab === "profile" || activeTab === "releases") {
+      setActiveTab("projects");
+    }
+  }, [isAdmin, loadingProjects, activeProjectId, activeTab]);
+
+  useEffect(() => {
+    if (!isAdmin || loadingProjects) return;
+
+    if (!activeProjectId) {
+      setReleases([]);
+      setLoadingReleases(false);
+      return;
+    }
+
+    void loadReleases(activeProjectId);
+    // loadReleases is intentionally called only when the active project changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, loadingProjects, activeProjectId]);
 
   const loadBackups = async () => {
     setLoadingBackups(true);
@@ -998,31 +1025,51 @@ export function GeneralSettingsForm({
   const editingRelease = editingReleaseId
     ? releases.find((release) => release.id === editingReleaseId)
     : null;
+  const hasActiveProject = Boolean(activeProjectId);
+  const projectScopedTabsDisabled = loadingProjects || !hasActiveProject;
+  const projectScopedDisabledMessage = loadingProjects
+    ? "Loading projects..."
+    : "Create or select a project before editing project-scoped profile settings.";
+  const releasesDisabledMessage = loadingProjects
+    ? "Loading projects..."
+    : "Create or select a project before managing releases.";
 
   return loading ? (
     <div className="text-center py-8">Loading settings...</div>
   ) : !isAdmin ? (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid h-auto w-full grid-cols-1">
-        <TabsTrigger value="profile">Profile</TabsTrigger>
+        <TabsTrigger value="profile" disabled={projectScopedTabsDisabled}>
+          Profile
+        </TabsTrigger>
       </TabsList>
       <TabsContent value="profile" className="mt-4">
-        <ProfileSettingsForm />
+        <ProfileSettingsForm
+          disabled={projectScopedTabsDisabled}
+          disabledMessage={projectScopedDisabledMessage}
+        />
       </TabsContent>
     </Tabs>
   ) : (
     <form onSubmit={handleSave}>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="profile" disabled={projectScopedTabsDisabled}>
+            Profile
+          </TabsTrigger>
           <TabsTrigger value="projects">Projects</TabsTrigger>
-          <TabsTrigger value="releases">Releases</TabsTrigger>
+          <TabsTrigger value="releases" disabled={projectScopedTabsDisabled}>
+            Releases
+          </TabsTrigger>
           <TabsTrigger value="backups">Backups</TabsTrigger>
           <TabsTrigger value="ai">AI Provider</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile" className="mt-4">
-          <ProfileSettingsForm />
+          <ProfileSettingsForm
+            disabled={projectScopedTabsDisabled}
+            disabledMessage={projectScopedDisabledMessage}
+          />
         </TabsContent>
 
         <TabsContent value="projects" className="space-y-4 mt-4">
@@ -1361,7 +1408,11 @@ export function GeneralSettingsForm({
           </div>
 
           <div className="space-y-2">
-            {loadingReleases ? (
+            {!hasActiveProject ? (
+              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                {releasesDisabledMessage}
+              </div>
+            ) : loadingReleases ? (
               <p className="rounded-md border p-3 text-sm text-muted-foreground">Loading releases...</p>
             ) : sortedReleases.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">

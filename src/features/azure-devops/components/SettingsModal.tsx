@@ -75,7 +75,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
   const handleTest = async () => {
     if (!parsedProjectUrl || (!pat && !hasPat)) {
-      setMessage("Please enter a valid Azure DevOps project URL and personal PAT before testing");
+      setMessage("Please enter a valid Azure DevOps project URL and account token before testing");
       setMessageType("error");
       return;
     }
@@ -96,7 +96,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           data.authenticatedUser?.displayName || data.authenticatedUser?.uniqueName;
         setMessage(
           `Connection successful. Found project: ${data.project.name}${
-            patUser ? `. PAT user: ${patUser}` : ""
+            patUser ? `. Linked account: ${patUser}` : ""
           }`
         );
         setMessageType("success");
@@ -206,19 +206,19 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pat">Personal Access Token (PAT)</Label>
+              <Label htmlFor="pat">Azure DevOps authentication</Label>
               <Input
                 id="pat"
                 type="password"
                 value={pat}
                 onChange={(e) => setPat(e.target.value)}
-                placeholder={hasPat ? "Personal PAT saved" : "Enter your Azure DevOps PAT"}
+                placeholder={hasPat ? "Azure DevOps link saved" : "Enter Azure DevOps PAT"}
                 required={!hasPat}
               />
               <p className="text-xs text-muted-foreground">
                 {hasPat
-                  ? "Leave blank to keep the saved personal PAT."
-                  : "Create a PAT at: User Settings -> Personal access tokens -> New Token."}
+                  ? "Leave blank to keep the saved Azure DevOps link for this project."
+                  : "Create a token at: User Settings -> Personal access tokens -> New Token."}
               </p>
             </div>
 
@@ -230,7 +230,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 variant="outline"
                 className="border-blue-600 text-blue-600 hover:bg-blue-50"
               >
-                {testing ? "Testing..." : "Test Connection"}
+                {testing ? "Testing..." : "Test link"}
               </Button>
               <div className="flex gap-2">
                 <Button

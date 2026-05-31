@@ -4,6 +4,8 @@
 
 Release Planning organizes project work into releases. Releases primarily contain user stories, and user stories can have child tasks or bugs that become trackable work for project members.
 
+Release Planning requires an active Project Manager project. When no project exists or no project is selected, the page shows a project-required state and skips release and release-work-item requests.
+
 ## Release Items
 
 Release membership is stored separately from work item identity. A release item links a release to a canonical work item and stores release-specific order and notes.

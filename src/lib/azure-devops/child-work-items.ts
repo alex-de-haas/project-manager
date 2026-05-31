@@ -368,16 +368,18 @@ export const syncChildWorkItemsSnapshot = (params: {
           FROM provider_user_identities
           INNER JOIN users ON users.id = provider_user_identities.user_id
           WHERE provider = 'azure_devops'
+            AND provider_user_identities.project_id = ?
             AND (
               lower(COALESCE(email, '')) IN (${placeholders})
               OR lower(COALESCE(external_user_id, '')) IN (${placeholders})
               OR lower(COALESCE(descriptor, '')) IN (${placeholders})
-              OR lower(COALESCE(users.app_display_name, '')) IN (${placeholders})
+              OR lower(COALESCE(provider_user_identities.display_name, '')) IN (${placeholders})
             )
           LIMIT 1
         `
       )
       .get(
+        projectId,
         ...candidates,
         ...candidates,
         ...candidates,

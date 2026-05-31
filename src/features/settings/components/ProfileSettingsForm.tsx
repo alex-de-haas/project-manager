@@ -38,7 +38,15 @@ const formatAzureDevOpsIdentity = (identity?: AzureDevOpsPublicIdentity | null) 
   return displayName || email || "";
 };
 
-export function ProfileSettingsForm() {
+interface ProfileSettingsFormProps {
+  disabled?: boolean;
+  disabledMessage?: string;
+}
+
+export function ProfileSettingsForm({
+  disabled = false,
+  disabledMessage = "Select or create a project before editing profile settings.",
+}: ProfileSettingsFormProps) {
   const [organization, setOrganization] = useState("");
   const [project, setProject] = useState("");
   const [defaultDayLength, setDefaultDayLength] = useState("");
@@ -57,6 +65,11 @@ export function ProfileSettingsForm() {
   const [messageType, setMessageType] = useState<"success" | "error">("success");
 
   const loadSettings = async () => {
+    if (disabled) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const [azureResponse, dayLengthResponse] = await Promise.all([
@@ -91,7 +104,9 @@ export function ProfileSettingsForm() {
 
   useEffect(() => {
     void loadSettings();
-  }, []);
+    // loadSettings is intentionally run when the project-scoped disabled state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled]);
 
   useEffect(() => {
     if (!message) return;
@@ -186,7 +201,7 @@ export function ProfileSettingsForm() {
 
   const handleSavePat = async () => {
     if (!pat.trim()) {
-      setMessage("Enter a personal Azure DevOps PAT before saving.");
+      setMessage("Enter the Azure DevOps authentication token before saving this project link.");
       setMessageType("error");
       return;
     }
@@ -204,7 +219,7 @@ export function ProfileSettingsForm() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save Azure DevOps PAT.");
+        throw new Error("Failed to save Azure DevOps account link.");
       }
 
       const data = (await response.json().catch(() => ({}))) as {
@@ -217,12 +232,12 @@ export function ProfileSettingsForm() {
       const savedAs = formatAzureDevOpsIdentity(savedIdentity);
       setMessage(
         savedAs
-          ? `Azure DevOps personal PAT saved. Connected as ${savedAs}.`
-          : "Azure DevOps personal PAT saved. Identity is not resolved yet."
+          ? `Azure DevOps account linked for this project as ${savedAs}.`
+          : "Azure DevOps account link saved for this project. Identity is not resolved yet."
       );
       setMessageType("success");
     } catch {
-      setMessage("Failed to save Azure DevOps PAT.");
+      setMessage("Failed to save Azure DevOps account link.");
       setMessageType("error");
     } finally {
       setSaving(false);
@@ -236,7 +251,7 @@ export function ProfileSettingsForm() {
       return;
     }
     if (!pat.trim() && !hasPat) {
-      setMessage("Save or enter a personal Azure DevOps PAT before testing.");
+      setMessage("Save or enter the Azure DevOps authentication token before testing this project link.");
       setMessageType("error");
       return;
     }
@@ -269,7 +284,7 @@ export function ProfileSettingsForm() {
         data.authenticatedUser?.displayName || data.authenticatedUser?.uniqueName;
       setMessage(
         `Connection successful. Found project: ${data.project.name}${
-          patUser ? `. PAT user: ${patUser}` : ""
+          patUser ? `. Linked account: ${patUser}` : ""
         }`
       );
       setMessageType("success");
@@ -290,16 +305,16 @@ export function ProfileSettingsForm() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to remove Azure DevOps PAT.");
+        throw new Error("Failed to remove Azure DevOps account link.");
       }
 
       setPat("");
       setHasPat(false);
       setAzureDevOpsIdentity(null);
-      setMessage("Azure DevOps personal PAT removed.");
+      setMessage("Azure DevOps account link removed for this project.");
       setMessageType("success");
     } catch {
-      setMessage("Failed to remove Azure DevOps PAT.");
+      setMessage("Failed to remove Azure DevOps account link.");
       setMessageType("error");
     } finally {
       setSaving(false);
@@ -308,6 +323,14 @@ export function ProfileSettingsForm() {
 
   if (loading) {
     return <div className="text-center py-8">Loading profile...</div>;
+  }
+
+  if (disabled) {
+    return (
+      <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+        {disabledMessage}
+      </div>
+    );
   }
 
   const azureDevOpsConfigured = Boolean(organization && project);
@@ -376,46 +399,48 @@ export function ProfileSettingsForm() {
 
       <div className="space-y-3 rounded-md border p-4">
         <div className="space-y-1">
-          <Label>Azure DevOps</Label>
+          <Label>External account</Label>
           <p className="text-xs text-muted-foreground">
-            Active project integration settings.
+            Link your user to the external system configured for the active project.
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="rounded-md border bg-muted/40 p-3">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Organization
+              Provider
             </p>
             <p className="mt-1 truncate text-sm font-medium">
-              {organization || "Not configured"}
+              Azure DevOps
             </p>
           </div>
           <div className="rounded-md border bg-muted/40 p-3">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Project
+              External project
             </p>
             <p className="mt-1 truncate text-sm font-medium">
-              {project || "Not configured"}
+              {organization && project ? `${organization} / ${project}` : "Not configured"}
             </p>
           </div>
         </div>
 
         <div className="space-y-2 border-t pt-3">
-          <Label htmlFor="profilePat">Personal Access Token (PAT)</Label>
+          <Label htmlFor="profilePat">Azure DevOps authentication</Label>
           <Input
             id="profilePat"
             type="password"
             value={pat}
             onChange={(event) => setPat(event.target.value)}
-            placeholder={hasPat ? "Personal PAT saved" : "Enter your Azure DevOps PAT"}
+            placeholder={hasPat ? "Azure DevOps link saved" : "Enter Azure DevOps PAT"}
           />
           <p className="text-xs text-muted-foreground">
-            {hasPat ? "Leave blank to keep the saved personal PAT." : "Used only for your Azure DevOps actions."}
+            {hasPat
+              ? "Leave blank to keep the saved Azure DevOps link for this project."
+              : "Used only to connect your current user to Azure DevOps for this project."}
           </p>
           {hasPat ? (
             <div className="rounded-md border bg-muted/40 p-3">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Azure DevOps identity
+                Linked Azure DevOps account
               </p>
               {connectedIdentityName ? (
                 <div className="mt-1 space-y-0.5">
@@ -430,20 +455,19 @@ export function ProfileSettingsForm() {
                 </div>
               ) : (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Identity has not been resolved yet. Save or test the saved PAT to update it.
+                  Identity has not been resolved yet. Save or test the saved link to update it.
                 </p>
               )}
             </div>
           ) : null}
           <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-            Create the token in Azure DevOps under User settings, Personal access tokens, New Token.
-            Use a user-scoped token that can read Work Items and Project/Team information. Enable Work Items read/write if you need export, refresh, or status synchronization.
+            Azure DevOps currently links accounts with a project-scoped user token. Create it in Azure DevOps under User settings, Personal access tokens, New Token. Future external providers can use their own account-linking method.
           </div>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button type="button" onClick={handleSavePat} disabled={saving || testing}>
-            {saving ? "Saving..." : "Save PAT"}
+            {saving ? "Saving..." : "Save link"}
           </Button>
           <Button
             type="button"
@@ -451,7 +475,7 @@ export function ProfileSettingsForm() {
             disabled={saving || testing || !azureDevOpsConfigured || (!pat && !hasPat)}
             variant="outline"
           >
-            {testing ? "Testing..." : "Test Connection"}
+            {testing ? "Testing..." : "Test link"}
           </Button>
           <Button
             type="button"
@@ -459,7 +483,7 @@ export function ProfileSettingsForm() {
             disabled={saving || testing || !hasPat}
             variant="outline"
           >
-            Remove PAT
+            Remove link
           </Button>
         </div>
       </div>

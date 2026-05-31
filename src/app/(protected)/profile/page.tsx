@@ -8,7 +8,7 @@ export default function ProfilePage() {
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold">Profile</h1>
           <p className="text-sm text-muted-foreground">
-            Manage personal credentials used by Project Manager.
+            Manage profile preferences and active-project external account links.
           </p>
         </div>
         <Card className="max-w-3xl">

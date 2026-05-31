@@ -9,10 +9,10 @@ Project Manager remains the local source of truth for its own work item records.
 ## Capabilities
 
 - Configure Azure DevOps as a project-level integration.
-- Store each user's Azure DevOps Personal Access Token separately.
-- Resolve the Azure DevOps identity represented by each user's PAT.
+- Store each user's Azure DevOps Personal Access Token separately for each Project Manager project.
+- Resolve the project-specific Azure DevOps identity represented by each user's PAT.
 - Store technical provider identity fields for assignment mapping.
-- Update the local Project Manager display name from the Azure DevOps identity without renaming the Docker Host user.
+- Show the active project's linked Azure DevOps account without renaming the Docker Host user.
 - Import assigned tasks and bugs into Time Management.
 - Import specific work items by ID.
 - Import user stories into Release Planning.
@@ -36,9 +36,9 @@ Project Manager remains the local source of truth for its own work item records.
 
 For status updates and exported work items, the token needs work item write access. Read-only tokens can still support read-focused workflows such as import and refresh.
 
-Saved tokens are personal credentials. Project Manager stores each Host user's PAT separately and uses only the current Host user's PAT for import, export, refresh, status synchronization, and assignment synchronization. API responses never expose the PAT value. Profile responses expose only the saved-PAT status and the resolved non-secret Azure DevOps name and email for the current user.
+Saved tokens are project-scoped personal credentials. Project Manager stores each Host user's Azure DevOps PAT separately for each Project Manager project and uses only the current Host user's PAT for the active project during import, export, refresh, status synchronization, and assignment synchronization. API responses never expose the PAT value. Profile responses expose only the active project's saved-link status and the resolved non-secret Azure DevOps name and email for the current user.
 
-When a PAT is saved, Project Manager immediately resolves the Azure DevOps identity represented by that token. Technical identity fields are stored for mapping, Profile shows the resolved name and email, and the user's Project Manager display name is updated from Azure DevOps. The Docker Host user name is not changed. Later import, refresh, status-sync, and assignment-sync flows use the stored identity for matching instead of resolving the PAT user on every request. Runtime identity resolution remains only as a fallback for older records that do not have a stored provider identity yet.
+When a PAT is saved, Project Manager immediately resolves the Azure DevOps identity represented by that token for the active project. Technical identity fields are stored by project, provider, and user for assignment mapping. Profile shows the resolved name and email for the active project. If Azure DevOps only returns an account or email, Profile falls back to the Docker Host name for the display line while still showing the Azure DevOps email separately. The Docker Host user name is not changed. Later import, refresh, status-sync, and assignment-sync flows use the stored active-project identity for matching instead of resolving the PAT user on every request. Runtime identity resolution remains only as a fallback for project identity records that do not have a stored provider identity yet.
 
 ## Type Mapping
 
@@ -77,7 +77,7 @@ If a child task or bug has an Azure DevOps assignee that maps to a Project Manag
 
 When Project Manager syncs child tasks and bugs through a user's Azure DevOps PAT, it also checks the child work item ids against Azure DevOps `@Me`. This protects assignment mapping when `System.AssignedTo` contains only a display name and does not include a stable id or email address.
 
-Manual child assignment from Release Planning updates Azure DevOps first and then updates the local Project Manager assignment. If Azure DevOps rejects the assignment or the target Project Manager user has not saved a PAT identity, the local assignment is not changed.
+Manual child assignment from Release Planning updates Azure DevOps first and then updates the local Project Manager assignment. If Azure DevOps rejects the assignment or the target Project Manager user has not linked an Azure DevOps account for the active project, the local assignment is not changed.
 
 ## Status Sync
 
@@ -99,11 +99,11 @@ Project Manager blocks switching from one configured provider to a different pro
 - Confirm that the token has not expired.
 - Confirm that the token has work item permissions.
 - Verify that the user can access the target project in Azure DevOps.
-- Confirm that the current Project Manager user has saved a personal PAT in Profile.
+- Confirm that the current Project Manager user has linked an Azure DevOps account in Profile for the active project.
 
 ### No Work Items Are Found
 
-- Confirm that relevant work items are assigned to the Azure DevOps user shown by the connection test for the saved PAT.
+- Confirm that relevant work items are assigned to the Azure DevOps user shown by the connection test for the active project's saved link.
 - Check that manually entered work item IDs are correct.
 - Verify that the token can read those work items.
 
