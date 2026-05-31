@@ -10,7 +10,7 @@ import {
 } from "@/lib/user-context";
 import {
   createAzureDevOpsConnectionContext,
-  getAzureDevOpsAuthenticatedUser,
+  getOrResolveAzureDevOpsUserIdentity,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
@@ -55,9 +55,13 @@ export async function POST(request: NextRequest) {
 
     const { settings, connection, witApi } =
       await createAzureDevOpsConnectionContext(settingsResult);
-    const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
+    const authenticatedUser = await getOrResolveAzureDevOpsUserIdentity(
+      userId,
+      connection
+    );
 
     let workItemIds: number[] = [];
+    let assignedToCurrentUserIds = new Set<number>();
 
     if (body.workItemIds && body.workItemIds.length > 0) {
       workItemIds = body.workItemIds;
@@ -76,6 +80,7 @@ export async function POST(request: NextRequest) {
 
       const queryResult = await witApi.queryByWiql(wiql, { project: settings.project });
       workItemIds = queryResult?.workItems?.map((wi) => wi.id!).filter(Boolean) || [];
+      assignedToCurrentUserIds = new Set(workItemIds);
     } else if (body.query) {
       if (!hasCurrentProjectScope(body.query, settings.project)) {
         return NextResponse.json(
@@ -141,7 +146,9 @@ export async function POST(request: NextRequest) {
         assignedTo,
         authenticatedUser
       );
-      const assignedUserId = isAssignedToCurrentUser === false ? null : userId;
+      const isKnownAssignedToCurrentUser =
+        assignedToCurrentUserIds.has(workItem.id) || isAssignedToCurrentUser;
+      const assignedUserId = isKnownAssignedToCurrentUser === false ? null : userId;
       const closedDate =
         (workItem.fields["Microsoft.VSTS.Common.ClosedDate"] as string) ||
         (workItem.fields["Microsoft.VSTS.Common.ResolvedDate"] as string) ||
@@ -151,7 +158,7 @@ export async function POST(request: NextRequest) {
       const existing = db
         .prepare(
           `
-            SELECT wi.id
+            SELECT wi.id, wi.assigned_user_id, wi.display_order
             FROM work_item_external_links link
             INNER JOIN work_items wi ON wi.id = link.work_item_id
             WHERE link.project_id = ?
@@ -161,10 +168,79 @@ export async function POST(request: NextRequest) {
             LIMIT 1
           `
         )
-        .get(projectId, String(workItem.id)) as { id: number } | undefined;
+        .get(projectId, String(workItem.id)) as
+        | { id: number; assigned_user_id: number | null; display_order: number | null }
+        | undefined;
 
       if (existing) {
-        skipped.push({ id: workItem.id, reason: "Already imported" });
+        let displayOrder = existing.display_order ?? 0;
+        if (assignedUserId && existing.assigned_user_id !== assignedUserId) {
+          const maxOrder = db
+            .prepare(
+              `
+                SELECT MAX(display_order) as max_order
+                FROM work_items
+                WHERE assigned_user_id = ?
+                  AND project_id = ?
+                  AND type IN ('task', 'bug')
+              `
+            )
+            .get(assignedUserId, projectId) as { max_order: number | null };
+          displayOrder = (maxOrder.max_order ?? -1) + 1;
+        }
+
+        db.prepare(
+          `
+            UPDATE work_items
+            SET title = ?,
+                type = ?,
+                status = ?,
+                tags = ?,
+                assigned_user_id = COALESCE(?, assigned_user_id),
+                display_order = ?,
+                completed_at = ?,
+                sync_state = 'synced',
+                updated_by_user_id = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND project_id = ?
+          `
+        ).run(
+          title,
+          type,
+          status,
+          tags,
+          assignedUserId,
+          displayOrder,
+          status === "completed" ? closedDate ?? new Date().toISOString() : null,
+          userId,
+          existing.id,
+          projectId
+        );
+
+        upsertExternalLink({
+          workItemId: existing.id,
+          projectId,
+          provider: "azure_devops",
+          externalId: workItem.id,
+          nativeType,
+          nativeStatus,
+          nativeAssigneeId: assignedTo?.id ?? null,
+          nativeAssigneeName: assignedTo?.displayName ?? null,
+          nativeAssigneeUniqueName: assignedTo?.uniqueName ?? null,
+          nativeAssigneeIsCurrentUser: isKnownAssignedToCurrentUser,
+          sanitizedSnapshot: {
+            id: workItem.id,
+            title,
+            type: nativeType,
+            state: nativeStatus,
+            tags,
+          },
+        });
+
+        skipped.push({
+          id: workItem.id,
+          reason: assignedUserId ? "Already imported; assignment refreshed" : "Already imported",
+        });
         continue;
       }
 
@@ -226,7 +302,7 @@ export async function POST(request: NextRequest) {
         nativeAssigneeId: assignedTo?.id ?? null,
         nativeAssigneeName: assignedTo?.displayName ?? null,
         nativeAssigneeUniqueName: assignedTo?.uniqueName ?? null,
-        nativeAssigneeIsCurrentUser: isAssignedToCurrentUser,
+        nativeAssigneeIsCurrentUser: isKnownAssignedToCurrentUser,
         sanitizedSnapshot: {
           id: workItem.id,
           title,

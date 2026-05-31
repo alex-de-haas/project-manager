@@ -16,6 +16,7 @@ import {
 import {
   createAzureDevOpsConnectionContext,
   getAzureDevOpsSettingsForUser,
+  getStoredAzureDevOpsUserIdentity,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
 import { displayWorkItemStatus, upsertExternalLink } from "@/lib/work-items";
@@ -25,11 +26,15 @@ interface ExportRequest {
   parentWorkItemId?: number;
 }
 
-const getUserEmail = (userId: number): string | null => {
-  const user = db
-    .prepare("SELECT email FROM users WHERE id = ?")
-    .get(userId) as { email?: string | null } | undefined;
-  return user?.email?.trim() || null;
+const getAzureDevOpsAssignmentValue = (userId: number): string | null => {
+  const identity = getStoredAzureDevOpsUserIdentity(userId);
+  return (
+    identity?.uniqueName?.trim() ||
+    identity?.displayName?.trim() ||
+    identity?.descriptor?.trim() ||
+    identity?.id?.trim() ||
+    null
+  );
 };
 
 const isUnsupportedStateError = (error: unknown): boolean => {
@@ -94,7 +99,8 @@ export async function POST(request: NextRequest) {
 
     const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
     const assigneeUserId = task.user_id ?? userId;
-    const assignedUserEmail = getUserEmail(assigneeUserId);
+    const assignedUserIdentity = getStoredAzureDevOpsUserIdentity(assigneeUserId);
+    const assignedUserValue = getAzureDevOpsAssignmentValue(assigneeUserId);
     const workItemType = task.type === "bug" ? "Bug" : "Task";
     const nativeStatus = displayWorkItemStatus(task.status);
 
@@ -115,11 +121,11 @@ export async function POST(request: NextRequest) {
         } as JsonPatchOperation);
       }
 
-      if (assignedUserEmail) {
+      if (assignedUserValue) {
         patchOperations.push({
           op: Operation.Add,
           path: "/fields/System.AssignedTo",
-          value: assignedUserEmail,
+          value: assignedUserValue,
         } as JsonPatchOperation);
       }
 
@@ -183,6 +189,10 @@ export async function POST(request: NextRequest) {
       externalId: createdWorkItem.id,
       nativeType: workItemType,
       nativeStatus,
+      nativeAssigneeId: assignedUserIdentity?.id ?? assignedUserIdentity?.descriptor ?? null,
+      nativeAssigneeName: assignedUserIdentity?.displayName ?? null,
+      nativeAssigneeUniqueName: assignedUserIdentity?.uniqueName ?? null,
+      nativeAssigneeIsCurrentUser: assigneeUserId === userId,
       sanitizedSnapshot: {
         id: createdWorkItem.id,
         title: task.title,

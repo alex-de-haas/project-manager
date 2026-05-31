@@ -52,12 +52,15 @@ export async function GET(request: NextRequest) {
             wi.tags,
             wi.parent_work_item_id,
             wi.assigned_user_id,
+            COALESCE(assigned_user.app_display_name, assigned_user.name) AS assigned_user_name,
+            assigned_user.email AS assigned_user_email,
             link.provider AS external_source,
             link.external_id,
             link.native_type AS work_item_type,
             link.native_status AS state
           FROM release_items ri
           INNER JOIN work_items wi ON wi.id = ri.work_item_id
+          LEFT JOIN users assigned_user ON assigned_user.id = wi.assigned_user_id
           LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
           WHERE ri.release_id = ?
             AND wi.project_id = ?
@@ -70,6 +73,8 @@ export async function GET(request: NextRequest) {
         status: string;
         work_item_id: number;
         assigned_user_id?: number | null;
+        assigned_user_name?: string | null;
+        assigned_user_email?: string | null;
       }
     >;
 
@@ -101,6 +106,9 @@ export async function GET(request: NextRequest) {
     const enrichedItems = items.map((item) => ({
       ...item,
       task_id: item.work_item_id,
+      assignedUserId: item.assigned_user_id ?? null,
+      assignedUserName: item.assigned_user_name ?? null,
+      assignedUserEmail: item.assigned_user_email ?? null,
       work_item_type: item.work_item_type ?? displayWorkItemType(item.type),
       state: item.state ?? displayWorkItemStatus(item.status),
       blockers: blockersByWorkItemId.get(item.work_item_id) ?? [],

@@ -16,10 +16,12 @@ interface ChildWorkItemRow {
   parent_external_id: string;
   child_external_id: string;
   title: string;
+  tags: string | null;
   work_item_type: string | null;
   state: string | null;
   status: string;
   assigned_to: string | null;
+  assigned_user_id?: number | null;
   assigned_user_name?: string | null;
   assigned_user_email?: string | null;
 }
@@ -48,11 +50,13 @@ const childQuery = `
     parent_link.external_id AS parent_external_id,
     child_link.external_id AS child_external_id,
     child.title,
+    child.tags,
     COALESCE(child_link.native_type, child.type) AS work_item_type,
     COALESCE(child_link.native_status, child.status) AS state,
     child.status,
     child_link.native_assignee_name AS assigned_to,
-    assigned_user.name AS assigned_user_name,
+    child.assigned_user_id AS assigned_user_id,
+    COALESCE(assigned_user.app_display_name, assigned_user.name) AS assigned_user_name,
     assigned_user.email AS assigned_user_email
   FROM work_items parent
   INNER JOIN work_item_external_links parent_link
@@ -101,8 +105,10 @@ export async function GET(request: NextRequest) {
         id: Number(row.child_external_id),
         parentId,
         title: row.title,
+        tags: row.tags ?? null,
         type: displayWorkItemType(row.work_item_type),
         state: row.state ?? state,
+        assignedUserId: row.assigned_user_id ?? null,
         assignedTo:
           row.assigned_user_name ||
           row.assigned_user_email ||

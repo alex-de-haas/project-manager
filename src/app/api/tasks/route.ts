@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
           SELECT
             wi.*,
             wi.assigned_user_id AS user_id,
-            u.name AS assignedUserName,
+            COALESCE(u.app_display_name, u.name) AS assignedUserName,
             u.email AS assignedUserEmail,
             link.provider AS external_source,
             link.external_id,

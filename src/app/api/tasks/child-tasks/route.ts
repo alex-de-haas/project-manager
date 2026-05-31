@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
           t.title,
           t.status,
           t.assigned_user_id as user_id,
-          u.name as user_name,
+          COALESCE(u.app_display_name, u.name) as user_name,
           u.email as user_email
         FROM work_items t
         LEFT JOIN users u ON u.id = t.assigned_user_id

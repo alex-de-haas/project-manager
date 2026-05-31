@@ -7,6 +7,7 @@ import {
   getAzureDevOpsAuthenticatedUser,
   getAzureDevOpsProjectSettings,
   getAzureDevOpsUserPat,
+  upsertAzureDevOpsUserIdentity,
 } from '@/lib/azure-devops/settings';
 import { parseAzureDevOpsProjectUrl } from '@/lib/azure-devops/project-url';
 import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
@@ -23,7 +24,9 @@ export async function POST(request: NextRequest) {
       parsedProjectUrl?.organization || organization?.trim() || savedProjectSettings?.organization || "";
     const effectiveProject =
       parsedProjectUrl?.project || project?.trim() || savedProjectSettings?.project || "";
-    const effectivePat = pat?.trim() || getAzureDevOpsUserPat(userId) || "";
+    const requestPat = pat?.trim() || "";
+    const savedPat = getAzureDevOpsUserPat(userId) || "";
+    const effectivePat = requestPat || savedPat;
 
     if (!effectiveOrganization || !effectiveProject || !effectivePat) {
       return NextResponse.json(
@@ -41,6 +44,9 @@ export async function POST(request: NextRequest) {
     const coreApi = await connection.getCoreApi();
     const projectInfo = await coreApi.getProject(effectiveProject);
     const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
+    if (authenticatedUser && !requestPat) {
+      upsertAzureDevOpsUserIdentity(userId, authenticatedUser);
+    }
 
     if (!projectInfo) {
       return NextResponse.json(

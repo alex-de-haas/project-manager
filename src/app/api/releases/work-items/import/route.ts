@@ -14,6 +14,7 @@ import {
 } from "@/lib/azure-devops/child-work-items";
 import {
   createAzureDevOpsConnectionContext,
+  getOrResolveAzureDevOpsUserIdentity,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
@@ -65,7 +66,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+    const { settings, connection, witApi } =
+      await createAzureDevOpsConnectionContext(settingsResult);
+    const authenticatedUser = await getOrResolveAzureDevOpsUserIdentity(
+      userId,
+      connection
+    );
 
     const workItems = await witApi.getWorkItems(
       workItemIds,
@@ -238,6 +244,8 @@ export async function POST(request: NextRequest) {
           projectId,
           parentIds,
           items: childItems,
+          currentUserId: userId,
+          authenticatedUser,
         });
       } catch (error) {
         childItemsSyncError =

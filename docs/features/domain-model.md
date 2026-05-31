@@ -95,9 +95,11 @@ This keeps Project Manager work items provider-neutral while still preserving en
 
 ## Provider User Identity
 
-Provider credentials are personal user credentials. When a user saves an Azure DevOps PAT, Project Manager resolves the provider identity for that token and stores it in `provider_user_identities`.
+Provider credentials are personal user credentials. When a user saves an Azure DevOps PAT, Project Manager resolves the provider identity for that token and stores the technical mapping fields in `provider_user_identities`.
 
-Provider identity mappings are used to assign imported provider child tasks and bugs to Project Manager users when the provider assignee can be matched. If no mapping exists, the imported child item remains unassigned locally and keeps the provider assignee snapshot for display.
+Project Manager also keeps an app-local display name on the local user record. The display name starts from the Docker Host name and is updated from the Azure DevOps PAT identity when a PAT is saved. The Docker Host user identity is not renamed.
+
+Provider identity mappings are used to assign imported provider child tasks and bugs to Project Manager users when the provider assignee can be matched. If no mapping exists, the imported child item remains unassigned locally and keeps the provider assignee snapshot for diagnostics.
 
 ## Days Off
 

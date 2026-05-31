@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { AssigneeBadge } from "@/components/AssigneeBadge";
 import {
   DndContext,
   closestCenter,
@@ -67,6 +68,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   BookOpen,
   Bug,
+  Check,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -121,8 +123,10 @@ interface AppUser {
 interface ExistingChildTask {
   id: number;
   title: string;
+  tags?: string | null;
   type: string;
   status?: string | null;
+  assignedUserId?: number | null;
   assignedTo?: string;
 }
 
@@ -245,6 +249,9 @@ export default function ReleaseTrackingPage() {
   const [childStatusUpdatingId, setChildStatusUpdatingId] = useState<number | null>(
     null
   );
+  const [childAssignmentUpdatingId, setChildAssignmentUpdatingId] = useState<
+    number | null
+  >(null);
   const [childSubmitting, setChildSubmitting] = useState(false);
   const [blockerTaskLoadingItemId, setBlockerTaskLoadingItemId] = useState<number | null>(null);
   const [showBlockers, setShowBlockers] = useState<{
@@ -478,8 +485,10 @@ export default function ReleaseTrackingPage() {
           items?: Array<{
             id: number;
             title: string;
+            tags?: string | null;
             type: string;
             state: string;
+            assignedUserId?: number | null;
             assignedTo?: string;
           }>;
         };
@@ -488,8 +497,10 @@ export default function ReleaseTrackingPage() {
             (data.items ?? []).map((item) => ({
               id: item.id,
               title: item.title,
+              tags: item.tags ?? null,
               type: item.type,
               status: item.state,
+              assignedUserId: item.assignedUserId ?? null,
               assignedTo: item.assignedTo,
             }))
           );
@@ -1018,6 +1029,242 @@ export default function ReleaseTrackingPage() {
     [loadChildCounts, workItems]
   );
 
+  const handleChildAssignmentChange = useCallback(
+    async (workItemId: number, assignedUserId: number) => {
+      const assignedUser = projectUsers.find((user) => user.id === assignedUserId);
+      if (!assignedUser) {
+        toast.error("Selected user is not available for this project");
+        return;
+      }
+
+      setChildAssignmentUpdatingId(workItemId);
+      try {
+        const response = await fetch(
+          "/api/azure-devops/child-work-items/assignment",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workItemId,
+              userId: assignedUserId,
+            }),
+          }
+        );
+
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(data?.error || "Failed to assign child work item");
+        }
+
+        const assignedTo =
+          data?.assignedTo ||
+          assignedUser.name ||
+          assignedUser.email ||
+          `User ${assignedUserId}`;
+        const applyAssignment = (item: ExistingChildTask): ExistingChildTask =>
+          item.id === workItemId
+            ? {
+                ...item,
+                assignedUserId,
+                assignedTo,
+              }
+            : item;
+
+        setExistingChildTasks((previous) => previous.map(applyAssignment));
+        setChildItemsDialogItems((previous) => previous.map(applyAssignment));
+        toast.success("Child work item assigned");
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to assign child work item";
+        toast.error(message);
+      } finally {
+        setChildAssignmentUpdatingId((current) =>
+          current === workItemId ? null : current
+        );
+      }
+    },
+    [projectUsers]
+  );
+
+  const renderChildWorkItemRow = (
+    item: ExistingChildTask,
+    options: { compact?: boolean } = {}
+  ) => {
+    const compact = Boolean(options.compact);
+    const isBug = item.type.trim().toLowerCase() === "bug";
+    const itemTags = parseWorkItemTags(item.tags);
+    const iconClassName = compact ? "h-3.5 w-3.5" : "h-4 w-4";
+    const idClassName = compact ? "text-[10px]" : "text-xs";
+    const statusBadgeClassName = compact
+      ? "h-4 px-1.5 text-[10px]"
+      : "h-5 px-2 text-xs";
+    const actionButtonClassName = compact ? "h-6 w-6" : "h-7 w-7";
+    const actionIconClassName = compact ? "h-3.5 w-3.5" : "h-4 w-4";
+    const cellClassName = compact ? "px-2 py-1.5" : "px-3 py-2";
+    const titleTextClassName = compact ? "text-[11px]" : "text-sm";
+
+    return (
+      <tr key={item.id} className={getStatusRowClass(item.status)}>
+        <td className={`${cellClassName} align-top min-w-0`}>
+          <div className="flex items-start gap-2 min-w-0">
+            <div
+              className="mt-0.5 flex items-center justify-center flex-shrink-0"
+              title={isBug ? "Bug" : "Task"}
+            >
+              {isBug ? (
+                <Bug className={`${iconClassName} text-red-600 dark:text-red-500`} />
+              ) : (
+                <ClipboardCheck
+                  className={`${iconClassName} text-amber-600 dark:text-amber-500`}
+                />
+              )}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <div
+                className={`flex min-w-0 items-center gap-1.5 font-medium leading-5 text-foreground ${titleTextClassName}`}
+              >
+                <span
+                  className={`flex-shrink-0 font-mono font-semibold tracking-[0.01em] text-muted-foreground ${idClassName}`}
+                  title={`Azure DevOps Work Item ${item.id}`}
+                >
+                  #{item.id}
+                </span>
+                <div className="min-w-0 flex-1">
+                  {canOpenAzureDevOpsItem ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAzureDevOpsItemById(item.id)}
+                      className="block w-full truncate text-left text-blue-600 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                      title={`${item.title} - Open in Azure DevOps`}
+                    >
+                      {item.title}
+                    </button>
+                  ) : (
+                    <div className="truncate" title={item.title}>
+                      {item.title}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                <Badge
+                  variant="outline"
+                  className={`${statusBadgeClassName} flex-shrink-0 ${getStatusBadgeClass(
+                    item.status
+                  )}`}
+                >
+                  {item.status || "Unknown"}
+                </Badge>
+                <AssigneeBadge
+                  name={item.assignedTo}
+                  className={
+                    compact
+                      ? "h-4 max-w-[9rem] px-1.5 text-[10px]"
+                      : "max-w-[10rem]"
+                  }
+                />
+                {itemTags.map((tag) => (
+                  <Badge
+                    key={`${item.id}-${tag}`}
+                    variant="outline"
+                    className={
+                      compact
+                        ? "h-4 max-w-[8rem] flex-shrink-0 border-border/70 bg-background/80 px-1.5 text-[10px] text-muted-foreground"
+                        : "h-5 max-w-[11rem] flex-shrink-0 border-border/70 bg-background/80 px-2 text-[11px] text-muted-foreground"
+                    }
+                    title={tag}
+                  >
+                    <span className="truncate">{tag}</span>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`${actionButtonClassName} flex-shrink-0 self-center opacity-70 hover:opacity-100`}
+                  disabled={
+                    childStatusUpdatingId === item.id ||
+                    childAssignmentUpdatingId === item.id
+                  }
+                  title="Actions"
+                >
+                  <MoreVertical className={actionIconClassName} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <span>Change Status</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {getChildStatusOptions(item.type).map((statusOption) => (
+                      <DropdownMenuItem
+                        key={`${item.id}-${statusOption}`}
+                        disabled={
+                          childStatusUpdatingId === item.id ||
+                          (item.status || "New").toLowerCase() ===
+                            statusOption.toLowerCase()
+                        }
+                        onClick={() =>
+                          void handleChildStatusChange(
+                            item.id,
+                            item.type,
+                            statusOption
+                          )
+                        }
+                      >
+                        {statusOption}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger
+                    disabled={
+                      projectUsers.length === 0 ||
+                      childAssignmentUpdatingId === item.id
+                    }
+                  >
+                    <span>Assign to</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-56">
+                    {projectUsers.map((user) => {
+                      const isAssigned = item.assignedUserId === user.id;
+                      return (
+                        <DropdownMenuItem
+                          key={`${item.id}-assign-${user.id}`}
+                          disabled={
+                            childAssignmentUpdatingId === item.id ||
+                            isAssigned
+                          }
+                          onClick={() =>
+                            void handleChildAssignmentChange(item.id, user.id)
+                          }
+                        >
+                          <span className="flex min-w-0 flex-1 items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate">
+                              {user.name} {user.email ? `(${user.email})` : ""}
+                            </span>
+                            {isAssigned && (
+                              <Check className="h-3.5 w-3.5 flex-shrink-0" />
+                            )}
+                          </span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   const handleCreateChildTask = useCallback(async () => {
     if (!showCreateChild) return;
 
@@ -1128,8 +1375,10 @@ export default function ReleaseTrackingPage() {
           items?: Array<{
             id: number;
             title: string;
+            tags?: string | null;
             type: string;
             state: string;
+            assignedUserId?: number | null;
             assignedTo?: string;
           }>;
         };
@@ -1137,8 +1386,10 @@ export default function ReleaseTrackingPage() {
           (data.items ?? []).map((item) => ({
             id: item.id,
             title: item.title,
+            tags: item.tags ?? null,
             type: item.type,
             status: item.state,
+            assignedUserId: item.assignedUserId ?? null,
             assignedTo: item.assignedTo,
           }))
         );
@@ -1546,6 +1797,10 @@ export default function ReleaseTrackingPage() {
                                       >
                                         {item.state || "New"}
                                       </Badge>
+                                      <AssigneeBadge
+                                        name={item.assignedUserName}
+                                        email={item.assignedUserEmail}
+                                      />
                                       {item.description?.trim() && (
                                         <HoverCard openDelay={100} closeDelay={100}>
                                           <HoverCardTrigger>
@@ -1839,95 +2094,9 @@ export default function ReleaseTrackingPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {existingChildTasks.map((task) => (
-                            <tr key={task.id} className={getStatusRowClass(task.status)}>
-                              <td className="px-2 py-1.5 align-top min-w-0">
-                                <div className="flex flex-col gap-0.5 min-w-0">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <div
-                                      className="flex items-center justify-center flex-shrink-0"
-                                      title={task.type.toLowerCase() === "bug" ? "Bug" : "Task"}
-                                    >
-                                      {task.type.toLowerCase() === "bug" ? (
-                                        <Bug className="w-3.5 h-3.5 text-red-600 dark:text-red-500" />
-                                      ) : (
-                                        <ClipboardCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-500" />
-                                      )}
-                                    </div>
-                                    <Badge variant="outline" className="h-4 px-1.5 text-[10px] flex-shrink-0">
-                                      #{task.id}
-                                    </Badge>
-                                    <Badge
-                                      variant="outline"
-                                      className={`h-4 px-1.5 text-[10px] flex-shrink-0 ${getStatusBadgeClass(task.status)}`}
-                                    >
-                                      {task.status || "Unknown"}
-                                    </Badge>
-                                    <div className="min-w-0 flex-1">
-                                      {canOpenAzureDevOpsItem ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenAzureDevOpsItemById(task.id)}
-                                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline text-left truncate block w-full font-medium"
-                                          title={`${task.title} - Open in Azure DevOps`}
-                                        >
-                                          {task.title}
-                                        </button>
-                                      ) : (
-                                        <div className="truncate font-medium" title={task.title}>
-                                          {task.title}
-                                        </div>
-                                      )}
-                                    </div>
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-6 w-6 flex-shrink-0 opacity-70 hover:opacity-100"
-                                          disabled={childStatusUpdatingId === task.id}
-                                          title="Actions"
-                                        >
-                                          <MoreVertical className="h-3.5 w-3.5" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end" className="w-44">
-                                        <DropdownMenuSub>
-                                          <DropdownMenuSubTrigger>
-                                            <span>Change Status</span>
-                                          </DropdownMenuSubTrigger>
-                                          <DropdownMenuSubContent>
-                                            {getChildStatusOptions(task.type).map((statusOption) => (
-                                              <DropdownMenuItem
-                                                key={`${task.id}-${statusOption}`}
-                                                disabled={
-                                                  childStatusUpdatingId === task.id ||
-                                                  (task.status || "New").toLowerCase() ===
-                                                    statusOption.toLowerCase()
-                                                }
-                                                onClick={() =>
-                                                  void handleChildStatusChange(
-                                                    task.id,
-                                                    task.type,
-                                                    statusOption
-                                                  )
-                                                }
-                                              >
-                                                {statusOption}
-                                              </DropdownMenuItem>
-                                            ))}
-                                          </DropdownMenuSubContent>
-                                        </DropdownMenuSub>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </div>
-                                  <div className="text-[10px] text-muted-foreground pl-5">
-                                    Assigned to: {task.assignedTo || "-"}
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
+                          {existingChildTasks.map((task) =>
+                            renderChildWorkItemRow(task, { compact: true })
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -2250,95 +2419,9 @@ export default function ReleaseTrackingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredChildItemsDialog.map((childItem) => (
-                        <tr key={childItem.id} className={getStatusRowClass(childItem.status)}>
-                          <td className="px-3 py-2 align-top min-w-0">
-                            <div className="flex flex-col gap-1 min-w-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <div
-                                  className="flex items-center justify-center flex-shrink-0"
-                                  title={childItem.type.toLowerCase() === "bug" ? "Bug" : "Task"}
-                                >
-                                  {childItem.type.toLowerCase() === "bug" ? (
-                                    <Bug className="w-4 h-4 text-red-600 dark:text-red-500" />
-                                  ) : (
-                                    <ClipboardCheck className="w-4 h-4 text-amber-600 dark:text-amber-500" />
-                                  )}
-                                </div>
-                                <Badge variant="outline" className="h-5 px-2 text-xs flex-shrink-0">
-                                  #{childItem.id}
-                                </Badge>
-                                <Badge
-                                  variant="outline"
-                                  className={`h-5 px-2 text-xs flex-shrink-0 ${getStatusBadgeClass(childItem.status)}`}
-                                >
-                                  {childItem.status || "Unknown"}
-                                </Badge>
-                                <div className="min-w-0 flex-1">
-                                  {canOpenAzureDevOpsItem ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenAzureDevOpsItemById(childItem.id)}
-                                      className="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline text-left truncate block w-full"
-                                      title={`${childItem.title} - Open in Azure DevOps`}
-                                    >
-                                      {childItem.title}
-                                    </button>
-                                  ) : (
-                                    <div className="font-medium truncate" title={childItem.title}>
-                                      {childItem.title}
-                                    </div>
-                                  )}
-                                </div>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7 flex-shrink-0 opacity-70 hover:opacity-100"
-                                      disabled={childStatusUpdatingId === childItem.id}
-                                      title="Actions"
-                                    >
-                                      <MoreVertical className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-44">
-                                    <DropdownMenuSub>
-                                      <DropdownMenuSubTrigger>
-                                        <span>Change Status</span>
-                                      </DropdownMenuSubTrigger>
-                                      <DropdownMenuSubContent>
-                                        {getChildStatusOptions(childItem.type).map((statusOption) => (
-                                          <DropdownMenuItem
-                                            key={`${childItem.id}-${statusOption}`}
-                                            disabled={
-                                              childStatusUpdatingId === childItem.id ||
-                                              (childItem.status || "New").toLowerCase() ===
-                                                statusOption.toLowerCase()
-                                            }
-                                            onClick={() =>
-                                              void handleChildStatusChange(
-                                                childItem.id,
-                                                childItem.type,
-                                                statusOption
-                                              )
-                                            }
-                                          >
-                                            {statusOption}
-                                          </DropdownMenuItem>
-                                        ))}
-                                      </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                              <div className="text-xs text-muted-foreground pl-6">
-                                Assigned to: {childItem.assignedTo || "-"}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredChildItemsDialog.map((childItem) =>
+                        renderChildWorkItemRow(childItem)
+                      )}
                     </tbody>
                   </table>
                 </div>

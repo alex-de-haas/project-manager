@@ -149,6 +149,9 @@ export interface ReleaseWorkItem {
   notes?: string | null;
   task_id?: number | null;
   parent_work_item_id?: number | null;
+  assignedUserId?: number | null;
+  assignedUserName?: string | null;
+  assignedUserEmail?: string | null;
   blockers?: Blocker[];
   display_order: number;
   created_at: Date;
@@ -196,6 +199,7 @@ export interface User {
   id: number;
   host_user_id?: string | null;
   name: string;
+  app_display_name?: string | null;
   email?: string | null;
   is_admin?: number;
   created_at: Date;

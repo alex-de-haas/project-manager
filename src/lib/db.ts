@@ -90,6 +90,7 @@ const initDb = () => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       host_user_id TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL UNIQUE,
+      app_display_name TEXT,
       email TEXT,
       is_admin INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -195,7 +196,6 @@ const initDb = () => {
       external_user_id TEXT,
       descriptor TEXT,
       email TEXT,
-      display_name TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -360,6 +360,48 @@ const initDb = () => {
     CREATE INDEX IF NOT EXISTS idx_checklist_work_item_id ON checklist_items(work_item_id);
     CREATE INDEX IF NOT EXISTS idx_checklist_order ON checklist_items(work_item_id, user_id, display_order);
   `);
+
+  const userColumns = db
+    .prepare("PRAGMA table_info(users)")
+    .all() as Array<{ name: string }>;
+  if (!userColumns.some((column) => column.name === "app_display_name")) {
+    db.prepare("ALTER TABLE users ADD COLUMN app_display_name TEXT").run();
+  }
+  db.prepare(
+    `
+      UPDATE users
+      SET app_display_name = COALESCE(app_display_name, name)
+      WHERE app_display_name IS NULL
+    `
+  ).run();
+  const providerIdentityColumns = db
+    .prepare("PRAGMA table_info(provider_user_identities)")
+    .all() as Array<{ name: string }>;
+  if (providerIdentityColumns.some((column) => column.name === "display_name")) {
+    db.prepare(
+      `
+        UPDATE users
+        SET app_display_name = (
+          SELECT identity.display_name
+          FROM provider_user_identities identity
+          WHERE identity.user_id = users.id
+            AND identity.provider = 'azure_devops'
+            AND identity.display_name IS NOT NULL
+            AND trim(identity.display_name) <> ''
+          LIMIT 1
+        )
+        WHERE EXISTS (
+          SELECT 1
+          FROM provider_user_identities identity
+          WHERE identity.user_id = users.id
+            AND identity.provider = 'azure_devops'
+            AND identity.display_name IS NOT NULL
+            AND trim(identity.display_name) <> ''
+        )
+          AND (users.app_display_name IS NULL OR users.app_display_name = users.name)
+      `
+    ).run();
+  }
 
   db.prepare(`
     INSERT INTO module_settings (key, value, updated_at)

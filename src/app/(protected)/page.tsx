@@ -68,6 +68,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { AssigneeBadge } from "@/components/AssigneeBadge";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   Bug,
   ChevronLeft,
@@ -218,6 +220,8 @@ interface TaskMetaRowProps {
   status?: string | null;
   tags?: string | null;
   description?: string | null;
+  assignedUserName?: string | null;
+  assignedUserEmail?: string | null;
   activeBlockers: Blocker[];
   checklistSummary?: TaskWithTimeEntries["checklistSummary"];
   onOpenBlockers: () => void;
@@ -233,6 +237,8 @@ function TaskMetaRow({
   status,
   tags,
   description,
+  assignedUserName,
+  assignedUserEmail,
   activeBlockers,
   checklistSummary,
   onOpenBlockers,
@@ -242,6 +248,8 @@ function TaskMetaRow({
   const [containerWidth, setContainerWidth] = useState(0);
   const parsedTags = useMemo(() => parseTaskTags(tags), [tags]);
   const hasDescription = Boolean(description?.trim());
+  const assigneeLabel = assignedUserName?.trim() || assignedUserEmail?.trim() || "";
+  const hasAssignee = Boolean(assigneeLabel);
   const statusTone = getStatusTone(status);
 
   useEffect(() => {
@@ -287,6 +295,7 @@ function TaskMetaRow({
           ]
         : []),
       ...(hasDescription ? [estimateChipWidth("", true)] : []),
+      ...(hasAssignee ? [estimateChipWidth(assigneeLabel, true)] : []),
     ];
 
     let usedWidth =
@@ -321,7 +330,16 @@ function TaskMetaRow({
       tags: nextVisibleTags,
       hiddenCount: Math.max(parsedTags.length - nextVisibleTags.length, 0),
     };
-  }, [activeBlockers.length, checklistSummary, containerWidth, hasDescription, parsedTags, status]);
+  }, [
+    activeBlockers.length,
+    assigneeLabel,
+    checklistSummary,
+    containerWidth,
+    hasAssignee,
+    hasDescription,
+    parsedTags,
+    status,
+  ]);
 
   return (
     <div
@@ -335,6 +353,9 @@ function TaskMetaRow({
       >
         {status || "New"}
       </Badge>
+      {hasAssignee && (
+        <AssigneeBadge name={assignedUserName} email={assignedUserEmail} />
+      )}
       {activeBlockers.length > 0 && (
         <HoverCard openDelay={100} closeDelay={100}>
           <HoverCardTrigger>
@@ -1229,7 +1250,7 @@ export default function Home() {
     const formattedExternalId = `#${parseInt(externalId, 10)}`;
 
     try {
-      await navigator.clipboard.writeText(formattedExternalId);
+      await copyTextToClipboard(formattedExternalId);
       toast.success(`Copied work item ${formattedExternalId}`);
     } catch (err) {
       console.error("Failed to copy work item ID:", err);
@@ -1824,6 +1845,8 @@ export default function Home() {
                                 status={task.status}
                                 tags={task.tags}
                                 description={task.description}
+                                assignedUserName={task.assignedUserName}
+                                assignedUserEmail={task.assignedUserEmail}
                                 activeBlockers={activeBlockers}
                                 checklistSummary={task.checklistSummary}
                                 onOpenBlockers={() =>

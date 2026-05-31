@@ -24,6 +24,7 @@ import {
   getAzureDevOpsSettingsForUser,
   normalizeAzureDevOpsProjectSettings,
   upsertAzureDevOpsProjectSettings,
+  upsertAzureDevOpsUserIdentity,
   upsertAzureDevOpsUserPat,
   isAzureDevOpsConfigProblem,
 } from '@/lib/azure-devops/settings';
@@ -201,34 +202,7 @@ export async function POST(request: NextRequest) {
             if (!identity) {
               throw new Error("Azure DevOps identity not found");
             }
-            db.prepare(
-              `
-                INSERT INTO provider_user_identities (
-                  user_id,
-                  provider,
-                  external_user_id,
-                  descriptor,
-                  email,
-                  display_name,
-                  updated_at
-                )
-                VALUES (?, 'azure_devops', ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id, provider) DO UPDATE SET
-                  external_user_id = excluded.external_user_id,
-                  descriptor = excluded.descriptor,
-                  email = excluded.email,
-                  display_name = excluded.display_name,
-                  updated_at = CURRENT_TIMESTAMP
-              `
-            ).run(
-              userId,
-              identity.id,
-              identity.id,
-              identity.uniqueName && identity.uniqueName.includes("@")
-                ? identity.uniqueName
-                : null,
-              identity.displayName
-            );
+            upsertAzureDevOpsUserIdentity(userId, identity);
           } catch (identityError) {
             console.warn("Failed to resolve Azure DevOps user identity:", identityError);
           }
@@ -342,6 +316,9 @@ export async function DELETE(request: NextRequest) {
       deleteAzureDevOpsUserPat(userId);
       db.prepare(
         "DELETE FROM provider_user_identities WHERE user_id = ? AND provider = 'azure_devops'"
+      ).run(userId);
+      db.prepare(
+        "UPDATE users SET app_display_name = name, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
       ).run(userId);
       return NextResponse.json({ success: true });
     }

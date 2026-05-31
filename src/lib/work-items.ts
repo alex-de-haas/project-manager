@@ -101,11 +101,22 @@ export const getCompletedAtForStatus = (
 export const getUserProjectMembership = (
   projectId: number,
   userId: number
-): { id: number; name: string; email?: string | null; is_admin: number } | null => {
+): {
+  id: number;
+  name: string;
+  hostName?: string | null;
+  email?: string | null;
+  is_admin: number;
+} | null => {
   const member = db
     .prepare(
       `
-        SELECT u.id, u.name, u.email, u.is_admin
+        SELECT
+          u.id,
+          COALESCE(u.app_display_name, u.name) AS name,
+          u.name AS hostName,
+          u.email,
+          u.is_admin
         FROM users u
         WHERE u.id = ?
           AND (
@@ -119,7 +130,13 @@ export const getUserProjectMembership = (
       `
     )
     .get(userId, projectId) as
-    | { id: number; name: string; email?: string | null; is_admin: number }
+    | {
+        id: number;
+        name: string;
+        hostName?: string | null;
+        email?: string | null;
+        is_admin: number;
+      }
     | undefined;
 
   return member ?? null;
@@ -129,7 +146,12 @@ export const getProjectMembers = (projectId: number) =>
   db
     .prepare(
       `
-        SELECT u.id, u.name, u.email, u.is_admin
+        SELECT
+          u.id,
+          COALESCE(u.app_display_name, u.name) AS name,
+          u.name AS hostName,
+          u.email,
+          u.is_admin
         FROM users u
         WHERE u.is_admin = 1
           OR EXISTS (
@@ -137,12 +159,13 @@ export const getProjectMembers = (projectId: number) =>
             FROM project_members pm
             WHERE pm.project_id = ? AND pm.user_id = u.id
           )
-        ORDER BY u.is_admin DESC, lower(u.name) ASC, u.id ASC
+        ORDER BY u.is_admin DESC, lower(COALESCE(u.app_display_name, u.name)) ASC, u.id ASC
       `
     )
     .all(projectId) as Array<{
     id: number;
     name: string;
+    hostName?: string | null;
     email?: string | null;
     is_admin: number;
   }>;
@@ -344,7 +367,10 @@ export const upsertExternalLink = ({
         native_assignee_id = excluded.native_assignee_id,
         native_assignee_name = excluded.native_assignee_name,
         native_assignee_unique_name = excluded.native_assignee_unique_name,
-        native_assignee_is_current_user = excluded.native_assignee_is_current_user,
+        native_assignee_is_current_user = COALESCE(
+          excluded.native_assignee_is_current_user,
+          native_assignee_is_current_user
+        ),
         sanitized_snapshot = excluded.sanitized_snapshot,
         sync_enabled = 1,
         sync_status = 'synced',

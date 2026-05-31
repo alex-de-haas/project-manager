@@ -7,6 +7,9 @@ export type HostBackedUser = User & { host_user_id: string };
 
 type HostUserIdentityInput = Pick<TrustedHostIdentity, "id" | "email" | "name">;
 
+const HOST_BACKED_USER_COLUMNS =
+  "id, name, app_display_name, email, is_admin, host_user_id, created_at";
+
 const normalizeDisplayName = (identity: HostUserIdentityInput) => {
   const fromName = identity.name?.trim();
   if (fromName) return fromName;
@@ -38,7 +41,7 @@ const buildUniqueName = (name: string, currentUserId?: number) => {
 
 const selectHostBackedUserById = (userId: number) =>
   db
-    .prepare("SELECT id, name, email, is_admin, host_user_id, created_at FROM users WHERE id = ?")
+    .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE id = ?`)
     .get(userId) as HostBackedUser | undefined;
 
 const isHostAdminRole = (hostRole: string | null | undefined) => hostRole === "host.admin";
@@ -47,7 +50,7 @@ export const listHostBackedUsers = (): HostBackedUser[] =>
   db
     .prepare(
       `
-        SELECT id, name, email, is_admin, host_user_id, created_at
+        SELECT ${HOST_BACKED_USER_COLUMNS}
         FROM users
         WHERE host_user_id IS NOT NULL
         ORDER BY created_at ASC, id ASC
@@ -67,7 +70,7 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
   const syncUsers = db.transaction((users: HostDirectoryUser[]) =>
     users.map((user) => {
       const existing = db
-        .prepare("SELECT id, name, email, is_admin, host_user_id, created_at FROM users WHERE host_user_id = ?")
+        .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE host_user_id = ?`)
         .get(user.id) as HostBackedUser | undefined;
       const nextName = buildUniqueName(
         normalizeDisplayName({
@@ -86,12 +89,16 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
           existing.email !== nextEmail ||
           (existing.is_admin ?? 0) !== nextIsAdmin
         ) {
-          db.prepare("UPDATE users SET name = ?, email = ?, is_admin = ? WHERE host_user_id = ?").run(
-            nextName,
-            nextEmail,
-            nextIsAdmin,
-            user.id
-          );
+          db.prepare(
+            `
+              UPDATE users
+              SET name = ?,
+                  app_display_name = COALESCE(app_display_name, ?),
+                  email = ?,
+                  is_admin = ?
+              WHERE host_user_id = ?
+            `
+          ).run(nextName, nextName, nextEmail, nextIsAdmin, user.id);
         }
 
         return {
@@ -103,8 +110,10 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
       }
 
       const created = db
-        .prepare("INSERT INTO users (name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?)")
-        .run(nextName, nextEmail, nextIsAdmin, user.id);
+        .prepare(
+          "INSERT INTO users (name, app_display_name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?, ?)"
+        )
+        .run(nextName, nextName, nextEmail, nextIsAdmin, user.id);
       const userId = Number(created.lastInsertRowid);
       const row = selectHostBackedUserById(userId);
       if (!row) {
@@ -119,7 +128,7 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
 
 export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser => {
   const existing = db
-    .prepare("SELECT id, name, email, is_admin, host_user_id, created_at FROM users WHERE host_user_id = ?")
+    .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE host_user_id = ?`)
     .get(identity.id) as HostBackedUser | undefined;
 
   const shouldBeAdmin = isHostAdminRole(identity.hostRole);
@@ -134,12 +143,16 @@ export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser =>
       existing.email !== nextEmail ||
       (existing.is_admin ?? 0) !== nextIsAdmin
     ) {
-      db.prepare("UPDATE users SET name = ?, email = ?, is_admin = ? WHERE id = ?").run(
-        nextName,
-        nextEmail,
-        nextIsAdmin,
-        existing.id
-      );
+      db.prepare(
+        `
+          UPDATE users
+          SET name = ?,
+              app_display_name = COALESCE(app_display_name, ?),
+              email = ?,
+              is_admin = ?
+          WHERE id = ?
+        `
+      ).run(nextName, nextName, nextEmail, nextIsAdmin, existing.id);
     }
 
     return {
@@ -154,11 +167,13 @@ export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser =>
   const email = identity.email ?? null;
   const created = db.transaction(() => {
     const result = db
-      .prepare("INSERT INTO users (name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?)")
-      .run(name, email, shouldBeAdmin ? 1 : 0, identity.id);
+      .prepare(
+        "INSERT INTO users (name, app_display_name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?, ?)"
+      )
+      .run(name, name, email, shouldBeAdmin ? 1 : 0, identity.id);
     const userId = Number(result.lastInsertRowid);
     return db
-      .prepare("SELECT id, name, email, is_admin, host_user_id, created_at FROM users WHERE id = ?")
+      .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE id = ?`)
       .get(userId) as HostBackedUser;
   });
 

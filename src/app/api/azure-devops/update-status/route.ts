@@ -15,7 +15,7 @@ import {
 } from "@/lib/user-context";
 import {
   createAzureDevOpsConnectionContext,
-  getAzureDevOpsAuthenticatedUser,
+  getOrResolveAzureDevOpsUserIdentity,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
@@ -102,7 +102,10 @@ export async function POST(request: NextRequest) {
 
       const { settings, connection, witApi } =
         await createAzureDevOpsConnectionContext(settingsResult);
-      const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
+      const authenticatedUser = await getOrResolveAzureDevOpsUserIdentity(
+        userId,
+        connection
+      );
       const externalWorkItemId = Number.parseInt(task.external_id, 10);
       if (!Number.isInteger(externalWorkItemId) || externalWorkItemId <= 0) {
         return NextResponse.json({

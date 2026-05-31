@@ -8,7 +8,7 @@ import {
 } from "@/lib/azure-devops/child-work-items";
 import {
   createAzureDevOpsConnectionContext,
-  getAzureDevOpsAuthenticatedUser,
+  getOrResolveAzureDevOpsUserIdentity,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
@@ -158,7 +158,10 @@ export async function POST(request: NextRequest) {
 
     const { settings, connection, witApi } =
       await createAzureDevOpsConnectionContext(settingsResult);
-    const authenticatedUser = await getAzureDevOpsAuthenticatedUser(connection);
+    const authenticatedUser = await getOrResolveAzureDevOpsUserIdentity(
+      userId,
+      connection
+    );
     const externalIds = Array.from(
       new Set(
         linkedItems
@@ -297,6 +300,8 @@ export async function POST(request: NextRequest) {
           projectId,
           parentIds: childParentIds,
           items: childItems,
+          currentUserId: userId,
+          authenticatedUser,
         });
       } catch (error) {
         childItemsSyncError =

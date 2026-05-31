@@ -10,7 +10,7 @@ All assigned module users can open Settings. Non-admin users see only the Profil
 
 Profile settings are scoped to the current Host user and active Project Manager project where project context is required. Each user has a default day length for each project. Project Manager starts missing profile schedules from the module-level `PROJECT_MANAGER_DEFAULT_DAY_LENGTH` environment value, which defaults to 8 hours.
 
-Profile also stores the current user's Azure DevOps Personal Access Token when the active project uses Azure DevOps. Saving a PAT resolves the provider identity represented by that token and stores it for assignment mapping.
+Profile also stores the current user's Azure DevOps Personal Access Token when the active project uses Azure DevOps. Saving a PAT resolves the provider identity represented by that token, stores the technical identity fields for assignment mapping, and updates the user's Project Manager display name from Azure DevOps. The Docker Host user name is not changed. When a PAT is saved, Profile shows the resolved Azure DevOps name and email so the user can verify which external account will be used for synchronization.
 
 JSON import lives in Profile because imported time entries and days off are user-owned data. Time entries require an active project and are matched to work items. Days off are global per user and do not belong to a project.
 

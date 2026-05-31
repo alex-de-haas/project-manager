@@ -10,7 +10,9 @@ Project Manager remains the local source of truth for its own work item records.
 
 - Configure Azure DevOps as a project-level integration.
 - Store each user's Azure DevOps Personal Access Token separately.
-- Resolve and store the Azure DevOps identity represented by each user's PAT.
+- Resolve the Azure DevOps identity represented by each user's PAT.
+- Store technical provider identity fields for assignment mapping.
+- Update the local Project Manager display name from the Azure DevOps identity without renaming the Docker Host user.
 - Import assigned tasks and bugs into Time Management.
 - Import specific work items by ID.
 - Import user stories into Release Planning.
@@ -18,7 +20,7 @@ Project Manager remains the local source of truth for its own work item records.
 - Upsert child tasks and bugs for imported user stories.
 - Map Azure DevOps assignees to Project Manager users when provider identities are known.
 - Export local tasks and bugs to Azure DevOps, including Markdown descriptions.
-- Synchronize local status changes back to Azure DevOps when permissions and process rules allow it.
+- Synchronize local status and assignment changes back to Azure DevOps when permissions and process rules allow it.
 - Preserve local status changes and mark sync failures when Azure DevOps updates fail.
 
 ## Setup
@@ -34,7 +36,9 @@ Project Manager remains the local source of truth for its own work item records.
 
 For status updates and exported work items, the token needs work item write access. Read-only tokens can still support read-focused workflows such as import and refresh.
 
-Saved tokens are personal credentials. Project Manager stores each Host user's PAT separately and uses only the current Host user's PAT for import, export, refresh, and status synchronization. API responses expose only whether the current user has a saved PAT.
+Saved tokens are personal credentials. Project Manager stores each Host user's PAT separately and uses only the current Host user's PAT for import, export, refresh, status synchronization, and assignment synchronization. API responses never expose the PAT value. Profile responses expose only the saved-PAT status and the resolved non-secret Azure DevOps name and email for the current user.
+
+When a PAT is saved, Project Manager immediately resolves the Azure DevOps identity represented by that token. Technical identity fields are stored for mapping, Profile shows the resolved name and email, and the user's Project Manager display name is updated from Azure DevOps. The Docker Host user name is not changed. Later import, refresh, status-sync, and assignment-sync flows use the stored identity for matching instead of resolving the PAT user on every request. Runtime identity resolution remains only as a fallback for older records that do not have a stored provider identity yet.
 
 ## Type Mapping
 
@@ -70,6 +74,10 @@ Project Manager prevents duplicate provider imports by enforcing uniqueness on p
 Release Planning imports Azure DevOps user stories as Project Manager `user_story` work items. During import and refresh, Project Manager also fetches child tasks and bugs and upserts them as separate Project Manager work items with `parent_work_item_id` pointing to the user story.
 
 If a child task or bug has an Azure DevOps assignee that maps to a Project Manager user, the child item is assigned locally and can appear in that user's Time Management page. If no mapping exists, the child item remains unassigned locally and the provider assignee snapshot remains visible for planning context.
+
+When Project Manager syncs child tasks and bugs through a user's Azure DevOps PAT, it also checks the child work item ids against Azure DevOps `@Me`. This protects assignment mapping when `System.AssignedTo` contains only a display name and does not include a stable id or email address.
+
+Manual child assignment from Release Planning updates Azure DevOps first and then updates the local Project Manager assignment. If Azure DevOps rejects the assignment or the target Project Manager user has not saved a PAT identity, the local assignment is not changed.
 
 ## Status Sync
 
