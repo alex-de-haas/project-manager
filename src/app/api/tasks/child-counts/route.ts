@@ -2,7 +2,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 
 type ChildCounts = { tasks: number; bugs: number };
 
@@ -35,7 +39,7 @@ export async function POST(request: NextRequest) {
       SELECT
         SUM(CASE WHEN type = 'task' THEN 1 ELSE 0 END) as task_count,
         SUM(CASE WHEN type = 'bug' THEN 1 ELSE 0 END) as bug_count
-      FROM tasks
+      FROM work_items
       WHERE project_id = ?
         AND title IN (?, ?, ?)
     `);
@@ -58,6 +62,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ counts });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Database error:", error);
     return NextResponse.json(
       { error: "Failed to fetch child task counts" },

@@ -2,7 +2,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 
 type ChildDiscipline = "backend" | "frontend" | "design";
 
@@ -47,11 +51,11 @@ export async function GET(request: NextRequest) {
           t.id,
           t.title,
           t.status,
-          t.user_id,
-          u.name as user_name,
+          t.assigned_user_id as user_id,
+          COALESCE(u.app_display_name, u.name) as user_name,
           u.email as user_email
-        FROM tasks t
-        LEFT JOIN users u ON u.id = t.user_id
+        FROM work_items t
+        LEFT JOIN users u ON u.id = t.assigned_user_id
         WHERE t.project_id = ?
           AND t.type = 'task'
           AND t.title IN (?, ?, ?)
@@ -78,6 +82,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ byDiscipline });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Database error:", error);
     return NextResponse.json(
       { error: "Failed to fetch existing child tasks" },
@@ -85,4 +92,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

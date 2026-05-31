@@ -76,7 +76,7 @@ interface DatabaseBackupFile {
 
 interface AppUser {
   id: number;
-  host_user_id?: string | null;
+  host_user_id: string;
   name: string;
   email?: string | null;
   is_admin?: number;
@@ -86,6 +86,9 @@ interface AppUser {
 interface AppProject {
   id: number;
   name: string;
+  description?: string | null;
+  integration_provider?: "none" | "azure_devops";
+  integration_enabled?: number;
   member_user_ids?: number[];
   is_default?: boolean;
   azure_devops?: {
@@ -210,6 +213,8 @@ export function GeneralSettingsForm({
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [projectFormName, setProjectFormName] = useState("");
+  const [projectFormDescription, setProjectFormDescription] = useState("");
+  const [projectFormIntegrationProvider, setProjectFormIntegrationProvider] = useState<"none" | "azure_devops">("none");
   const [projectFormAzureUrl, setProjectFormAzureUrl] = useState("");
   const [projectFormMemberUserIds, setProjectFormMemberUserIds] = useState<Set<number>>(new Set());
   const [projectPendingDelete, setProjectPendingDelete] = useState<AppProject | null>(null);
@@ -462,6 +467,8 @@ export function GeneralSettingsForm({
   const openCreateProjectDialog = () => {
     setEditingProjectId(null);
     setProjectFormName("");
+    setProjectFormDescription("");
+    setProjectFormIntegrationProvider("none");
     setProjectFormAzureUrl("");
     setProjectFormMemberUserIds(new Set());
     setProjectDialogOpen(true);
@@ -470,6 +477,12 @@ export function GeneralSettingsForm({
   const openEditProjectDialog = (project: AppProject) => {
     setEditingProjectId(project.id);
     setProjectFormName(project.name);
+    setProjectFormDescription(project.description ?? "");
+    setProjectFormIntegrationProvider(
+      project.integration_provider === "azure_devops" || project.azure_devops
+        ? "azure_devops"
+        : "none"
+    );
     setProjectFormAzureUrl(project.azure_devops?.projectUrl ?? "");
     setProjectFormMemberUserIds(new Set(project.member_user_ids ?? []));
     setProjectDialogOpen(true);
@@ -498,7 +511,15 @@ export function GeneralSettingsForm({
       return;
     }
 
-    const trimmedAzureProjectUrl = projectFormAzureUrl.trim();
+    const trimmedAzureProjectUrl =
+      projectFormIntegrationProvider === "azure_devops"
+        ? projectFormAzureUrl.trim()
+        : "";
+    if (projectFormIntegrationProvider === "azure_devops" && !trimmedAzureProjectUrl) {
+      setMessage("Azure DevOps project URL is required.");
+      setMessageType("error");
+      return;
+    }
     if (trimmedAzureProjectUrl && !parsedProjectFormAzureProject) {
       setMessage("A valid Azure DevOps project URL is required.");
       setMessageType("error");
@@ -516,6 +537,7 @@ export function GeneralSettingsForm({
       const payload = {
         ...(editing ? { id: editingProjectId } : {}),
         name: trimmed,
+        description: projectFormDescription,
         memberUserIds: Array.from(projectFormMemberUserIds),
         azureProjectUrl: trimmedAzureProjectUrl,
       };
@@ -1162,29 +1184,57 @@ export function GeneralSettingsForm({
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="projectFormAzureUrl">Azure DevOps project URL</Label>
-                  <Input
-                    id="projectFormAzureUrl"
-                    value={projectFormAzureUrl}
-                    onChange={(event) => setProjectFormAzureUrl(event.target.value)}
-                    placeholder="https://dev.azure.com/mycompany/MyProject"
+                  <Label htmlFor="projectFormDescription">Description</Label>
+                  <textarea
+                    id="projectFormDescription"
+                    value={projectFormDescription}
+                    onChange={(event) => setProjectFormDescription(event.target.value)}
+                    rows={3}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty to keep this project local-only. PAT credentials are configured per user in Profile.
-                  </p>
-                  {projectFormAzureUrl.trim() ? (
-                    parsedProjectFormAzureProject ? (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <Input value={formAzureOrganization} readOnly className="bg-muted" />
-                        <Input value={formAzureProject} readOnly className="bg-muted" />
-                      </div>
-                    ) : (
-                      <p className="text-xs text-destructive">
-                        Enter a URL like https://dev.azure.com/organization/project.
-                      </p>
-                    )
-                  ) : null}
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="projectFormIntegration">Integration</Label>
+                  <Select
+                    value={projectFormIntegrationProvider}
+                    onValueChange={(value) =>
+                      setProjectFormIntegrationProvider(value as "none" | "azure_devops")
+                    }
+                  >
+                    <SelectTrigger id="projectFormIntegration">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="azure_devops">Azure DevOps</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {projectFormIntegrationProvider === "azure_devops" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="projectFormAzureUrl">Azure DevOps project URL</Label>
+                    <Input
+                      id="projectFormAzureUrl"
+                      value={projectFormAzureUrl}
+                      onChange={(event) => setProjectFormAzureUrl(event.target.value)}
+                      placeholder="https://dev.azure.com/mycompany/MyProject"
+                    />
+                    {projectFormAzureUrl.trim() ? (
+                      parsedProjectFormAzureProject ? (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Input value={formAzureOrganization} readOnly className="bg-muted" />
+                          <Input value={formAzureProject} readOnly className="bg-muted" />
+                        </div>
+                      ) : (
+                        <p className="text-xs text-destructive">
+                          Enter a URL like https://dev.azure.com/organization/project.
+                        </p>
+                      )
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <Label>User access</Label>
@@ -1263,7 +1313,7 @@ export function GeneralSettingsForm({
               <DialogHeader>
                 <DialogTitle>Delete project</DialogTitle>
                 <DialogDescription>
-                  Delete &quot;{projectPendingDelete?.name}&quot; and all of its tasks, releases, days off, and settings. This cannot be undone.
+                  Delete &quot;{projectPendingDelete?.name}&quot; and all of its work items, releases, and project settings. This cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>

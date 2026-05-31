@@ -2,7 +2,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -39,6 +43,9 @@ export async function PATCH(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Database error:", error);
     return NextResponse.json(
       { error: "Failed to reorder releases" },

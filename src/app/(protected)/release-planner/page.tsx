@@ -7,6 +7,7 @@ import type { Release, ReleaseWorkItem } from "@/types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -45,6 +46,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MarkdownContent } from "@/components/MarkdownContent";
+import { AssigneeBadge } from "@/components/AssigneeBadge";
 import {
   DndContext,
   closestCenter,
@@ -65,9 +68,11 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   BookOpen,
   Bug,
+  Check,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  FileText,
   GripVertical,
   MoreVertical,
   Plus,
@@ -115,17 +120,13 @@ interface AppUser {
   is_admin?: number | null;
 }
 
-interface AppProject {
-  id: number;
-  member_user_ids?: number[];
-  is_default?: boolean;
-}
-
 interface ExistingChildTask {
   id: number;
   title: string;
+  tags?: string | null;
   type: string;
   status?: string | null;
+  assignedUserId?: number | null;
   assignedTo?: string;
 }
 
@@ -185,7 +186,12 @@ function SortableRow({
 export default function ReleaseTrackingPage() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
+  const [projectRequired, setProjectRequired] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showCreateUserStory, setShowCreateUserStory] = useState(false);
+  const [userStoryTitle, setUserStoryTitle] = useState("");
+  const [userStoryDescription, setUserStoryDescription] = useState("");
+  const [userStorySubmitting, setUserStorySubmitting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [workItems, setWorkItems] = useState<ReleaseWorkItem[]>([]);
   const [workItemsLoading, setWorkItemsLoading] = useState(false);
@@ -243,6 +249,9 @@ export default function ReleaseTrackingPage() {
   const [childStatusUpdatingId, setChildStatusUpdatingId] = useState<number | null>(
     null
   );
+  const [childAssignmentUpdatingId, setChildAssignmentUpdatingId] = useState<
+    number | null
+  >(null);
   const [childSubmitting, setChildSubmitting] = useState(false);
   const [blockerTaskLoadingItemId, setBlockerTaskLoadingItemId] = useState<number | null>(null);
   const [showBlockers, setShowBlockers] = useState<{
@@ -300,7 +309,15 @@ export default function ReleaseTrackingPage() {
     setLoading(true);
     try {
       const response = await fetch("/api/releases");
-      if (!response.ok) throw new Error("Failed to fetch releases");
+      if (!response.ok) {
+        if (response.status === 400 || response.status === 403 || response.status === 404) {
+          setProjectRequired(true);
+          setReleases([]);
+          return;
+        }
+        throw new Error("Failed to fetch releases");
+      }
+      setProjectRequired(false);
       const data = (await response.json()) as Release[];
       setReleases(data);
     } catch (err) {
@@ -339,22 +356,14 @@ export default function ReleaseTrackingPage() {
   }, []);
 
   useEffect(() => {
-    const getCookieValue = (key: string) => {
-      if (typeof document === "undefined") return "";
-      const parts = document.cookie.split(";").map((item) => item.trim());
-      const found = parts.find((part) => part.startsWith(`${key}=`));
-      return found ? decodeURIComponent(found.split("=").slice(1).join("=")) : "";
-    };
-
     const loadProjectUsers = async () => {
       try {
-        const [sessionResponse, projectsResponse, usersResponse] = await Promise.all([
+        const [sessionResponse, usersResponse] = await Promise.all([
           fetch("/api/auth/session"),
-          fetch("/api/projects"),
-          fetch("/api/users"),
+          fetch("/api/project-members"),
         ]);
 
-        if (!projectsResponse.ok || !usersResponse.ok) {
+        if (!usersResponse.ok) {
           return;
         }
 
@@ -362,21 +371,9 @@ export default function ReleaseTrackingPage() {
           ? ((await sessionResponse.json()) as { user?: { id: number } })
           : null;
         const sessionUserId = sessionData?.user?.id;
-        const projects = (await projectsResponse.json()) as AppProject[];
         const users = (await usersResponse.json()) as AppUser[];
 
-        const cookieProjectId = getCookieValue("pm_project_id");
-        const cookieUserId = getCookieValue("pm_project_user_id");
-        const defaultProject = projects.find((project) => project.is_default);
-        const activeProject =
-          cookieUserId === String(sessionUserId)
-            ? projects.find((project) => String(project.id) === cookieProjectId) ??
-              defaultProject ??
-              projects[0]
-            : defaultProject ?? projects[0];
-
-        const memberIds = new Set(activeProject?.member_user_ids ?? []);
-        const members = users.filter((user) => user.is_admin || memberIds.has(user.id));
+        const members = users;
         setProjectUsers(members);
 
         const defaultUserId =
@@ -488,8 +485,10 @@ export default function ReleaseTrackingPage() {
           items?: Array<{
             id: number;
             title: string;
+            tags?: string | null;
             type: string;
             state: string;
+            assignedUserId?: number | null;
             assignedTo?: string;
           }>;
         };
@@ -498,8 +497,10 @@ export default function ReleaseTrackingPage() {
             (data.items ?? []).map((item) => ({
               id: item.id,
               title: item.title,
+              tags: item.tags ?? null,
               type: item.type,
               status: item.state,
+              assignedUserId: item.assignedUserId ?? null,
               assignedTo: item.assignedTo,
             }))
           );
@@ -1028,6 +1029,242 @@ export default function ReleaseTrackingPage() {
     [loadChildCounts, workItems]
   );
 
+  const handleChildAssignmentChange = useCallback(
+    async (workItemId: number, assignedUserId: number) => {
+      const assignedUser = projectUsers.find((user) => user.id === assignedUserId);
+      if (!assignedUser) {
+        toast.error("Selected user is not available for this project");
+        return;
+      }
+
+      setChildAssignmentUpdatingId(workItemId);
+      try {
+        const response = await fetch(
+          "/api/azure-devops/child-work-items/assignment",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workItemId,
+              userId: assignedUserId,
+            }),
+          }
+        );
+
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(data?.error || "Failed to assign child work item");
+        }
+
+        const assignedTo =
+          data?.assignedTo ||
+          assignedUser.name ||
+          assignedUser.email ||
+          `User ${assignedUserId}`;
+        const applyAssignment = (item: ExistingChildTask): ExistingChildTask =>
+          item.id === workItemId
+            ? {
+                ...item,
+                assignedUserId,
+                assignedTo,
+              }
+            : item;
+
+        setExistingChildTasks((previous) => previous.map(applyAssignment));
+        setChildItemsDialogItems((previous) => previous.map(applyAssignment));
+        toast.success("Child work item assigned");
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to assign child work item";
+        toast.error(message);
+      } finally {
+        setChildAssignmentUpdatingId((current) =>
+          current === workItemId ? null : current
+        );
+      }
+    },
+    [projectUsers]
+  );
+
+  const renderChildWorkItemRow = (
+    item: ExistingChildTask,
+    options: { compact?: boolean } = {}
+  ) => {
+    const compact = Boolean(options.compact);
+    const isBug = item.type.trim().toLowerCase() === "bug";
+    const itemTags = parseWorkItemTags(item.tags);
+    const iconClassName = compact ? "h-3.5 w-3.5" : "h-4 w-4";
+    const idClassName = compact ? "text-[10px]" : "text-xs";
+    const statusBadgeClassName = compact
+      ? "h-4 px-1.5 text-[10px]"
+      : "h-5 px-2 text-xs";
+    const actionButtonClassName = compact ? "h-6 w-6" : "h-7 w-7";
+    const actionIconClassName = compact ? "h-3.5 w-3.5" : "h-4 w-4";
+    const cellClassName = compact ? "px-2 py-1.5" : "px-3 py-2";
+    const titleTextClassName = compact ? "text-[11px]" : "text-sm";
+
+    return (
+      <tr key={item.id} className={getStatusRowClass(item.status)}>
+        <td className={`${cellClassName} align-top min-w-0`}>
+          <div className="flex items-start gap-2 min-w-0">
+            <div
+              className="mt-0.5 flex items-center justify-center flex-shrink-0"
+              title={isBug ? "Bug" : "Task"}
+            >
+              {isBug ? (
+                <Bug className={`${iconClassName} text-red-600 dark:text-red-500`} />
+              ) : (
+                <ClipboardCheck
+                  className={`${iconClassName} text-amber-600 dark:text-amber-500`}
+                />
+              )}
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <div
+                className={`flex min-w-0 items-center gap-1.5 font-medium leading-5 text-foreground ${titleTextClassName}`}
+              >
+                <span
+                  className={`flex-shrink-0 font-mono font-semibold tracking-[0.01em] text-muted-foreground ${idClassName}`}
+                  title={`Azure DevOps Work Item ${item.id}`}
+                >
+                  #{item.id}
+                </span>
+                <div className="min-w-0 flex-1">
+                  {canOpenAzureDevOpsItem ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAzureDevOpsItemById(item.id)}
+                      className="block w-full truncate text-left text-blue-600 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+                      title={`${item.title} - Open in Azure DevOps`}
+                    >
+                      {item.title}
+                    </button>
+                  ) : (
+                    <div className="truncate" title={item.title}>
+                      {item.title}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                <Badge
+                  variant="outline"
+                  className={`${statusBadgeClassName} flex-shrink-0 ${getStatusBadgeClass(
+                    item.status
+                  )}`}
+                >
+                  {item.status || "Unknown"}
+                </Badge>
+                <AssigneeBadge
+                  name={item.assignedTo}
+                  className={
+                    compact
+                      ? "h-4 max-w-[9rem] px-1.5 text-[10px]"
+                      : "max-w-[10rem]"
+                  }
+                />
+                {itemTags.map((tag) => (
+                  <Badge
+                    key={`${item.id}-${tag}`}
+                    variant="outline"
+                    className={
+                      compact
+                        ? "h-4 max-w-[8rem] flex-shrink-0 border-border/70 bg-background/80 px-1.5 text-[10px] text-muted-foreground"
+                        : "h-5 max-w-[11rem] flex-shrink-0 border-border/70 bg-background/80 px-2 text-[11px] text-muted-foreground"
+                    }
+                    title={tag}
+                  >
+                    <span className="truncate">{tag}</span>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`${actionButtonClassName} flex-shrink-0 self-center opacity-70 hover:opacity-100`}
+                  disabled={
+                    childStatusUpdatingId === item.id ||
+                    childAssignmentUpdatingId === item.id
+                  }
+                  title="Actions"
+                >
+                  <MoreVertical className={actionIconClassName} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <span>Change Status</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {getChildStatusOptions(item.type).map((statusOption) => (
+                      <DropdownMenuItem
+                        key={`${item.id}-${statusOption}`}
+                        disabled={
+                          childStatusUpdatingId === item.id ||
+                          (item.status || "New").toLowerCase() ===
+                            statusOption.toLowerCase()
+                        }
+                        onClick={() =>
+                          void handleChildStatusChange(
+                            item.id,
+                            item.type,
+                            statusOption
+                          )
+                        }
+                      >
+                        {statusOption}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger
+                    disabled={
+                      projectUsers.length === 0 ||
+                      childAssignmentUpdatingId === item.id
+                    }
+                  >
+                    <span>Assign to</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-56">
+                    {projectUsers.map((user) => {
+                      const isAssigned = item.assignedUserId === user.id;
+                      return (
+                        <DropdownMenuItem
+                          key={`${item.id}-assign-${user.id}`}
+                          disabled={
+                            childAssignmentUpdatingId === item.id ||
+                            isAssigned
+                          }
+                          onClick={() =>
+                            void handleChildAssignmentChange(item.id, user.id)
+                          }
+                        >
+                          <span className="flex min-w-0 flex-1 items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate">
+                              {user.name} {user.email ? `(${user.email})` : ""}
+                            </span>
+                            {isAssigned && (
+                              <Check className="h-3.5 w-3.5 flex-shrink-0" />
+                            )}
+                          </span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   const handleCreateChildTask = useCallback(async () => {
     if (!showCreateChild) return;
 
@@ -1060,6 +1297,7 @@ export default function ReleaseTrackingPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               title: `${option.prefix} ${showCreateChild.workItemTitle}`,
+              parentWorkItemId: showCreateChild.workItemId,
               type: "task",
               userId: parsedUserId,
             }),
@@ -1084,6 +1322,42 @@ export default function ReleaseTrackingPage() {
     }
   }, [childDisciplines, childUserByDiscipline, showCreateChild]);
 
+  const handleCreateUserStory = useCallback(async () => {
+    if (!activeReleaseId) return;
+    const title = userStoryTitle.trim();
+    if (!title) {
+      toast.error("Title is required");
+      return;
+    }
+
+    setUserStorySubmitting(true);
+    try {
+      const response = await fetch("/api/releases/work-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          releaseId: activeReleaseId,
+          title,
+          description: userStoryDescription,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create user story");
+      }
+
+      toast.success("User story created");
+      setShowCreateUserStory(false);
+      setUserStoryTitle("");
+      setUserStoryDescription("");
+      await loadWorkItemsForRelease(activeReleaseId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create user story");
+    } finally {
+      setUserStorySubmitting(false);
+    }
+  }, [activeReleaseId, loadWorkItemsForRelease, userStoryDescription, userStoryTitle]);
+
   const loadChildItemsForDialog = useCallback(
     async (parentId: number) => {
       setLoadingChildItemsDialog(true);
@@ -1101,8 +1375,10 @@ export default function ReleaseTrackingPage() {
           items?: Array<{
             id: number;
             title: string;
+            tags?: string | null;
             type: string;
             state: string;
+            assignedUserId?: number | null;
             assignedTo?: string;
           }>;
         };
@@ -1110,8 +1386,10 @@ export default function ReleaseTrackingPage() {
           (data.items ?? []).map((item) => ({
             id: item.id,
             title: item.title,
+            tags: item.tags ?? null,
             type: item.type,
             status: item.state,
+            assignedUserId: item.assignedUserId ?? null,
             assignedTo: item.assignedTo,
           }))
         );
@@ -1190,7 +1468,14 @@ export default function ReleaseTrackingPage() {
   return (
     <div className="h-full flex flex-col">
       <div className="p-6 shrink-0">
-        {loading ? (
+        {projectRequired ? (
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold">Project required</h1>
+            <p className="text-sm text-muted-foreground">
+              Select or create a project before using Planning.
+            </p>
+          </div>
+        ) : loading ? (
           <div className="text-sm text-muted-foreground">Loading releases...</div>
         ) : sortedReleases.length === 0 ? (
           <div className="space-y-1">
@@ -1264,6 +1549,12 @@ export default function ReleaseTrackingPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={() => setShowCreateUserStory(true)}>
+                    <span className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      <span>Create user story</span>
+                    </span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setShowImport(true)}>
                     <span className="flex items-center gap-2">
                       <Upload className="h-4 w-4" />
@@ -1294,7 +1585,18 @@ export default function ReleaseTrackingPage() {
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        {activeRelease && (
+        {projectRequired ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center space-y-3">
+              <p className="text-muted-foreground">
+                Projects can be created in Settings.
+              </p>
+              <Button asChild>
+                <a href="/settings">Open Settings</a>
+              </Button>
+            </div>
+          </div>
+        ) : activeRelease && (
           <div className="overflow-auto h-full">
             <div className="p-6 space-y-3">
               {workItemsLoading ? (
@@ -1495,6 +1797,26 @@ export default function ReleaseTrackingPage() {
                                       >
                                         {item.state || "New"}
                                       </Badge>
+                                      <AssigneeBadge
+                                        name={item.assignedUserName}
+                                        email={item.assignedUserEmail}
+                                      />
+                                      {item.description?.trim() && (
+                                        <HoverCard openDelay={100} closeDelay={100}>
+                                          <HoverCardTrigger>
+                                            <Badge
+                                              variant="outline"
+                                              className="h-5 px-2 text-xs bg-background/80 text-muted-foreground border-border/70 flex items-center gap-1 flex-shrink-0 cursor-pointer"
+                                              title="Description"
+                                            >
+                                              <FileText className="w-3 h-3" />
+                                            </Badge>
+                                          </HoverCardTrigger>
+                                          <HoverCardContent className="w-96 max-w-[calc(100vw-2rem)]" align="start" side="top" sideOffset={5}>
+                                            <MarkdownContent content={item.description} className="max-h-72 overflow-y-auto text-sm" />
+                                          </HoverCardContent>
+                                        </HoverCard>
+                                      )}
                                       {hasBlockers && (
                                         <HoverCard openDelay={100} closeDelay={100}>
                                           <HoverCardTrigger>
@@ -1672,7 +1994,7 @@ export default function ReleaseTrackingPage() {
                                             design: previous.design || fallbackUserId,
                                           }));
                                           setShowCreateChild({
-                                            workItemId: item.id,
+                                            workItemId: Number(item.task_id || item.work_item_id || item.id),
                                             workItemTitle: item.title,
                                             workItemExternalId: item.external_id
                                               ? Number(item.external_id)
@@ -1721,7 +2043,7 @@ export default function ReleaseTrackingPage() {
             </div>
           </div>
         )}
-        {!activeRelease && !loading && sortedReleases.length === 0 && (
+        {!projectRequired && !activeRelease && !loading && sortedReleases.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-3">
               <p className="text-muted-foreground">
@@ -1772,95 +2094,9 @@ export default function ReleaseTrackingPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {existingChildTasks.map((task) => (
-                            <tr key={task.id} className={getStatusRowClass(task.status)}>
-                              <td className="px-2 py-1.5 align-top min-w-0">
-                                <div className="flex flex-col gap-0.5 min-w-0">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <div
-                                      className="flex items-center justify-center flex-shrink-0"
-                                      title={task.type.toLowerCase() === "bug" ? "Bug" : "Task"}
-                                    >
-                                      {task.type.toLowerCase() === "bug" ? (
-                                        <Bug className="w-3.5 h-3.5 text-red-600 dark:text-red-500" />
-                                      ) : (
-                                        <ClipboardCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-500" />
-                                      )}
-                                    </div>
-                                    <Badge variant="outline" className="h-4 px-1.5 text-[10px] flex-shrink-0">
-                                      #{task.id}
-                                    </Badge>
-                                    <Badge
-                                      variant="outline"
-                                      className={`h-4 px-1.5 text-[10px] flex-shrink-0 ${getStatusBadgeClass(task.status)}`}
-                                    >
-                                      {task.status || "Unknown"}
-                                    </Badge>
-                                    <div className="min-w-0 flex-1">
-                                      {canOpenAzureDevOpsItem ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenAzureDevOpsItemById(task.id)}
-                                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline text-left truncate block w-full font-medium"
-                                          title={`${task.title} - Open in Azure DevOps`}
-                                        >
-                                          {task.title}
-                                        </button>
-                                      ) : (
-                                        <div className="truncate font-medium" title={task.title}>
-                                          {task.title}
-                                        </div>
-                                      )}
-                                    </div>
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-6 w-6 flex-shrink-0 opacity-70 hover:opacity-100"
-                                          disabled={childStatusUpdatingId === task.id}
-                                          title="Actions"
-                                        >
-                                          <MoreVertical className="h-3.5 w-3.5" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end" className="w-44">
-                                        <DropdownMenuSub>
-                                          <DropdownMenuSubTrigger>
-                                            <span>Change Status</span>
-                                          </DropdownMenuSubTrigger>
-                                          <DropdownMenuSubContent>
-                                            {getChildStatusOptions(task.type).map((statusOption) => (
-                                              <DropdownMenuItem
-                                                key={`${task.id}-${statusOption}`}
-                                                disabled={
-                                                  childStatusUpdatingId === task.id ||
-                                                  (task.status || "New").toLowerCase() ===
-                                                    statusOption.toLowerCase()
-                                                }
-                                                onClick={() =>
-                                                  void handleChildStatusChange(
-                                                    task.id,
-                                                    task.type,
-                                                    statusOption
-                                                  )
-                                                }
-                                              >
-                                                {statusOption}
-                                              </DropdownMenuItem>
-                                            ))}
-                                          </DropdownMenuSubContent>
-                                        </DropdownMenuSub>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </div>
-                                  <div className="text-[10px] text-muted-foreground pl-5">
-                                    Assigned to: {task.assignedTo || "-"}
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
+                          {existingChildTasks.map((task) =>
+                            renderChildWorkItemRow(task, { compact: true })
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -1969,6 +2205,62 @@ export default function ReleaseTrackingPage() {
               disabled={childDisciplines.size === 0 || childSubmitting || projectUsers.length === 0}
             >
               {childSubmitting ? "Creating..." : "Create Child Task"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCreateUserStory} onOpenChange={setShowCreateUserStory}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Create User Story</DialogTitle>
+            <DialogDescription>
+              Create a local user story for this release. Markdown is supported in the description.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="user-story-title">Title</Label>
+              <Input
+                id="user-story-title"
+                value={userStoryTitle}
+                onChange={(event) => setUserStoryTitle(event.target.value)}
+                placeholder="Enter user story title"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-story-description">Description</Label>
+              <textarea
+                id="user-story-description"
+                value={userStoryDescription}
+                onChange={(event) => setUserStoryDescription(event.target.value)}
+                placeholder="Markdown supported"
+                rows={6}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+              {userStoryDescription.trim() && (
+                <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-3">
+                  <MarkdownContent content={userStoryDescription} />
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowCreateUserStory(false)}
+              disabled={userStorySubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleCreateUserStory()}
+              disabled={userStorySubmitting}
+            >
+              {userStorySubmitting ? "Creating..." : "Create User Story"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2127,95 +2419,9 @@ export default function ReleaseTrackingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredChildItemsDialog.map((childItem) => (
-                        <tr key={childItem.id} className={getStatusRowClass(childItem.status)}>
-                          <td className="px-3 py-2 align-top min-w-0">
-                            <div className="flex flex-col gap-1 min-w-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <div
-                                  className="flex items-center justify-center flex-shrink-0"
-                                  title={childItem.type.toLowerCase() === "bug" ? "Bug" : "Task"}
-                                >
-                                  {childItem.type.toLowerCase() === "bug" ? (
-                                    <Bug className="w-4 h-4 text-red-600 dark:text-red-500" />
-                                  ) : (
-                                    <ClipboardCheck className="w-4 h-4 text-amber-600 dark:text-amber-500" />
-                                  )}
-                                </div>
-                                <Badge variant="outline" className="h-5 px-2 text-xs flex-shrink-0">
-                                  #{childItem.id}
-                                </Badge>
-                                <Badge
-                                  variant="outline"
-                                  className={`h-5 px-2 text-xs flex-shrink-0 ${getStatusBadgeClass(childItem.status)}`}
-                                >
-                                  {childItem.status || "Unknown"}
-                                </Badge>
-                                <div className="min-w-0 flex-1">
-                                  {canOpenAzureDevOpsItem ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenAzureDevOpsItemById(childItem.id)}
-                                      className="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline text-left truncate block w-full"
-                                      title={`${childItem.title} - Open in Azure DevOps`}
-                                    >
-                                      {childItem.title}
-                                    </button>
-                                  ) : (
-                                    <div className="font-medium truncate" title={childItem.title}>
-                                      {childItem.title}
-                                    </div>
-                                  )}
-                                </div>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7 flex-shrink-0 opacity-70 hover:opacity-100"
-                                      disabled={childStatusUpdatingId === childItem.id}
-                                      title="Actions"
-                                    >
-                                      <MoreVertical className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-44">
-                                    <DropdownMenuSub>
-                                      <DropdownMenuSubTrigger>
-                                        <span>Change Status</span>
-                                      </DropdownMenuSubTrigger>
-                                      <DropdownMenuSubContent>
-                                        {getChildStatusOptions(childItem.type).map((statusOption) => (
-                                          <DropdownMenuItem
-                                            key={`${childItem.id}-${statusOption}`}
-                                            disabled={
-                                              childStatusUpdatingId === childItem.id ||
-                                              (childItem.status || "New").toLowerCase() ===
-                                                statusOption.toLowerCase()
-                                            }
-                                            onClick={() =>
-                                              void handleChildStatusChange(
-                                                childItem.id,
-                                                childItem.type,
-                                                statusOption
-                                              )
-                                            }
-                                          >
-                                            {statusOption}
-                                          </DropdownMenuItem>
-                                        ))}
-                                      </DropdownMenuSubContent>
-                                    </DropdownMenuSub>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                              <div className="text-xs text-muted-foreground pl-6">
-                                Assigned to: {childItem.assignedTo || "-"}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredChildItemsDialog.map((childItem) =>
+                        renderChildWorkItemRow(childItem)
+                      )}
                     </tbody>
                   </table>
                 </div>

@@ -11,6 +11,12 @@ interface AzureDevOpsPublicSettings {
   project?: string;
   projectUrl?: string;
   hasPat?: boolean;
+  identity?: AzureDevOpsPublicIdentity | null;
+}
+
+interface AzureDevOpsPublicIdentity {
+  displayName?: string | null;
+  email?: string | null;
 }
 
 interface ApiError {
@@ -26,6 +32,12 @@ interface JsonImportResponse {
   };
 }
 
+const formatAzureDevOpsIdentity = (identity?: AzureDevOpsPublicIdentity | null) => {
+  const displayName = identity?.displayName?.trim();
+  const email = identity?.email?.trim();
+  return displayName || email || "";
+};
+
 export function ProfileSettingsForm() {
   const [organization, setOrganization] = useState("");
   const [project, setProject] = useState("");
@@ -34,6 +46,8 @@ export function ProfileSettingsForm() {
   const [jsonImportInputKey, setJsonImportInputKey] = useState(0);
   const [pat, setPat] = useState("");
   const [hasPat, setHasPat] = useState(false);
+  const [azureDevOpsIdentity, setAzureDevOpsIdentity] =
+    useState<AzureDevOpsPublicIdentity | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingDayLength, setSavingDayLength] = useState(false);
@@ -57,6 +71,12 @@ export function ProfileSettingsForm() {
         setOrganization(nextOrganization);
         setProject(nextProject);
         setHasPat(Boolean(value?.hasPat));
+        setAzureDevOpsIdentity(value?.hasPat ? value.identity ?? null : null);
+      } else {
+        setOrganization("");
+        setProject("");
+        setHasPat(false);
+        setAzureDevOpsIdentity(null);
       }
       if (dayLengthResponse.ok) {
         const data = await dayLengthResponse.json();
@@ -187,9 +207,19 @@ export function ProfileSettingsForm() {
         throw new Error("Failed to save Azure DevOps PAT.");
       }
 
+      const data = (await response.json().catch(() => ({}))) as {
+        value?: AzureDevOpsPublicSettings;
+      };
+      const savedIdentity = data.value?.identity ?? null;
       setPat("");
-      setHasPat(true);
-      setMessage("Azure DevOps personal PAT saved.");
+      setHasPat(Boolean(data.value?.hasPat ?? true));
+      setAzureDevOpsIdentity(savedIdentity);
+      const savedAs = formatAzureDevOpsIdentity(savedIdentity);
+      setMessage(
+        savedAs
+          ? `Azure DevOps personal PAT saved. Connected as ${savedAs}.`
+          : "Azure DevOps personal PAT saved. Identity is not resolved yet."
+      );
       setMessageType("success");
     } catch {
       setMessage("Failed to save Azure DevOps PAT.");
@@ -225,6 +255,16 @@ export function ProfileSettingsForm() {
         throw new Error(data.error || data.details || "Connection failed.");
       }
 
+      const testedIdentity = data.authenticatedUser
+        ? {
+            displayName: data.authenticatedUser.displayName ?? null,
+            email: data.authenticatedUser.uniqueName ?? null,
+          }
+        : null;
+      if (!pat.trim() && testedIdentity) {
+        setAzureDevOpsIdentity(testedIdentity);
+      }
+
       const patUser =
         data.authenticatedUser?.displayName || data.authenticatedUser?.uniqueName;
       setMessage(
@@ -255,6 +295,7 @@ export function ProfileSettingsForm() {
 
       setPat("");
       setHasPat(false);
+      setAzureDevOpsIdentity(null);
       setMessage("Azure DevOps personal PAT removed.");
       setMessageType("success");
     } catch {
@@ -270,6 +311,8 @@ export function ProfileSettingsForm() {
   }
 
   const azureDevOpsConfigured = Boolean(organization && project);
+  const connectedIdentityName = formatAzureDevOpsIdentity(azureDevOpsIdentity);
+  const connectedIdentityEmail = azureDevOpsIdentity?.email?.trim() || "";
 
   return (
     <div className="space-y-5">
@@ -369,6 +412,29 @@ export function ProfileSettingsForm() {
           <p className="text-xs text-muted-foreground">
             {hasPat ? "Leave blank to keep the saved personal PAT." : "Used only for your Azure DevOps actions."}
           </p>
+          {hasPat ? (
+            <div className="rounded-md border bg-muted/40 p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Azure DevOps identity
+              </p>
+              {connectedIdentityName ? (
+                <div className="mt-1 space-y-0.5">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {connectedIdentityName}
+                  </p>
+                  {connectedIdentityEmail && connectedIdentityEmail !== connectedIdentityName ? (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {connectedIdentityEmail}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Identity has not been resolved yet. Save or test the saved PAT to update it.
+                </p>
+              )}
+            </div>
+          ) : null}
           <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
             Create the token in Azure DevOps under User settings, Personal access tokens, New Token.
             Use a user-scoped token that can read Work Items and Project/Team information. Enable Work Items read/write if you need export, refresh, or status synchronization.

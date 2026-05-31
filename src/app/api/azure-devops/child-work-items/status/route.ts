@@ -7,12 +7,20 @@ import {
   Operation,
 } from "azure-devops-node-api/interfaces/common/VSSInterfaces";
 import db from "@/lib/db";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 import {
   createAzureDevOpsConnectionContext,
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
+import {
+  mapAzureDevOpsStatusToWorkItemStatus,
+  upsertExternalLink,
+} from "@/lib/work-items";
 
 interface UpdateChildStatusRequest {
   workItemId?: number;
@@ -37,24 +45,19 @@ const normalizeStatus = (value?: string): string | null => {
   return null;
 };
 
-const getAllowedStatuses = (workItemType: "task" | "bug"): string[] => {
-  if (workItemType === "bug") {
-    return ["New", "Active", "Resolved", "Closed"];
-  }
-  return ["New", "Active", "Closed"];
-};
+const getAllowedStatuses = (workItemType: "task" | "bug"): string[] =>
+  workItemType === "bug" ? ["New", "Active", "Resolved", "Closed"] : ["New", "Active", "Closed"];
 
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const body = (await request.json()) as UpdateChildStatusRequest;
-
-    const workItemId = Number(body.workItemId);
+    const externalWorkItemId = Number(body.workItemId);
     const workItemType = normalizeType(body.workItemType);
     const status = normalizeStatus(body.status);
 
-    if (!Number.isInteger(workItemId) || workItemId <= 0 || !workItemType || !status) {
+    if (!Number.isInteger(externalWorkItemId) || externalWorkItemId <= 0 || !workItemType || !status) {
       return NextResponse.json(
         { error: "workItemId, workItemType and status are required" },
         { status: 400 }
@@ -71,14 +74,10 @@ export async function POST(request: NextRequest) {
 
     const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
     if (isAzureDevOpsConfigProblem(settingsResult)) {
-      return NextResponse.json(
-        { error: settingsResult.message },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: settingsResult.message }, { status: 400 });
     }
 
     const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
-
     const patchDocument: JsonPatchDocument = [
       {
         op: Operation.Add,
@@ -90,68 +89,61 @@ export async function POST(request: NextRequest) {
     await witApi.updateWorkItem(
       undefined,
       patchDocument,
-      workItemId,
+      externalWorkItemId,
       settings.project
     );
 
-    db.prepare(
-      `
-        UPDATE release_work_item_children
-        SET state = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE project_id = ? AND child_external_id = ?
-      `
-    ).run(status, projectId, workItemId);
-
-    // Keep imported local tasks in sync if this child work item is imported.
-    const completedStatuses = ["closed", "resolved", "done", "completed"];
-    const isCompleted = completedStatuses.includes(status.toLowerCase());
-    const tasks = db
+    const linked = db
       .prepare(
         `
-          SELECT id, status, completed_at
-          FROM tasks
-          WHERE project_id = ?
-            AND external_source = 'azure_devops'
-            AND external_id IS NOT NULL
-            AND CAST(external_id AS INTEGER) = ?
+          SELECT wi.id, link.native_type
+          FROM work_item_external_links link
+          INNER JOIN work_items wi ON wi.id = link.work_item_id
+          WHERE link.project_id = ?
+            AND link.provider = 'azure_devops'
+            AND link.external_id = ?
+            AND wi.type IN ('task', 'bug')
+          LIMIT 1
         `
       )
-      .all(projectId, workItemId) as Array<{
-      id: number;
-      status: string | null;
-      completed_at: string | null;
-    }>;
+      .get(projectId, String(externalWorkItemId)) as
+      | { id: number; native_type: string | null }
+      | undefined;
 
-    const updateTaskStatusOnly = db.prepare(
-      "UPDATE tasks SET status = ? WHERE id = ? AND project_id = ?"
-    );
-    const updateTaskCompletedAt = db.prepare(
-      "UPDATE tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ? AND project_id = ?"
-    );
-    const clearTaskCompletedAt = db.prepare(
-      "UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ? AND project_id = ?"
-    );
+    if (linked) {
+      const normalizedStatus = mapAzureDevOpsStatusToWorkItemStatus(status);
+      db.prepare(
+        `
+          UPDATE work_items
+          SET status = ?,
+              completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE NULL END,
+              sync_state = 'synced',
+              updated_by_user_id = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND project_id = ?
+        `
+      ).run(normalizedStatus, normalizedStatus, userId, linked.id, projectId);
 
-    for (const task of tasks) {
-      const wasCompleted = task.status
-        ? completedStatuses.includes(task.status.toLowerCase())
-        : false;
-      if (isCompleted && !wasCompleted) {
-        updateTaskCompletedAt.run(status, task.id, projectId);
-      } else if (!isCompleted && wasCompleted) {
-        clearTaskCompletedAt.run(status, task.id, projectId);
-      } else {
-        updateTaskStatusOnly.run(status, task.id, projectId);
-      }
+      upsertExternalLink({
+        workItemId: linked.id,
+        projectId,
+        provider: "azure_devops",
+        externalId: externalWorkItemId,
+        nativeType: linked.native_type ?? (workItemType === "bug" ? "Bug" : "Task"),
+        nativeStatus: status,
+      });
     }
 
     return NextResponse.json({
       success: true,
       synced: true,
       status,
-      workItemId,
+      workItemId: externalWorkItemId,
     });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Child work item status update error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

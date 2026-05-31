@@ -109,6 +109,23 @@ const applyAzureProjectUrl = (projectId: number, value: unknown) => {
       projectId,
       AZURE_DEVOPS_SETTINGS_KEY
     );
+    db.prepare(
+      `
+        UPDATE projects
+        SET integration_provider = 'none',
+            integration_enabled = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `
+    ).run(projectId);
+    db.prepare(
+      `
+        UPDATE work_item_external_links
+        SET sync_enabled = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE project_id = ?
+      `
+    ).run(projectId);
     return;
   }
 
@@ -118,6 +135,43 @@ const applyAzureProjectUrl = (projectId: number, value: unknown) => {
   }
 
   upsertAzureDevOpsProjectSettings(projectId, settings);
+  db.prepare(
+    `
+      UPDATE projects
+      SET integration_provider = 'azure_devops',
+          integration_enabled = 1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+      `
+  ).run(projectId);
+  db.prepare(
+    `
+      UPDATE work_item_external_links
+      SET sync_enabled = 1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE project_id = ? AND provider = 'azure_devops'
+    `
+  ).run(projectId);
+};
+
+const assertProviderCanChange = (
+  projectId: number,
+  nextProvider: "none" | "azure_devops"
+): string | null => {
+  const project = db
+    .prepare("SELECT integration_provider FROM projects WHERE id = ?")
+    .get(projectId) as { integration_provider: "none" | "azure_devops" } | undefined;
+  if (!project || project.integration_provider === nextProvider) return null;
+  if (nextProvider === "none") return null;
+
+  const link = db
+    .prepare(
+      "SELECT id FROM work_item_external_links WHERE project_id = ? AND provider != ? LIMIT 1"
+    )
+    .get(projectId, nextProvider) as { id: number } | undefined;
+  return link
+    ? "Cannot switch provider while external work item links exist"
+    : null;
 };
 
 export async function GET(request: NextRequest) {
@@ -144,6 +198,10 @@ export async function POST(request: NextRequest) {
     const userId = admin.userId;
     const body = await request.json();
     const name = String(body?.name ?? "").trim();
+    const description =
+      typeof body?.description === "string" && body.description.trim()
+        ? body.description.trim()
+        : null;
     const parsedMemberUserIds = parseMemberUserIds(body?.memberUserIds);
     if (parsedMemberUserIds.error) {
       return NextResponse.json({ error: parsedMemberUserIds.error }, { status: 400 });
@@ -176,8 +234,10 @@ export async function POST(request: NextRequest) {
     }
 
     const inserted = db
-      .prepare("INSERT INTO projects (user_id, name, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)")
-      .run(userId, name);
+      .prepare(
+        "INSERT INTO projects (user_id, name, description, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)"
+      )
+      .run(userId, name, description);
     const projectId = Number(inserted.lastInsertRowid);
     replaceProjectMembers(projectId, memberUserIds, userId);
     applyAzureProjectUrl(projectId, body?.azureProjectUrl);
@@ -202,6 +262,10 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const projectId = Number(body?.id);
     const name = body?.name !== undefined ? String(body?.name).trim() : undefined;
+    const description =
+      body?.description !== undefined
+        ? String(body?.description ?? "").trim() || null
+        : undefined;
     const parsedMemberUserIds = body?.memberUserIds !== undefined
       ? parseMemberUserIds(body.memberUserIds)
       : null;
@@ -241,6 +305,17 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    if (body?.azureProjectUrl !== undefined) {
+      const nextProvider =
+        typeof body.azureProjectUrl === "string" && body.azureProjectUrl.trim()
+          ? "azure_devops"
+          : "none";
+      const providerError = assertProviderCanChange(projectId, nextProvider);
+      if (providerError) {
+        return NextResponse.json({ error: providerError }, { status: 400 });
+      }
+    }
+
     if (name !== undefined) {
       const duplicate = db
         .prepare("SELECT id FROM projects WHERE lower(name) = lower(?) AND id != ?")
@@ -251,6 +326,12 @@ export async function PATCH(request: NextRequest) {
 
       db.prepare("UPDATE projects SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
         .run(name, projectId);
+    }
+
+    if (description !== undefined) {
+      db.prepare(
+        "UPDATE projects SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+      ).run(description, projectId);
     }
 
     if (memberUserIds !== undefined) {

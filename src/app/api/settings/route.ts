@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { Settings, AzureDevOpsSettings } from '@/types';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from '@/lib/user-context';
 import { canManageProject, isAdminUser } from '@/lib/authorization';
 import {
   AI_PROVIDER_SETTING_KEY,
@@ -14,10 +18,15 @@ import {
 } from '@/lib/ai-provider-settings';
 import {
   deleteAzureDevOpsUserPat,
+  createAzureDevOpsConnectionContext,
+  getAzureDevOpsAuthenticatedUser,
   getAzureDevOpsPublicSettings,
+  getAzureDevOpsSettingsForUser,
   normalizeAzureDevOpsProjectSettings,
   upsertAzureDevOpsProjectSettings,
+  upsertAzureDevOpsUserIdentity,
   upsertAzureDevOpsUserPat,
+  isAzureDevOpsConfigProblem,
 } from '@/lib/azure-devops/settings';
 import {
   DEFAULT_DAY_LENGTH_SETTING_KEY,
@@ -36,13 +45,16 @@ const parseAzureDevOpsSettings = (value: string): Partial<AzureDevOpsSettings> |
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
-    const projectId = getRequestProjectId(request, userId);
     const searchParams = request.nextUrl.searchParams;
     const key = searchParams.get('key');
 
     if (key) {
+      const projectId =
+        key === AI_PROVIDER_SETTING_KEY || key === "lm_studio"
+          ? null
+          : getRequestProjectId(request, userId);
       if (key === "azure_devops") {
-        const value = getAzureDevOpsPublicSettings(userId, projectId);
+        const value = getAzureDevOpsPublicSettings(userId, projectId!);
         if (!value) {
           return NextResponse.json({ error: 'Setting not found' }, { status: 404 });
         }
@@ -115,12 +127,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(setting);
     }
 
+    const projectId = getRequestProjectId(request, userId);
     // Return all settings
     const settings = db
       .prepare('SELECT * FROM settings WHERE user_id = ? AND project_id = ? ORDER BY key')
       .all(userId, projectId) as Settings[];
     return NextResponse.json(settings);
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Database error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch settings' },
@@ -132,7 +148,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
-    const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
     const { key, value } = body;
 
@@ -145,6 +160,7 @@ export async function POST(request: NextRequest) {
 
     // Upsert setting
     if (key === "azure_devops") {
+      const projectId = getRequestProjectId(request, userId);
       const nextValue = typeof value === 'object' && value !== null
         ? { ...(value as AzureDevOpsSettings) }
         : parseAzureDevOpsSettings(String(value));
@@ -177,6 +193,20 @@ export async function POST(request: NextRequest) {
 
       if (typeof nextValue.pat === "string" && nextValue.pat.trim()) {
         upsertAzureDevOpsUserPat(userId, nextValue.pat);
+        const settingsForUser = getAzureDevOpsSettingsForUser(userId, projectId);
+        if (!isAzureDevOpsConfigProblem(settingsForUser)) {
+          try {
+            const { connection } =
+              await createAzureDevOpsConnectionContext(settingsForUser);
+            const identity = await getAzureDevOpsAuthenticatedUser(connection);
+            if (!identity) {
+              throw new Error("Azure DevOps identity not found");
+            }
+            upsertAzureDevOpsUserIdentity(userId, identity);
+          } catch (identityError) {
+            console.warn("Failed to resolve Azure DevOps user identity:", identityError);
+          }
+        }
       }
 
       const redactedValue = getAzureDevOpsPublicSettings(userId, projectId);
@@ -218,6 +248,7 @@ export async function POST(request: NextRequest) {
         updated_at: null,
       });
     } else {
+      const projectId = getRequestProjectId(request, userId);
       let stringValue: string;
       if (key === DEFAULT_DAY_LENGTH_SETTING_KEY) {
         const numericValue = parseDefaultDayLength(value);
@@ -249,14 +280,17 @@ export async function POST(request: NextRequest) {
           updated_at = CURRENT_TIMESTAMP
       `);
       stmt.run(userId, projectId, key, stringValue);
+
+      const setting = db
+        .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
+        .get(key, userId, projectId) as Settings;
+
+      return NextResponse.json(setting);
     }
-
-    const setting = db
-      .prepare('SELECT * FROM settings WHERE key = ? AND user_id = ? AND project_id = ?')
-      .get(key, userId, projectId) as Settings;
-
-    return NextResponse.json(setting);
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Database error:', error);
     return NextResponse.json(
       { error: 'Failed to save setting' },
@@ -268,7 +302,6 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
-    const projectId = getRequestProjectId(request, userId);
     const searchParams = request.nextUrl.searchParams;
     const key = searchParams.get('key');
 
@@ -281,10 +314,21 @@ export async function DELETE(request: NextRequest) {
 
     if (key === "azure_devops" && request.nextUrl.searchParams.get("credential") === "pat") {
       deleteAzureDevOpsUserPat(userId);
+      db.prepare(
+        "DELETE FROM provider_user_identities WHERE user_id = ? AND provider = 'azure_devops'"
+      ).run(userId);
+      db.prepare(
+        "UPDATE users SET app_display_name = name, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+      ).run(userId);
       return NextResponse.json({ success: true });
     }
 
-    if (key === "azure_devops" && !canManageProject(userId, projectId)) {
+    const projectId =
+      key === AI_PROVIDER_SETTING_KEY || key === "lm_studio"
+        ? null
+        : getRequestProjectId(request, userId);
+
+    if (key === "azure_devops" && !canManageProject(userId, projectId!)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -307,6 +351,9 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Database error:', error);
     return NextResponse.json(
       { error: 'Failed to delete setting' },

@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
 import type { AzureDevOpsWorkItem } from "@/types";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 import {
   createAzureDevOpsConnectionContext,
   getAzureDevOpsSettingsForUser,
@@ -106,12 +110,14 @@ export async function GET(request: NextRequest) {
       const importedRows = db
         .prepare(
           `
-          SELECT external_id
-          FROM release_work_items
-          WHERE release_id = ?
-            AND project_id = ?
-            AND external_source = 'azure_devops'
-            AND external_id IS NOT NULL
+          SELECT link.external_id
+          FROM release_items ri
+          INNER JOIN work_items wi ON wi.id = ri.work_item_id
+          INNER JOIN work_item_external_links link ON link.work_item_id = wi.id
+          WHERE ri.release_id = ?
+            AND wi.project_id = ?
+            AND link.provider = 'azure_devops'
+            AND link.external_id IS NOT NULL
         `
         )
         .all(releaseId, projectId) as Array<{ external_id: string | number | null }>;
@@ -166,6 +172,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ workItems: result });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Error fetching Azure DevOps user stories:", error);
     return NextResponse.json(
       {

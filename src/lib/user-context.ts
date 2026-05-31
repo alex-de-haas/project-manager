@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import db from "@/lib/db";
 import { getAuthenticatedUserId } from "@/lib/auth";
 import { isAdminUser } from "@/lib/authorization";
@@ -13,6 +14,23 @@ export const getRequestUserId = (request: NextRequest): number => {
     throw new Error("Docker Host identity is required");
   }
   return userId;
+};
+
+export class ProjectContextError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ProjectContextError";
+    this.status = status;
+  }
+}
+
+export const projectContextErrorResponse = (error: unknown) => {
+  if (error instanceof ProjectContextError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  return null;
 };
 
 const parseProjectId = (value: string | null | undefined): number | null => {
@@ -49,32 +67,63 @@ const getFallbackProjectId = (userId: number): number => {
   return existingMembership?.id ?? 0;
 };
 
-const resolveKnownProjectId = (userId: number, candidateProjectId: number | null): number => {
-  const fallbackProjectId = getFallbackProjectId(userId);
+const projectExists = (projectId: number): boolean => {
+  const project = db
+    .prepare("SELECT id FROM projects WHERE id = ?")
+    .get(projectId) as { id: number } | undefined;
+  return Boolean(project);
+};
 
-  if (!candidateProjectId) {
-    return fallbackProjectId;
+const resolveFallbackProjectId = (userId: number): number | null => {
+  const fallbackProjectId = getFallbackProjectId(userId);
+  return fallbackProjectId > 0 ? fallbackProjectId : null;
+};
+
+const resolveExplicitProjectId = (
+  userId: number,
+  candidateProjectId: number
+): number => {
+  if (canAccessProject(userId, candidateProjectId)) {
+    return candidateProjectId;
   }
 
-  return canAccessProject(userId, candidateProjectId)
-    ? candidateProjectId
-    : fallbackProjectId;
+  if (projectExists(candidateProjectId)) {
+    throw new ProjectContextError("Project access denied", 403);
+  }
+
+  throw new ProjectContextError("Project not found", 404);
+};
+
+export const getOptionalRequestProjectId = (
+  request: NextRequest,
+  resolvedUserId?: number
+): number | null => {
+  const userId = resolvedUserId ?? getRequestUserId(request);
+  const fromHeader = parseProjectId(request.headers.get("x-project-id"));
+  if (fromHeader) return resolveExplicitProjectId(userId, fromHeader);
+
+  const fromQuery = parseProjectId(request.nextUrl.searchParams.get("projectId"));
+  if (fromQuery) return resolveExplicitProjectId(userId, fromQuery);
+
+  const cookieUserId = parseProjectId(request.cookies.get(PROJECT_USER_COOKIE_NAME)?.value);
+  const fromCookie = cookieUserId === userId
+    ? parseProjectId(request.cookies.get(PROJECT_COOKIE_NAME)?.value)
+    : null;
+
+  if (fromCookie && canAccessProject(userId, fromCookie)) {
+    return fromCookie;
+  }
+
+  return resolveFallbackProjectId(userId);
 };
 
 export const getRequestProjectId = (
   request: NextRequest,
   resolvedUserId?: number
 ): number => {
-  const userId = resolvedUserId ?? getRequestUserId(request);
-  const fromHeader = parseProjectId(request.headers.get("x-project-id"));
-  if (fromHeader) return resolveKnownProjectId(userId, fromHeader);
-
-  const fromQuery = parseProjectId(request.nextUrl.searchParams.get("projectId"));
-  if (fromQuery) return resolveKnownProjectId(userId, fromQuery);
-
-  const cookieUserId = parseProjectId(request.cookies.get(PROJECT_USER_COOKIE_NAME)?.value);
-  const fromCookie = cookieUserId === userId
-    ? parseProjectId(request.cookies.get(PROJECT_COOKIE_NAME)?.value)
-    : null;
-  return resolveKnownProjectId(userId, fromCookie);
+  const projectId = getOptionalRequestProjectId(request, resolvedUserId);
+  if (!projectId) {
+    throw new ProjectContextError("An active project is required", 400);
+  }
+  return projectId;
 };

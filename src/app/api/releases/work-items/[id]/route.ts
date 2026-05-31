@@ -2,7 +2,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 
 export async function PATCH(
   request: NextRequest,
@@ -39,7 +43,14 @@ export async function PATCH(
 
     // Check if the work item exists
     const workItem = db
-      .prepare("SELECT * FROM release_work_items WHERE id = ? AND project_id = ?")
+      .prepare(
+        `
+          SELECT ri.*
+          FROM release_items ri
+          INNER JOIN work_items wi ON wi.id = ri.work_item_id
+          WHERE ri.id = ? AND wi.project_id = ?
+        `
+      )
       .get(id, projectId);
 
     if (!workItem) {
@@ -83,7 +94,12 @@ export async function PATCH(
       // Get the maximum display_order for the target release
       const maxOrderResult = db
         .prepare(
-          "SELECT MAX(display_order) as max_order FROM release_work_items WHERE release_id = ? AND project_id = ?"
+          `
+            SELECT MAX(ri.display_order) as max_order
+            FROM release_items ri
+            INNER JOIN work_items wi ON wi.id = ri.work_item_id
+            WHERE ri.release_id = ? AND wi.project_id = ?
+          `
         )
         .get(releaseId, projectId) as { max_order: number | null };
       const nextOrder = (maxOrderResult.max_order ?? -1) + 1;
@@ -116,8 +132,14 @@ export async function PATCH(
       );
     }
 
+    fieldsToUpdate.push("updated_at = CURRENT_TIMESTAMP");
     const stmt = db.prepare(
-      `UPDATE release_work_items SET ${fieldsToUpdate.join(", ")} WHERE id = ? AND project_id = ?`
+      `
+        UPDATE release_items
+        SET ${fieldsToUpdate.join(", ")}
+        WHERE id = ?
+          AND work_item_id IN (SELECT id FROM work_items WHERE project_id = ?)
+      `
     );
     const result = stmt.run(...updateValues, id, projectId);
 
@@ -130,6 +152,9 @@ export async function PATCH(
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Database error:", error);
     return NextResponse.json(
       { error: "Failed to update work item" },

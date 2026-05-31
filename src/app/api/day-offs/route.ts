@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { DayOff } from '@/types';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import { getRequestUserId } from '@/lib/user-context';
 
 // GET - Fetch all days off or filter by date range
 export async function GET(request: NextRequest) {
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const allUsers = searchParams.get('allUsers') === 'true';
 
     let query = allUsers
-      ? 'SELECT day_offs.*, users.name AS user_name FROM day_offs JOIN users ON users.id = day_offs.user_id WHERE 1 = 1'
+      ? 'SELECT day_offs.*, COALESCE(users.app_display_name, users.name) AS user_name FROM day_offs JOIN users ON users.id = day_offs.user_id WHERE 1 = 1'
       : 'SELECT * FROM day_offs WHERE user_id = ?';
     const params: Array<string | number> = allUsers ? [] : [userId];
 
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       params.push(startDate, endDate);
     }
 
-    query += allUsers ? ' ORDER BY date ASC, users.name ASC' : ' ORDER BY date ASC';
+    query += allUsers ? ' ORDER BY date ASC, COALESCE(users.app_display_name, users.name) ASC' : ' ORDER BY date ASC';
 
     const stmt = db.prepare(query);
     const dayOffs = params.length > 0 ? stmt.all(...params) : stmt.all();
@@ -43,7 +43,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
-    const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
     const { date, description, isHalfDay = false } = body;
 
@@ -64,9 +63,9 @@ export async function POST(request: NextRequest) {
     }
 
     const stmt = db.prepare(
-      'INSERT INTO day_offs (user_id, project_id, date, description, is_half_day) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO day_offs (user_id, date, description, is_half_day) VALUES (?, ?, ?, ?)'
     );
-    const result = stmt.run(userId, projectId, date, description || null, isHalfDay ? 1 : 0);
+    const result = stmt.run(userId, date, description || null, isHalfDay ? 1 : 0);
 
     const newDayOff = db
       .prepare('SELECT * FROM day_offs WHERE id = ? AND user_id = ?')

@@ -16,6 +16,10 @@ export interface AzureDevOpsPublicSettings {
   project: string;
   projectUrl: string;
   hasPat: boolean;
+  identity: {
+    displayName: string | null;
+    email: string | null;
+  } | null;
 }
 
 export interface AzureDevOpsProjectSettings {
@@ -33,6 +37,7 @@ export interface AzureDevOpsConnectionContext {
 
 export interface AzureDevOpsAuthenticatedUser {
   id: string | null;
+  descriptor?: string | null;
   displayName: string | null;
   uniqueName: string | null;
 }
@@ -159,16 +164,107 @@ export const deleteAzureDevOpsUserPat = (userId: number) => {
   );
 };
 
+export const getStoredAzureDevOpsUserIdentity = (
+  userId: number
+): AzureDevOpsAuthenticatedUser | null => {
+  const row = db
+    .prepare(
+      `
+        SELECT
+          identity.external_user_id,
+          identity.descriptor,
+          identity.email,
+          COALESCE(users.app_display_name, users.name) AS display_name
+        FROM provider_user_identities identity
+        INNER JOIN users ON users.id = identity.user_id
+        WHERE identity.user_id = ?
+          AND identity.provider = 'azure_devops'
+        LIMIT 1
+      `
+    )
+    .get(userId) as
+    | {
+        external_user_id: string | null;
+        descriptor: string | null;
+        email: string | null;
+        display_name: string | null;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  const identity = {
+    id: row.external_user_id?.trim() || null,
+    descriptor: row.descriptor?.trim() || null,
+    displayName: row.display_name?.trim() || null,
+    uniqueName: row.email?.trim() || null,
+  };
+
+  if (!identity.id && !identity.descriptor && !identity.displayName && !identity.uniqueName) {
+    return null;
+  }
+
+  return identity;
+};
+
+export const upsertAzureDevOpsUserIdentity = (
+  userId: number,
+  identity: AzureDevOpsAuthenticatedUser
+) => {
+  db.prepare(
+    `
+      INSERT INTO provider_user_identities (
+        user_id,
+        provider,
+        external_user_id,
+        descriptor,
+        email,
+        updated_at
+      )
+      VALUES (?, 'azure_devops', ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, provider) DO UPDATE SET
+        external_user_id = excluded.external_user_id,
+        descriptor = excluded.descriptor,
+        email = excluded.email,
+        updated_at = CURRENT_TIMESTAMP
+    `
+  ).run(
+    userId,
+    identity.id,
+    identity.descriptor ?? identity.id,
+    identity.uniqueName && identity.uniqueName.includes("@") ? identity.uniqueName : null
+  );
+
+  const localDisplayName =
+    identity.displayName?.trim() ||
+    identity.uniqueName?.trim() ||
+    identity.id?.trim() ||
+    null;
+  if (localDisplayName) {
+    db.prepare(
+      "UPDATE users SET app_display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).run(localDisplayName, userId);
+  }
+};
+
 export const getAzureDevOpsPublicSettings = (
   userId: number,
   projectId: number
 ): AzureDevOpsPublicSettings | null => {
   const projectSettings = getAzureDevOpsProjectSettings(projectId);
   if (!projectSettings) return null;
+  const hasPat = hasAzureDevOpsUserPat(userId);
+  const identity = hasPat ? getStoredAzureDevOpsUserIdentity(userId) : null;
 
   return {
     ...projectSettings,
-    hasPat: hasAzureDevOpsUserPat(userId),
+    hasPat,
+    identity: identity
+      ? {
+          displayName: identity.displayName,
+          email: identity.uniqueName,
+        }
+      : null,
   };
 };
 
@@ -269,6 +365,10 @@ const normalizeAzureDevOpsIdentity = (
   identity?: Identity
 ): AzureDevOpsAuthenticatedUser | null => {
   if (!identity) return null;
+  const descriptorIdentity = identity as Identity & {
+    descriptor?: string;
+    subjectDescriptor?: string;
+  };
 
   const displayName =
     identity.providerDisplayName?.trim() ||
@@ -285,6 +385,11 @@ const normalizeAzureDevOpsIdentity = (
 
   return {
     id: identity.id?.trim() || null,
+    descriptor:
+      descriptorIdentity.descriptor?.trim() ||
+      descriptorIdentity.subjectDescriptor?.trim() ||
+      identity.id?.trim() ||
+      null,
     displayName,
     uniqueName,
   };
@@ -297,6 +402,21 @@ export const getAzureDevOpsAuthenticatedUser = async (
   return normalizeAzureDevOpsIdentity(
     connectionData.authenticatedUser ?? connectionData.authorizedUser
   );
+};
+
+export const getOrResolveAzureDevOpsUserIdentity = async (
+  userId: number,
+  connection: azdev.WebApi
+): Promise<AzureDevOpsAuthenticatedUser | null> => {
+  const storedIdentity = getStoredAzureDevOpsUserIdentity(userId);
+  if (storedIdentity) return storedIdentity;
+
+  const resolvedIdentity = await getAzureDevOpsAuthenticatedUser(connection);
+  if (resolvedIdentity) {
+    upsertAzureDevOpsUserIdentity(userId, resolvedIdentity);
+  }
+
+  return resolvedIdentity;
 };
 
 export const createAzureDevOpsConnectionContext = async (

@@ -4,6 +4,16 @@ import {
   WorkItemExpand,
 } from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
 import db from "@/lib/db";
+import {
+  isAzureDevOpsIdentityAssignedToUser,
+  normalizeAzureDevOpsWorkItemIdentity,
+} from "@/lib/azure-devops/identity";
+import type { AzureDevOpsAuthenticatedUser } from "@/lib/azure-devops/settings";
+import {
+  mapAzureDevOpsStatusToWorkItemStatus,
+  mapAzureDevOpsTypeToWorkItemType,
+  upsertExternalLink,
+} from "@/lib/work-items";
 
 export interface ChildWorkItemSnapshot {
   id: number;
@@ -12,6 +22,9 @@ export interface ChildWorkItemSnapshot {
   type: string;
   state: string;
   assignedTo?: string | null;
+  assignedToId?: string | null;
+  assignedToUniqueName?: string | null;
+  assignedToCurrentUser?: boolean | null;
 }
 
 const parsePositiveInt = (value: unknown): number | null => {
@@ -40,6 +53,45 @@ const parseWorkItemIdFromUrl = (url?: string): number | null => {
 };
 
 const formatWiqlIdList = (ids: number[]): string => ids.join(", ");
+
+const fetchIdsAssignedToCurrentUser = async (
+  witApi: WorkItemTrackingApi,
+  project: string,
+  workItemIds: number[]
+): Promise<Set<number> | null> => {
+  const uniqueIds = uniqueParentIds(workItemIds);
+  if (uniqueIds.length === 0) return new Set<number>();
+
+  const assignedIds = new Set<number>();
+
+  try {
+    for (let i = 0; i < uniqueIds.length; i += MAX_WIQL_LINK_QUERY_PARENTS) {
+      const idBatch = uniqueIds.slice(i, i + MAX_WIQL_LINK_QUERY_PARENTS);
+      const result = await witApi.queryByWiql(
+        {
+          query: `
+            SELECT [System.Id]
+            FROM WorkItems
+            WHERE [System.TeamProject] = @project
+              AND [System.Id] IN (${formatWiqlIdList(idBatch)})
+              AND [System.AssignedTo] = @Me
+          `,
+        },
+        { project }
+      );
+
+      for (const workItem of result.workItems ?? []) {
+        const id = parsePositiveInt(workItem.id);
+        if (id) assignedIds.add(id);
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to resolve child work items assigned to current Azure DevOps user:", error);
+    return null;
+  }
+
+  return assignedIds;
+};
 
 const fetchChildIdsByWiql = async (
   witApi: WorkItemTrackingApi,
@@ -183,6 +235,11 @@ export const fetchChildWorkItemsForParentIds = async (
 
   const childIds = Array.from(childIdToParentId.keys());
   if (childIds.length === 0) return [];
+  const childIdsAssignedToCurrentUser = await fetchIdsAssignedToCurrentUser(
+    witApi,
+    project,
+    childIds
+  );
 
   for (let i = 0; i < childIds.length; i += workItemBatchSize) {
     const idBatch = childIds.slice(i, i + workItemBatchSize);
@@ -214,14 +271,9 @@ export const fetchChildWorkItemsForParentIds = async (
         continue;
       }
 
-      const assignedField = workItem.fields["System.AssignedTo"] as
-        | string
-        | { displayName?: string; uniqueName?: string }
-        | undefined;
-      const assignedTo =
-        typeof assignedField === "string"
-          ? assignedField
-          : assignedField?.displayName || assignedField?.uniqueName || null;
+      const assignedTo = normalizeAzureDevOpsWorkItemIdentity(
+        workItem.fields["System.AssignedTo"]
+      );
 
       allItems.push({
         id: workItem.id,
@@ -229,7 +281,12 @@ export const fetchChildWorkItemsForParentIds = async (
         title: String(workItem.fields["System.Title"] ?? "Untitled"),
         type: normalizedType === "bug" ? "Bug" : "Task",
         state,
-        assignedTo,
+        assignedTo: assignedTo?.displayName ?? assignedTo?.uniqueName ?? null,
+        assignedToId: assignedTo?.id ?? null,
+        assignedToUniqueName: assignedTo?.uniqueName ?? null,
+        assignedToCurrentUser: childIdsAssignedToCurrentUser
+          ? childIdsAssignedToCurrentUser.has(workItem.id)
+          : null,
       });
     }
   }
@@ -241,6 +298,8 @@ export const syncChildWorkItemsSnapshot = (params: {
   projectId: number;
   parentIds: number[];
   items: ChildWorkItemSnapshot[];
+  currentUserId?: number;
+  authenticatedUser?: AzureDevOpsAuthenticatedUser | null;
 }): { parents: number; items: number; deleted: number } => {
   const { projectId } = params;
   const parentIds = uniqueParentIds(params.parentIds);
@@ -265,73 +324,219 @@ export const syncChildWorkItemsSnapshot = (params: {
       type: item.type || "Unknown",
       state: item.state || "Unknown",
       assignedTo: item.assignedTo ?? null,
+      assignedToId: item.assignedToId ?? null,
+      assignedToUniqueName: item.assignedToUniqueName ?? null,
+      assignedToCurrentUser: item.assignedToCurrentUser ?? null,
     });
   }
 
   const uniqueItems = Array.from(itemsById.values());
 
-  const insertStmt = db.prepare(`
-    INSERT INTO release_work_item_children (
-      project_id,
-      parent_external_id,
-      child_external_id,
-      title,
-      work_item_type,
-      state,
-      assigned_to,
-      updated_at
+  const parentRows = db
+    .prepare(
+      `
+        SELECT link.external_id, wi.id
+        FROM work_item_external_links link
+        INNER JOIN work_items wi ON wi.id = link.work_item_id
+        WHERE link.project_id = ?
+          AND link.provider = 'azure_devops'
+          AND wi.type = 'user_story'
+      `
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(project_id, child_external_id) DO UPDATE SET
-      parent_external_id = excluded.parent_external_id,
-      title = excluded.title,
-      work_item_type = excluded.work_item_type,
-      state = excluded.state,
-      assigned_to = excluded.assigned_to,
-      updated_at = CURRENT_TIMESTAMP
-  `);
-
-  const syncTransaction = db.transaction(
-    (transactionParentIds: number[], transactionItems: ChildWorkItemSnapshot[]) => {
-      let deleted = 0;
-      const deleteBatchSize = 200;
-
-      for (let i = 0; i < transactionParentIds.length; i += deleteBatchSize) {
-        const batch = transactionParentIds.slice(i, i + deleteBatchSize);
-        const placeholders = batch.map(() => "?").join(", ");
-        const deleteResult = db
-          .prepare(
-            `
-            DELETE FROM release_work_item_children
-            WHERE project_id = ?
-              AND parent_external_id IN (${placeholders})
-          `
-          )
-          .run(projectId, ...batch);
-        deleted += deleteResult.changes;
-      }
-
-      for (const item of transactionItems) {
-        insertStmt.run(
-          projectId,
-          item.parentId,
-          item.id,
-          item.title,
-          item.type,
-          item.state,
-          item.assignedTo ?? null
-        );
-      }
-
-      return deleted;
-    }
+    .all(projectId) as Array<{ external_id: string; id: number }>;
+  const parentInternalIdByExternalId = new Map(
+    parentRows.map((row) => [Number(row.external_id), row.id])
   );
 
-  const deleted = syncTransaction(parentIds, uniqueItems);
+  const findMappedUserId = (item: ChildWorkItemSnapshot): number | null => {
+    const candidates = [
+      item.assignedToId,
+      item.assignedToUniqueName,
+      item.assignedTo,
+    ]
+      .map((value) => value?.trim().toLowerCase())
+      .filter((value): value is string => Boolean(value));
+
+    if (candidates.length === 0) return null;
+
+    const placeholders = candidates.map(() => "?").join(", ");
+
+    const row = db
+      .prepare(
+        `
+          SELECT user_id
+          FROM provider_user_identities
+          INNER JOIN users ON users.id = provider_user_identities.user_id
+          WHERE provider = 'azure_devops'
+            AND (
+              lower(COALESCE(email, '')) IN (${placeholders})
+              OR lower(COALESCE(external_user_id, '')) IN (${placeholders})
+              OR lower(COALESCE(descriptor, '')) IN (${placeholders})
+              OR lower(COALESCE(users.app_display_name, '')) IN (${placeholders})
+            )
+          LIMIT 1
+        `
+      )
+      .get(
+        ...candidates,
+        ...candidates,
+        ...candidates,
+        ...candidates
+      ) as { user_id: number } | undefined;
+
+    return row?.user_id ?? null;
+  };
+
+  const getCurrentUserAssignmentMatch = (
+    item: ChildWorkItemSnapshot
+  ): boolean | null => {
+    const hasIdentity = item.assignedToId || item.assignedToUniqueName || item.assignedTo;
+    if (!hasIdentity || !params.authenticatedUser) return null;
+
+    return isAzureDevOpsIdentityAssignedToUser(
+      {
+        id: item.assignedToId ?? null,
+        displayName: item.assignedTo ?? null,
+        uniqueName: item.assignedToUniqueName ?? null,
+      },
+      params.authenticatedUser
+    );
+  };
+
+  const resolveAssignedUserId = (item: ChildWorkItemSnapshot): number | null => {
+    const mappedUserId = findMappedUserId(item);
+    if (mappedUserId) return mappedUserId;
+
+    if (
+      params.currentUserId &&
+      (item.assignedToCurrentUser === true || getCurrentUserAssignmentMatch(item) === true)
+    ) {
+      return params.currentUserId;
+    }
+
+    return null;
+  };
+
+  const existingLinkStmt = db.prepare(
+    `
+      SELECT wi.id, wi.assigned_user_id
+      FROM work_item_external_links link
+      INNER JOIN work_items wi ON wi.id = link.work_item_id
+      WHERE link.project_id = ?
+        AND link.provider = 'azure_devops'
+        AND link.external_id = ?
+      LIMIT 1
+    `
+  );
+
+  const maxOrderStmt = db.prepare(
+    `
+      SELECT MAX(display_order) AS max_order
+      FROM work_items
+      WHERE project_id = ?
+        AND assigned_user_id = ?
+        AND type IN ('task', 'bug')
+    `
+  );
+
+  const insertWorkItemStmt = db.prepare(
+    `
+      INSERT INTO work_items (
+        project_id,
+        title,
+        type,
+        status,
+        assigned_user_id,
+        parent_work_item_id,
+        display_order,
+        sync_state
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'synced')
+    `
+  );
+
+  const updateWorkItemStmt = db.prepare(
+    `
+      UPDATE work_items
+      SET title = ?,
+          type = ?,
+          status = ?,
+          assigned_user_id = ?,
+          parent_work_item_id = ?,
+          completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE NULL END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND project_id = ?
+    `
+  );
+
+  const syncTransaction = db.transaction((transactionItems: ChildWorkItemSnapshot[]) => {
+    for (const item of transactionItems) {
+      const parentWorkItemId = parentInternalIdByExternalId.get(item.parentId);
+      if (!parentWorkItemId) continue;
+
+      const type = mapAzureDevOpsTypeToWorkItemType(item.type);
+      if (type !== "task" && type !== "bug") continue;
+      const status = mapAzureDevOpsStatusToWorkItemStatus(item.state);
+      const syncedAssignedUserId = resolveAssignedUserId(item);
+      const isAssignedToCurrentUser =
+        item.assignedToCurrentUser ?? getCurrentUserAssignmentMatch(item);
+      const existing = existingLinkStmt.get(projectId, String(item.id)) as
+        | { id: number; assigned_user_id: number | null }
+        | undefined;
+
+      let workItemId: number;
+      if (existing) {
+        workItemId = existing.id;
+        const assignedUserId = syncedAssignedUserId ?? existing.assigned_user_id;
+        updateWorkItemStmt.run(
+          item.title,
+          type,
+          status,
+          assignedUserId,
+          parentWorkItemId,
+          status,
+          workItemId,
+          projectId
+        );
+      } else {
+        const assignedUserId = syncedAssignedUserId;
+        const maxOrder = assignedUserId
+          ? (maxOrderStmt.get(projectId, assignedUserId) as { max_order: number | null })
+          : { max_order: null };
+        const displayOrder = assignedUserId ? (maxOrder.max_order ?? -1) + 1 : 0;
+        const result = insertWorkItemStmt.run(
+          projectId,
+          item.title,
+          type,
+          status,
+          assignedUserId,
+          parentWorkItemId,
+          displayOrder
+        );
+        workItemId = Number(result.lastInsertRowid);
+      }
+
+      upsertExternalLink({
+        workItemId,
+        projectId,
+        provider: "azure_devops",
+        externalId: item.id,
+        nativeType: item.type,
+        nativeStatus: item.state,
+        nativeAssigneeId: item.assignedToId ?? null,
+        nativeAssigneeName: item.assignedTo ?? null,
+        nativeAssigneeUniqueName: item.assignedToUniqueName ?? null,
+        nativeAssigneeIsCurrentUser: isAssignedToCurrentUser,
+        sanitizedSnapshot: item,
+      });
+    }
+  });
+
+  syncTransaction(uniqueItems);
 
   return {
     parents: parentIds.length,
     items: uniqueItems.length,
-    deleted,
+    deleted: 0,
   };
 };

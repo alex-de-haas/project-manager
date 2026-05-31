@@ -2,18 +2,24 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from '@/lib/user-context';
+import { getWorkItemForUser } from '@/lib/work-items';
 
 export async function POST(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const body = await request.json();
-    const { task_id, date, hours } = body;
+    const { task_id, work_item_id, date, hours } = body;
+    const workItemId = Number(work_item_id ?? task_id);
 
-    if (!task_id || !date) {
+    if (!Number.isInteger(workItemId) || workItemId <= 0 || !date) {
       return NextResponse.json(
-        { error: 'Task ID and date are required' },
+        { error: 'Work item ID and date are required' },
         { status: 400 }
       );
     }
@@ -28,26 +34,34 @@ export async function POST(request: NextRequest) {
     }
 
     if (hoursValue === 0) {
-      // Delete the entry if hours is 0
       db.prepare(
         `DELETE FROM time_entries 
-         WHERE task_id = ? AND date = ?
-           AND task_id IN (SELECT id FROM tasks WHERE id = ? AND user_id = ? AND project_id = ?)`
-      ).run(task_id, date, task_id, userId, projectId);
+         WHERE work_item_id = ? AND user_id = ? AND date = ?
+           AND work_item_id IN (
+             SELECT id
+             FROM work_items
+             WHERE id = ?
+               AND assigned_user_id = ?
+               AND project_id = ?
+               AND type IN ('task', 'bug')
+           )`
+      ).run(workItemId, userId, date, workItemId, userId, projectId);
     } else {
-      // Insert or update the time entry
-      const task = db
-        .prepare('SELECT id FROM tasks WHERE id = ? AND user_id = ? AND project_id = ?')
-        .get(task_id, userId, projectId) as { id: number } | undefined;
-      if (!task) {
-        return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+      const item = getWorkItemForUser(workItemId, projectId, userId, {
+        requireAssigned: true,
+        requireTrackable: true,
+      });
+      if (!item) {
+        return NextResponse.json({ error: 'Work item not found' }, { status: 404 });
       }
 
       db.prepare(
-        `INSERT INTO time_entries (task_id, date, hours) 
-         VALUES (?, ?, ?) 
-         ON CONFLICT(task_id, date) DO UPDATE SET hours = excluded.hours`
-      ).run(task_id, date, hoursValue);
+        `INSERT INTO time_entries (work_item_id, user_id, date, hours, updated_at) 
+         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) 
+         ON CONFLICT(work_item_id, user_id, date) DO UPDATE SET
+           hours = excluded.hours,
+           updated_at = CURRENT_TIMESTAMP`
+      ).run(workItemId, userId, date, hoursValue);
     }
 
     return NextResponse.json(
@@ -55,6 +69,9 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Database error:', error);
     return NextResponse.json(
       { error: 'Failed to save time entry' },
@@ -69,10 +86,11 @@ export async function GET(request: NextRequest) {
     const projectId = getRequestProjectId(request, userId);
     const searchParams = request.nextUrl.searchParams;
     const taskId = searchParams.get('taskId');
+    const workItemId = Number(searchParams.get('workItemId') ?? taskId);
 
-    if (!taskId) {
+    if (!Number.isInteger(workItemId) || workItemId <= 0) {
       return NextResponse.json(
-        { error: 'taskId is required' },
+        { error: 'workItemId is required' },
         { status: 400 }
       );
     }
@@ -80,13 +98,20 @@ export async function GET(request: NextRequest) {
     const entries = db.prepare(
       `SELECT te.date, te.hours
        FROM time_entries te
-       INNER JOIN tasks t ON t.id = te.task_id
-       WHERE te.task_id = ? AND t.user_id = ? AND t.project_id = ?
+       INNER JOIN work_items wi ON wi.id = te.work_item_id
+       WHERE te.work_item_id = ?
+         AND te.user_id = ?
+         AND wi.assigned_user_id = ?
+         AND wi.project_id = ?
+         AND wi.type IN ('task', 'bug')
        ORDER BY te.date DESC`
-    ).all(taskId, userId, projectId);
+    ).all(workItemId, userId, userId, projectId);
 
     return NextResponse.json(entries);
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Database error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch time entries' },

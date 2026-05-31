@@ -20,11 +20,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MarkdownContent } from "@/components/MarkdownContent";
 
 interface WorkItemModalProps {
   task?: {
     id: number;
     title: string;
+    description?: string | null;
     type: "task" | "bug";
   } | null;
   onClose: () => void;
@@ -34,13 +36,19 @@ interface WorkItemModalProps {
 export function WorkItemModal({ task, onClose, onSuccess }: WorkItemModalProps) {
   const isEditMode = !!task;
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [type, setType] = useState<"task" | "bug">("task");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (task) {
       setTitle(task.title);
+      setDescription(task.description ?? "");
       setType(task.type);
+    } else {
+      setTitle("");
+      setDescription("");
+      setType("task");
     }
   }, [task]);
 
@@ -55,8 +63,8 @@ export function WorkItemModal({ task, onClose, onSuccess }: WorkItemModalProps) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           isEditMode
-            ? { id: task.id, title, type }
-            : { title, type }
+            ? { id: task.id, title, description, type }
+            : { title, description, type }
         ),
       });
 
@@ -110,6 +118,22 @@ export function WorkItemModal({ task, onClose, onSuccess }: WorkItemModalProps) 
                 <SelectItem value="bug">Bug</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="description">Description</Label>
+            <textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Markdown supported"
+              rows={5}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+            {description.trim() && (
+              <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-3">
+                <MarkdownContent content={description} />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button

@@ -1,42 +1,53 @@
 export const dynamic = "force-dynamic";
 
-import { NextRequest, NextResponse } from 'next/server';
-import { JsonPatchDocument, JsonPatchOperation, Operation } from 'azure-devops-node-api/interfaces/common/VSSInterfaces';
-import db from '@/lib/db';
-import type { Task } from '@/types';
-import { getRequestProjectId, getRequestUserId } from '@/lib/user-context';
+import { NextRequest, NextResponse } from "next/server";
+import {
+  JsonPatchDocument,
+  JsonPatchOperation,
+  Operation,
+} from "azure-devops-node-api/interfaces/common/VSSInterfaces";
+import db from "@/lib/db";
+import type { Task } from "@/types";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 import {
   createAzureDevOpsConnectionContext,
   getAzureDevOpsSettingsForUser,
+  getStoredAzureDevOpsUserIdentity,
   isAzureDevOpsConfigProblem,
-} from '@/lib/azure-devops/settings';
+} from "@/lib/azure-devops/settings";
+import { displayWorkItemStatus, upsertExternalLink } from "@/lib/work-items";
 
 interface ExportRequest {
   taskId: number;
   parentWorkItemId?: number;
 }
 
-const getUserEmail = (userId: number): string | null => {
-  const user = db
-    .prepare('SELECT email FROM users WHERE id = ?')
-    .get(userId) as { email?: string | null } | undefined;
-  return user?.email?.trim() || null;
+const getAzureDevOpsAssignmentValue = (userId: number): string | null => {
+  const identity = getStoredAzureDevOpsUserIdentity(userId);
+  return (
+    identity?.uniqueName?.trim() ||
+    identity?.displayName?.trim() ||
+    identity?.descriptor?.trim() ||
+    identity?.id?.trim() ||
+    null
+  );
 };
 
 const isUnsupportedStateError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
+  if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
-  const hasStateFieldMention =
-    message.includes("field 'state'") || message.includes("field \"state\"") || message.includes("system.state");
-  const hasUnsupportedValueMention =
-    message.includes("supported values") ||
-    message.includes("allowed values") ||
-    message.includes("invalid value");
-
-  return hasStateFieldMention && hasUnsupportedValueMention;
+  return (
+    (message.includes("field 'state'") ||
+      message.includes('field "state"') ||
+      message.includes("system.state")) &&
+    (message.includes("supported values") ||
+      message.includes("allowed values") ||
+      message.includes("invalid value"))
+  );
 };
 
 export async function POST(request: NextRequest) {
@@ -47,88 +58,96 @@ export async function POST(request: NextRequest) {
     const { taskId, parentWorkItemId } = body;
 
     if (!taskId) {
-      return NextResponse.json(
-        { error: 'Task ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
     }
 
-    // Get the task from database
     const task = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND user_id = ? AND project_id = ?')
+      .prepare(
+        `
+          SELECT
+            wi.*,
+            wi.assigned_user_id AS user_id,
+            link.external_id,
+            link.provider AS external_source
+          FROM work_items wi
+          LEFT JOIN work_item_external_links link
+            ON link.work_item_id = wi.id
+            AND link.provider = 'azure_devops'
+          WHERE wi.id = ?
+            AND wi.assigned_user_id = ?
+            AND wi.project_id = ?
+            AND wi.type IN ('task', 'bug')
+        `
+      )
       .get(taskId, userId, projectId) as Task | undefined;
 
     if (!task) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // Check if task is already linked to Azure DevOps
-    if (task.external_source === 'azure_devops' && task.external_id) {
+    if (task.external_source === "azure_devops" && task.external_id) {
       return NextResponse.json(
-        { error: 'Task is already linked to Azure DevOps' },
+        { error: "Task is already linked to Azure DevOps" },
         { status: 400 }
       );
     }
 
     const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
     if (isAzureDevOpsConfigProblem(settingsResult)) {
-      return NextResponse.json(
-        { error: settingsResult.message },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: settingsResult.message }, { status: 400 });
     }
 
     const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
-
-    // Use the task owner's email when setting assignment (supports release-planner user selection)
     const assigneeUserId = task.user_id ?? userId;
-    const assignedUserEmail = getUserEmail(assigneeUserId);
-
-    // Map local task type to Azure DevOps work item type
-    const workItemType = task.type === 'bug' ? 'Bug' : 'Task';
+    const assignedUserIdentity = getStoredAzureDevOpsUserIdentity(assigneeUserId);
+    const assignedUserValue = getAzureDevOpsAssignmentValue(assigneeUserId);
+    const workItemType = task.type === "bug" ? "Bug" : "Task";
+    const nativeStatus = displayWorkItemStatus(task.status);
 
     const buildPatchDocument = (includeState: boolean): JsonPatchDocument => {
       const patchOperations: JsonPatchOperation[] = [
         {
           op: Operation.Add,
-          path: '/fields/System.Title',
-          value: task.title
+          path: "/fields/System.Title",
+          value: task.title,
         } as JsonPatchOperation,
       ];
 
-      // Add assigned to only when we have the selected assignee's email
-      if (assignedUserEmail) {
+      if (task.description) {
         patchOperations.push({
           op: Operation.Add,
-          path: '/fields/System.AssignedTo',
-          value: assignedUserEmail
+          path: "/fields/System.Description",
+          value: task.description,
         } as JsonPatchOperation);
       }
 
-      // Try preserving local state, but this can be unsupported in custom Azure workflows.
+      if (assignedUserValue) {
+        patchOperations.push({
+          op: Operation.Add,
+          path: "/fields/System.AssignedTo",
+          value: assignedUserValue,
+        } as JsonPatchOperation);
+      }
+
       if (includeState && task.status) {
         patchOperations.push({
           op: Operation.Add,
-          path: '/fields/System.State',
-          value: task.status
+          path: "/fields/System.State",
+          value: nativeStatus,
         } as JsonPatchOperation);
       }
 
-      // Add parent link if provided
       if (parentWorkItemId) {
         patchOperations.push({
           op: Operation.Add,
-          path: '/relations/-',
+          path: "/relations/-",
           value: {
-            rel: 'System.LinkTypes.Hierarchy-Reverse',
+            rel: "System.LinkTypes.Hierarchy-Reverse",
             url: `https://dev.azure.com/${settings.organization}/_apis/wit/workItems/${parentWorkItemId}`,
             attributes: {
-              comment: 'Parent work item'
-            }
-          }
+              comment: "Parent work item",
+            },
+          },
         } as JsonPatchOperation);
       }
 
@@ -144,11 +163,7 @@ export async function POST(request: NextRequest) {
         workItemType
       );
     } catch (error) {
-      // Fallback for projects where the local status is not valid for initial state.
-      if (!task.status || !isUnsupportedStateError(error)) {
-        throw error;
-      }
-
+      if (!task.status || !isUnsupportedStateError(error)) throw error;
       console.warn(
         `Azure DevOps export: retrying work item creation without System.State (taskId=${taskId}, status="${task.status}")`
       );
@@ -160,56 +175,74 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!createdWorkItem || !createdWorkItem.id) {
+    if (!createdWorkItem?.id) {
       return NextResponse.json(
-        { error: 'Failed to create work item in Azure DevOps' },
+        { error: "Failed to create work item in Azure DevOps" },
         { status: 500 }
       );
     }
 
-    // Update local task to link to the new Azure DevOps work item
-    db.prepare(`
-      UPDATE tasks 
-      SET external_id = ?, external_source = 'azure_devops' 
-      WHERE id = ? AND user_id = ? AND project_id = ?
-    `).run(createdWorkItem.id.toString(), taskId, userId, projectId);
+    upsertExternalLink({
+      workItemId: task.id,
+      projectId,
+      provider: "azure_devops",
+      externalId: createdWorkItem.id,
+      nativeType: workItemType,
+      nativeStatus,
+      nativeAssigneeId: assignedUserIdentity?.id ?? assignedUserIdentity?.descriptor ?? null,
+      nativeAssigneeName: assignedUserIdentity?.displayName ?? null,
+      nativeAssigneeUniqueName: assignedUserIdentity?.uniqueName ?? null,
+      nativeAssigneeIsCurrentUser: assigneeUserId === userId,
+      sanitizedSnapshot: {
+        id: createdWorkItem.id,
+        title: task.title,
+        type: workItemType,
+        state: nativeStatus,
+      },
+    });
+
+    db.prepare(
+      `
+        UPDATE work_items
+        SET sync_state = 'synced',
+            updated_by_user_id = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND project_id = ?
+      `
+    ).run(userId, task.id, projectId);
 
     return NextResponse.json({
       success: true,
       workItemId: createdWorkItem.id,
-      message: `Successfully exported to Azure DevOps as work item #${createdWorkItem.id}`
+      message: `Successfully exported to Azure DevOps as work item #${createdWorkItem.id}`,
     });
-
   } catch (error) {
-    console.error('Error exporting to Azure DevOps:', error);
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
+    console.error("Error exporting to Azure DevOps:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to export to Azure DevOps' },
+      { error: error instanceof Error ? error.message : "Failed to export to Azure DevOps" },
       { status: 500 }
     );
   }
 }
 
-// GET endpoint to fetch potential parent work items
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
     const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
     if (isAzureDevOpsConfigProblem(settingsResult)) {
-      return NextResponse.json(
-        { error: settingsResult.message },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: settingsResult.message }, { status: 400 });
     }
 
     const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
-
-    // Query for potential parent work items (User Stories, Features, Epics, Product Backlog Items)
     const wiql = {
       query: `
         SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State]
         FROM WorkItems
-        WHERE ([System.WorkItemType] = 'User Story' 
+        WHERE ([System.WorkItemType] = 'User Story'
           OR [System.WorkItemType] = 'Feature'
           OR [System.WorkItemType] = 'Epic'
           OR [System.WorkItemType] = 'Product Backlog Item')
@@ -218,22 +251,18 @@ export async function GET(request: NextRequest) {
           AND [System.State] <> 'Removed'
           AND [System.State] <> 'Done'
         ORDER BY [System.ChangedDate] DESC
-      `
+      `,
     };
 
     const queryResult = await witApi.queryByWiql(wiql, { project: settings.project });
-    const workItemIds = queryResult?.workItems?.map(wi => wi.id!).filter(Boolean) || [];
+    const workItemIds = queryResult?.workItems?.map((wi) => wi.id!).filter(Boolean) || [];
 
     if (workItemIds.length === 0) {
       return NextResponse.json({ parentWorkItems: [] });
     }
 
-    // Limit to first 100 items
-    const limitedIds = workItemIds.slice(0, 100);
-
-    // Fetch work item details
     const workItems = await witApi.getWorkItems(
-      limitedIds,
+      workItemIds.slice(0, 100),
       undefined,
       undefined,
       undefined,
@@ -241,19 +270,22 @@ export async function GET(request: NextRequest) {
     );
 
     const parentWorkItems = (workItems || [])
-      .filter(wi => wi.id && wi.fields)
-      .map(wi => ({
+      .filter((wi) => wi.id && wi.fields)
+      .map((wi) => ({
         id: wi.id!,
-        title: wi.fields?.['System.Title'] || 'Untitled',
-        type: wi.fields?.['System.WorkItemType'] || 'Unknown',
-        state: wi.fields?.['System.State'] || 'Unknown',
+        title: wi.fields?.["System.Title"] || "Untitled",
+        type: wi.fields?.["System.WorkItemType"] || "Unknown",
+        state: wi.fields?.["System.State"] || "Unknown",
       }));
 
     return NextResponse.json({ parentWorkItems });
   } catch (error) {
-    console.error('Error fetching parent work items:', error);
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
+    console.error("Error fetching parent work items:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch parent work items' },
+      { error: error instanceof Error ? error.message : "Failed to fetch parent work items" },
       { status: 500 }
     );
   }

@@ -97,6 +97,7 @@ export const isAzureDevOpsIdentityAssignedToUser = (
 
   const currentUserCandidates = [
     normalizeComparable(authenticatedUser.id),
+    normalizeComparable(authenticatedUser.descriptor ?? null),
     normalizeComparable(authenticatedUser.uniqueName),
     normalizeComparable(authenticatedUser.displayName),
     extractEmail(authenticatedUser.displayName),

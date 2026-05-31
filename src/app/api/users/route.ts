@@ -6,7 +6,11 @@ import { getHostDirectorySnapshot } from "@/lib/host-directory";
 import { listHostBackedUsers, upsertHostDirectoryUsers, type HostBackedUser } from "@/lib/host-users";
 
 const usersResponse = (users: HostBackedUser[], directoryStatus: string) =>
-  NextResponse.json(users, {
+  NextResponse.json(users.map((user) => ({
+    ...user,
+    hostName: user.name,
+    name: user.app_display_name || user.name,
+  })), {
     headers: {
       "Cache-Control": "no-store",
       "X-Project-Manager-Host-Directory-Status": directoryStatus,

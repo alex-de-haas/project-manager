@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
 import type { Release } from "@/types";
-import { getRequestProjectId, getRequestUserId } from "@/lib/user-context";
+import {
+  getRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from "@/lib/user-context";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +18,9 @@ export async function GET(request: NextRequest) {
       .all(projectId) as Release[];
     return NextResponse.json(releases);
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Database error:", error);
     return NextResponse.json(
       { error: "Failed to fetch releases" },
@@ -68,6 +75,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(release, { status: 201 });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Database error:", error);
     return NextResponse.json(
       { error: "Failed to create release" },
@@ -150,6 +160,9 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json(release);
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Database error:", error);
     return NextResponse.json(
       { error: "Failed to update release" },
@@ -189,6 +202,9 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error("Database error:", error);
     return NextResponse.json(
       { error: "Failed to delete release" },
