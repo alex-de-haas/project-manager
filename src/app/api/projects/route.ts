@@ -165,8 +165,10 @@ const assertProviderCanChange = (
   if (nextProvider === "none") return null;
 
   const link = db
-    .prepare("SELECT id FROM work_item_external_links WHERE project_id = ? LIMIT 1")
-    .get(projectId) as { id: number } | undefined;
+    .prepare(
+      "SELECT id FROM work_item_external_links WHERE project_id = ? AND provider != ? LIMIT 1"
+    )
+    .get(projectId, nextProvider) as { id: number } | undefined;
   return link
     ? "Cannot switch provider while external work item links exist"
     : null;

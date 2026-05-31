@@ -240,9 +240,8 @@ const initDb = () => {
     );
 
     CREATE TABLE IF NOT EXISTS module_settings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      key TEXT NOT NULL UNIQUE,
-      value TEXT NOT NULL,
+      key TEXT PRIMARY KEY,
+      value TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

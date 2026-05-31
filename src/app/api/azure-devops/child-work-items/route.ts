@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
       .all(projectId, String(parentId)) as ChildWorkItemRow[];
 
     const items = rows.map((row) => {
-      const state = row.state ? displayWorkItemStatus(row.status) : displayWorkItemStatus(row.status);
+      const state = displayWorkItemStatus(row.status);
       return {
         id: Number(row.child_external_id),
         parentId,
