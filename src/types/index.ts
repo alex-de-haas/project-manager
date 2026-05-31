@@ -197,7 +197,7 @@ export interface ChecklistItem {
 
 export interface User {
   id: number;
-  host_user_id?: string | null;
+  host_user_id: string;
   name: string;
   app_display_name?: string | null;
   email?: string | null;

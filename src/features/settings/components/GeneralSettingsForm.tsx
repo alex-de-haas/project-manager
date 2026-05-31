@@ -76,7 +76,7 @@ interface DatabaseBackupFile {
 
 interface AppUser {
   id: number;
-  host_user_id?: string | null;
+  host_user_id: string;
   name: string;
   email?: string | null;
   is_admin?: number;

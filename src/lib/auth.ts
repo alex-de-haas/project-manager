@@ -3,7 +3,7 @@ import { readTrustedHostIdentity } from "@/lib/host-identity";
 import { ensureHostUser } from "@/lib/host-users";
 import type { User } from "@/types";
 
-export type AuthenticatedUser = User & { host_user_id?: string | null };
+export type AuthenticatedUser = User;
 
 export const getAuthenticatedUser = (request: NextRequest): AuthenticatedUser | null => {
   const identity = readTrustedHostIdentity(request.headers);

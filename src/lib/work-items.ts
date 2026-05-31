@@ -93,7 +93,12 @@ export const getCompletedAtForStatus = (
   previousCompletedAt?: Date | string | null
 ): string | null => {
   if (nextStatus === "completed") {
-    return previousCompletedAt ? new Date(previousCompletedAt).toISOString() : new Date().toISOString();
+    if (previousCompletedAt) {
+      return previousCompletedAt instanceof Date
+        ? previousCompletedAt.toISOString()
+        : previousCompletedAt;
+    }
+    return new Date().toISOString();
   }
   return null;
 };
@@ -393,7 +398,7 @@ export const upsertExternalLink = ({
       : nativeAssigneeIsCurrentUser
         ? 1
         : 0,
-    sanitizedSnapshot ? JSON.stringify(sanitizedSnapshot) : null
+    sanitizedSnapshot === undefined ? null : JSON.stringify(sanitizedSnapshot)
   );
 };
 

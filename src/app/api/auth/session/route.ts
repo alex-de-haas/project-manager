@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       authenticated: true,
       user: {
         id: user.id,
-        host_user_id: user.host_user_id ?? null,
+        host_user_id: user.host_user_id,
         name: user.app_display_name || user.name,
         hostName: user.name,
         email: user.email ?? null,
