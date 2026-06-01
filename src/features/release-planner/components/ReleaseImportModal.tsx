@@ -24,6 +24,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+const formatImportSummary = (imported: number, skipped: number) => {
+  const importedLabel = imported === 1 ? "user story" : "user stories";
+  const skippedLabel = skipped === 1 ? "user story" : "user stories";
+
+  return [
+    `Imported ${imported} ${importedLabel}`,
+    skipped > 0 ? `skipped ${skipped} existing ${skippedLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+};
+
 interface ReleaseImportModalProps {
   releaseId: number;
   onClose: () => void;
@@ -44,10 +56,6 @@ export default function ReleaseImportModal({
   const [filterText, setFilterText] = useState("");
   const [appliedFilter, setAppliedFilter] = useState("");
   const [pageSize, setPageSize] = useState<PageSizeOption>("20");
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"success" | "error" | "info">(
-    "info"
-  );
 
   const fetchWorkItems = useCallback(async (searchTerm: string, limit: number) => {
     const trimmedSearch = searchTerm.trim();
@@ -66,14 +74,12 @@ export default function ReleaseImportModal({
         setSelectedIds(new Set());
         setAppliedFilter(trimmedSearch);
       } else {
-        setMessage(
+        toast.error(
           `Failed to fetch user stories: ${data.error || "Unknown error"}`
         );
-        setMessageType("error");
       }
     } catch (err) {
-      setMessage("Failed to fetch user stories: Network error");
-      setMessageType("error");
+      toast.error("Failed to fetch user stories: Network error");
     } finally {
       setLoading(false);
     }
@@ -82,20 +88,6 @@ export default function ReleaseImportModal({
   useEffect(() => {
     fetchWorkItems("", 20);
   }, [fetchWorkItems]);
-
-  useEffect(() => {
-    if (!message) return;
-
-    if (messageType === "success") {
-      toast.success(message);
-    } else if (messageType === "error") {
-      toast.error(message);
-    } else {
-      toast.info(message);
-    }
-
-    setMessage("");
-  }, [message, messageType]);
 
   const handleSearch = () => {
     fetchWorkItems(filterText, Number(pageSize));
@@ -133,14 +125,11 @@ export default function ReleaseImportModal({
 
   const handleImport = async () => {
     if (selectedIds.size === 0) {
-      setMessage("Please select at least one user story to import");
-      setMessageType("error");
+      toast.error("Please select at least one user story to import");
       return;
     }
 
     setImporting(true);
-    setMessage("Importing selected user stories...");
-    setMessageType("info");
 
     try {
       const response = await fetch("/api/releases/work-items/import", {
@@ -155,24 +144,13 @@ export default function ReleaseImportModal({
       const data = await response.json();
 
       if (response.ok) {
-        setMessage(
-          `Imported ${data.imported} user story(s)${
-            data.skipped > 0
-              ? `, skipped ${data.skipped} (already exists)`
-              : ""
-          }`
-        );
-        setMessageType("success");
-        setTimeout(() => {
-          onSuccess();
-        }, 1500);
+        toast.success(formatImportSummary(data.imported ?? 0, data.skipped ?? 0));
+        onSuccess();
       } else {
-        setMessage(`Import failed: ${data.error || "Unknown error"}`);
-        setMessageType("error");
+        toast.error(`Import failed: ${data.error || "Unknown error"}`);
       }
     } catch (err) {
-      setMessage("Import failed: Network error");
-      setMessageType("error");
+      toast.error("Import failed: Network error");
     } finally {
       setImporting(false);
     }

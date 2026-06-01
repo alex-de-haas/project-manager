@@ -141,11 +141,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         setPat("");
       }
 
-      setMessage("Settings saved successfully.");
-      setMessageType("success");
-      setTimeout(() => {
-        onClose();
-      }, 1500);
+      toast.success("Settings saved successfully.");
+      onClose();
     } catch (err) {
       setMessage("Failed to save settings");
       setMessageType("error");

@@ -39,8 +39,6 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [filterText, setFilterText] = useState("");
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"success" | "error" | "info">("info");
 
   const fetchParentWorkItems = useCallback(async () => {
     try {
@@ -51,12 +49,10 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
       if (response.ok) {
         setParentWorkItems(data.parentWorkItems || []);
       } else {
-        setMessage(`Failed to fetch parent work items: ${data.error || "Unknown error"}`);
-        setMessageType("error");
+        toast.error(`Failed to fetch parent work items: ${data.error || "Unknown error"}`);
       }
     } catch (err) {
-      setMessage("Failed to fetch parent work items: Network error");
-      setMessageType("error");
+      toast.error("Failed to fetch parent work items: Network error");
     } finally {
       setLoading(false);
     }
@@ -65,20 +61,6 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
   useEffect(() => {
     void fetchParentWorkItems();
   }, [fetchParentWorkItems]);
-
-  useEffect(() => {
-    if (!message) return;
-
-    if (messageType === "success") {
-      toast.success(message);
-    } else if (messageType === "error") {
-      toast.error(message);
-    } else {
-      toast.info(message);
-    }
-
-    setMessage("");
-  }, [message, messageType]);
 
   const filteredWorkItems = useMemo(() => {
     const searchText = filterText.trim().toLowerCase();
@@ -94,8 +76,6 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
 
   const handleExport = async () => {
     setExporting(true);
-    setMessage("Exporting to Azure DevOps...");
-    setMessageType("info");
 
     try {
       const response = await fetch("/api/azure-devops/export", {
@@ -110,18 +90,13 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
       const data = await response.json();
 
       if (response.ok) {
-        setMessage(data.message || "Successfully exported to Azure DevOps");
-        setMessageType("success");
-        setTimeout(() => {
-          onSuccess();
-        }, 1500);
+        toast.success(data.message || "Successfully exported to Azure DevOps");
+        onSuccess();
       } else {
-        setMessage(`Export failed: ${data.error || "Unknown error"}`);
-        setMessageType("error");
+        toast.error(`Export failed: ${data.error || "Unknown error"}`);
       }
     } catch (err) {
-      setMessage("Export failed: Network error");
-      setMessageType("error");
+      toast.error("Export failed: Network error");
     } finally {
       setExporting(false);
     }

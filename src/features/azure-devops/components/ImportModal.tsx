@@ -17,6 +17,18 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AzureDevOpsWorkItem } from "@/types";
 
+const formatImportSummary = (imported: number, skipped: number) => {
+  const importedLabel = imported === 1 ? "work item" : "work items";
+  const skippedLabel = skipped === 1 ? "work item" : "work items";
+
+  return [
+    `Imported ${imported} ${importedLabel}`,
+    skipped > 0 ? `skipped ${skipped} existing ${skippedLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+};
+
 interface ImportModalProps {
   onClose: () => void;
   onSuccess: () => void;
@@ -28,10 +40,6 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [filterText, setFilterText] = useState("");
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"success" | "error" | "info">(
-    "info"
-  );
 
   const fetchWorkItems = useCallback(async () => {
     try {
@@ -42,12 +50,10 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
       if (response.ok) {
         setWorkItems(data.workItems || []);
       } else {
-        setMessage(`Failed to fetch work items: ${data.error || "Unknown error"}`);
-        setMessageType("error");
+        toast.error(`Failed to fetch work items: ${data.error || "Unknown error"}`);
       }
     } catch (err) {
-      setMessage("Failed to fetch work items: Network error");
-      setMessageType("error");
+      toast.error("Failed to fetch work items: Network error");
     } finally {
       setLoading(false);
     }
@@ -56,20 +62,6 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   useEffect(() => {
     void fetchWorkItems();
   }, [fetchWorkItems]);
-
-  useEffect(() => {
-    if (!message) return;
-
-    if (messageType === "success") {
-      toast.success(message);
-    } else if (messageType === "error") {
-      toast.error(message);
-    } else {
-      toast.info(message);
-    }
-
-    setMessage("");
-  }, [message, messageType]);
 
   const filteredWorkItems = useMemo(() => {
     const searchText = filterText.trim().toLowerCase();
@@ -118,14 +110,11 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
 
   const handleImport = async () => {
     if (selectedIds.size === 0) {
-      setMessage("Please select at least one work item to import");
-      setMessageType("error");
+      toast.error("Please select at least one work item to import");
       return;
     }
 
     setImporting(true);
-    setMessage("Importing selected work items...");
-    setMessageType("info");
 
     try {
       const response = await fetch("/api/azure-devops/import", {
@@ -137,22 +126,13 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
       const data = await response.json();
 
       if (response.ok) {
-        setMessage(
-          `Successfully imported ${data.imported} work item(s)${
-            data.skipped > 0 ? `, skipped ${data.skipped} (already exists)` : ""
-          }`
-        );
-        setMessageType("success");
-        setTimeout(() => {
-          onSuccess();
-        }, 2000);
+        toast.success(formatImportSummary(data.imported ?? 0, data.skipped ?? 0));
+        onSuccess();
       } else {
-        setMessage(`Import failed: ${data.error || "Unknown error"}`);
-        setMessageType("error");
+        toast.error(`Import failed: ${data.error || "Unknown error"}`);
       }
     } catch (err) {
-      setMessage("Import failed: Network error");
-      setMessageType("error");
+      toast.error("Import failed: Network error");
     } finally {
       setImporting(false);
     }

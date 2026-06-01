@@ -108,12 +108,11 @@ export function DayOffsModal({
           }
         }
 
-        setMessage(
+        toast.success(
           `Added ${addedCount} ${addedCount === 1 ? "day off" : "days off"}${
             skippedCount > 0 ? `, skipped ${skippedCount} (already exists)` : ""
           }`
         );
-        setMessageType("success");
       } else {
         // Single date
         const response = await fetch("/api/day-offs", {
@@ -127,17 +126,14 @@ export function DayOffsModal({
           throw new Error(data.error || "Failed to create day off");
         }
 
-        setMessage("Day off added successfully.");
-        setMessageType("success");
+        toast.success("Day off added successfully.");
       }
 
       setDate("");
       setEndDate("");
       setDescription("");
       setIsHalfDay(false);
-      setTimeout(() => {
-        onSuccess();
-      }, 1000);
+      onSuccess();
     } catch (err: any) {
       setMessage(err instanceof Error ? err.message : "Failed to create day off");
       setMessageType("error");
@@ -207,19 +203,18 @@ export function DayOffsModal({
         throw new Error(data.error || "Failed to import ICS calendar");
       }
 
-      setMessage(
-        `Imported ${data.added} holiday(s)${
-          data.skipped > 0 ? `, skipped ${data.skipped} existing date(s)` : ""
+      const addedLabel = data.added === 1 ? "holiday" : "holidays";
+      const skippedLabel = data.skipped === 1 ? "date" : "dates";
+      toast.success(
+        `Imported ${data.added} ${addedLabel}${
+          data.skipped > 0 ? `, skipped ${data.skipped} existing ${skippedLabel}` : ""
         }`
       );
-      setMessageType("success");
       setImportUrl("");
       setImportFileName("");
       setImportFileContent("");
       setImportFileInputKey((current) => current + 1);
-      setTimeout(() => {
-        onSuccess();
-      }, 1000);
+      onSuccess();
     } catch (err: any) {
       setMessage(err instanceof Error ? err.message : "Failed to import ICS calendar");
       setMessageType("error");
@@ -237,11 +232,8 @@ export function DayOffsModal({
       if (!response.ok) throw new Error("Failed to delete day off");
 
       setPendingDeleteDayOff(null);
-      setMessage("Day off deleted successfully.");
-      setMessageType("success");
-      setTimeout(() => {
-        onSuccess();
-      }, 1000);
+      toast.success("Day off deleted successfully.");
+      onSuccess();
     } catch (err) {
       setMessage("Failed to delete day off");
       setMessageType("error");

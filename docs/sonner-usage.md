@@ -10,7 +10,8 @@ Project Manager uses toast notifications to provide immediate feedback after use
 - **Error**: explains that an action failed and may include the reason.
 - **Warning**: highlights a risky or blocked action, such as trying to close a task before checklist items are complete.
 - **Info**: communicates neutral state changes or available updates.
-- **Loading**: shows that a longer-running action is in progress.
+- **Loading**: reserved for long-running background work where the user can keep
+  working while the operation continues.
 
 ## Where Notifications Appear
 
@@ -29,7 +30,12 @@ Notifications are used across workflows where immediate feedback matters:
 - Notifications should be short and action-oriented.
 - Success messages should confirm the completed action.
 - Error messages should help the user understand what to fix next.
-- Loading messages should be used for actions that may take noticeable time.
+- Do not show both progress and success notifications for the same dialog action.
+  Prefer inline progress such as a disabled button label, then show one final
+  success or error notification.
+- Dialogs should not wait for a notification before closing. After a successful
+  action, close the dialog immediately and let the final notification appear
+  independently.
 - Notifications should not replace validation messages when the user needs to correct a specific field.
 
 ## User Experience
