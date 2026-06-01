@@ -20,7 +20,7 @@ interface ProviderVisual {
 const providerVisuals: Partial<Record<IntegrationProvider, ProviderVisual>> = {
   azure_devops: {
     label: "Azure DevOps",
-    iconSrc: "/icons/azure-devops.png",
+    iconSrc: "/icons/azure-devops.svg",
   },
 };
 
@@ -53,17 +53,21 @@ export function ExternalWorkItemReference({
   const content = (
     <>
       {visual?.iconSrc && (
-        <Image
+        <span
           aria-hidden="true"
           className={cn(
-            "h-4 w-4 flex-shrink-0",
+            "relative block h-4 w-4 flex-shrink-0",
             iconClassName
           )}
-          src={visual.iconSrc}
-          alt=""
-          width={16}
-          height={16}
-        />
+        >
+          <Image
+            className="object-contain"
+            src={visual.iconSrc}
+            alt=""
+            fill
+            sizes="1em"
+          />
+        </span>
       )}
       <span className="flex h-5 items-center leading-none">{displayId}</span>
     </>
