@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
                 type = ?,
                 status = ?,
                 tags = ?,
-                assigned_user_id = COALESCE(?, assigned_user_id),
+                assigned_user_id = ?,
                 display_order = ?,
                 completed_at = ?,
                 sync_state = 'synced',

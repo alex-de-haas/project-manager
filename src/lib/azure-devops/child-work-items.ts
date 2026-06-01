@@ -5,6 +5,7 @@ import {
 } from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
 import db from "@/lib/db";
 import {
+  findMappedAzureDevOpsUserId,
   isAzureDevOpsIdentityAssignedToUser,
   normalizeAzureDevOpsWorkItemIdentity,
 } from "@/lib/azure-devops/identity";
@@ -348,47 +349,6 @@ export const syncChildWorkItemsSnapshot = (params: {
     parentRows.map((row) => [Number(row.external_id), row.id])
   );
 
-  const findMappedUserId = (item: ChildWorkItemSnapshot): number | null => {
-    const candidates = [
-      item.assignedToId,
-      item.assignedToUniqueName,
-      item.assignedTo,
-    ]
-      .map((value) => value?.trim().toLowerCase())
-      .filter((value): value is string => Boolean(value));
-
-    if (candidates.length === 0) return null;
-
-    const placeholders = candidates.map(() => "?").join(", ");
-
-    const row = db
-      .prepare(
-        `
-          SELECT user_id
-          FROM provider_user_identities
-          INNER JOIN users ON users.id = provider_user_identities.user_id
-          WHERE provider = 'azure_devops'
-            AND provider_user_identities.project_id = ?
-            AND (
-              lower(COALESCE(email, '')) IN (${placeholders})
-              OR lower(COALESCE(external_user_id, '')) IN (${placeholders})
-              OR lower(COALESCE(descriptor, '')) IN (${placeholders})
-              OR lower(COALESCE(provider_user_identities.display_name, '')) IN (${placeholders})
-            )
-          LIMIT 1
-        `
-      )
-      .get(
-        projectId,
-        ...candidates,
-        ...candidates,
-        ...candidates,
-        ...candidates
-      ) as { user_id: number } | undefined;
-
-    return row?.user_id ?? null;
-  };
-
   const getCurrentUserAssignmentMatch = (
     item: ChildWorkItemSnapshot
   ): boolean | null => {
@@ -406,7 +366,11 @@ export const syncChildWorkItemsSnapshot = (params: {
   };
 
   const resolveAssignedUserId = (item: ChildWorkItemSnapshot): number | null => {
-    const mappedUserId = findMappedUserId(item);
+    const mappedUserId = findMappedAzureDevOpsUserId(projectId, {
+      id: item.assignedToId ?? null,
+      displayName: item.assignedTo ?? null,
+      uniqueName: item.assignedToUniqueName ?? null,
+    });
     if (mappedUserId) return mappedUserId;
 
     if (
@@ -421,7 +385,7 @@ export const syncChildWorkItemsSnapshot = (params: {
 
   const existingLinkStmt = db.prepare(
     `
-      SELECT wi.id, wi.assigned_user_id
+      SELECT wi.id
       FROM work_item_external_links link
       INNER JOIN work_items wi ON wi.id = link.work_item_id
       WHERE link.project_id = ?
@@ -483,13 +447,13 @@ export const syncChildWorkItemsSnapshot = (params: {
       const isAssignedToCurrentUser =
         item.assignedToCurrentUser ?? getCurrentUserAssignmentMatch(item);
       const existing = existingLinkStmt.get(projectId, String(item.id)) as
-        | { id: number; assigned_user_id: number | null }
+        | { id: number }
         | undefined;
 
       let workItemId: number;
       if (existing) {
         workItemId = existing.id;
-        const assignedUserId = syncedAssignedUserId ?? existing.assigned_user_id;
+        const assignedUserId = syncedAssignedUserId;
         updateWorkItemStmt.run(
           item.title,
           type,

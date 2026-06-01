@@ -88,15 +88,28 @@ export async function GET(request: NextRequest) {
           LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
           WHERE wi.project_id = ?
             AND wi.type IN ('task', 'bug')
-            AND wi.assigned_user_id = ?
-            AND DATE(wi.created_at) <= ?
-            AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
+            AND (
+              (
+                wi.assigned_user_id = ?
+                AND DATE(wi.created_at) <= ?
+                AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM time_entries te_scope
+                WHERE te_scope.work_item_id = wi.id
+                  AND te_scope.user_id = ?
+                  AND te_scope.date >= ?
+                  AND te_scope.date <= ?
+                  AND te_scope.hours > 0
+              )
+            )
           ORDER BY
             COALESCE(wi.display_order, 999999),
             wi.created_at ASC
         `
       )
-      .all(projectId, userId, endDate, startDate) as WorkItemRow[];
+      .all(projectId, userId, endDate, startDate, userId, startDate, endDate) as WorkItemRow[];
 
     const timeEntries = db
       .prepare(
@@ -104,14 +117,14 @@ export async function GET(request: NextRequest) {
           SELECT te.work_item_id, te.date, te.hours
           FROM time_entries te
           INNER JOIN work_items wi ON wi.id = te.work_item_id
-          WHERE wi.assigned_user_id = ?
-            AND wi.project_id = ?
+          WHERE wi.project_id = ?
+            AND wi.type IN ('task', 'bug')
             AND te.user_id = ?
             AND te.date >= ?
             AND te.date <= ?
         `
       )
-      .all(userId, projectId, userId, startDate, endDate) as Array<{
+      .all(projectId, userId, startDate, endDate) as Array<{
       work_item_id: number;
       date: string;
       hours: number;
@@ -161,13 +174,13 @@ export async function GET(request: NextRequest) {
           SELECT te.work_item_id, SUM(te.hours) as total_hours
           FROM time_entries te
           INNER JOIN work_items wi ON wi.id = te.work_item_id
-          WHERE wi.assigned_user_id = ?
-            AND wi.project_id = ?
+          WHERE wi.project_id = ?
+            AND wi.type IN ('task', 'bug')
             AND te.user_id = ?
           GROUP BY te.work_item_id
         `
       )
-      .all(userId, projectId, userId) as TimeEntryTotal[];
+      .all(projectId, userId) as TimeEntryTotal[];
 
     const timeEntryTotalMap = new Map<number, number>();
     timeEntryTotals.forEach((entry) => {

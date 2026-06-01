@@ -40,8 +40,11 @@ Refresh updates:
 - Tags.
 - Completion date.
 - Provider assignee snapshot.
+- Local assignment when a refreshed Azure DevOps assignee maps to a Project Manager user.
 
-Time Management refresh does not read release-planning-only user stories and does not surface unrelated project work owned by other users. If Azure DevOps reports a refreshed task or bug as assigned to someone other than the current PAT-authenticated user, Project Manager records that assignee snapshot and omits the row from the current user's time grid.
+Time Management refresh does not read release-planning-only user stories and does not surface unrelated project work owned by other users unless the current user has tracked time on that work item in the selected period. If Azure DevOps reports a refreshed task or bug as assigned to someone other than the current PAT-authenticated user, Project Manager records that assignee snapshot. If the assignee does not map to a Project Manager user, the local assignment is cleared while the Azure DevOps assignee name remains visible with an external-assignee indicator.
+
+Rows assigned away in Azure DevOps remain visible to the current user only when the selected week or month contains that user's tracked time. This keeps historical reporting and monthly export accurate after a handoff to a user who does not exist in Project Manager yet.
 
 ## Status Changes
 

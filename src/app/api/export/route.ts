@@ -38,26 +38,39 @@ export async function GET(request: NextRequest) {
         wi.assigned_user_id AS user_id,
         link.provider AS external_source,
         link.external_id
-      FROM work_items wi
-      LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
-      WHERE wi.assigned_user_id = ?
-        AND project_id = ?
-        AND wi.type IN ('task', 'bug')
-        AND DATE(wi.created_at) <= ?
-        AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
-      ORDER BY COALESCE(wi.display_order, 999999), wi.created_at ASC
-    `).all(userId, projectId, endDate, startDate) as Task[];
+        FROM work_items wi
+        LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
+        WHERE wi.project_id = ?
+          AND wi.type IN ('task', 'bug')
+          AND (
+            (
+              wi.assigned_user_id = ?
+              AND DATE(wi.created_at) <= ?
+              AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM time_entries te_scope
+              WHERE te_scope.work_item_id = wi.id
+                AND te_scope.user_id = ?
+                AND te_scope.date >= ?
+                AND te_scope.date <= ?
+                AND te_scope.hours > 0
+            )
+          )
+        ORDER BY COALESCE(wi.display_order, 999999), wi.created_at ASC
+    `).all(projectId, userId, endDate, startDate, userId, startDate, endDate) as Task[];
 
     const timeEntries = db.prepare(
       `SELECT te.work_item_id, te.date, te.hours
        FROM time_entries te
        INNER JOIN work_items wi ON wi.id = te.work_item_id
-       WHERE wi.assigned_user_id = ?
-         AND wi.project_id = ?
+       WHERE wi.project_id = ?
+         AND wi.type IN ('task', 'bug')
          AND te.user_id = ?
          AND te.date >= ?
          AND te.date <= ?`
-    ).all(userId, projectId, userId, startDate, endDate) as Array<{
+    ).all(projectId, userId, startDate, endDate) as Array<{
       work_item_id: number;
       date: string;
       hours: number;
