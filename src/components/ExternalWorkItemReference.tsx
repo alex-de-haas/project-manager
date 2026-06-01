@@ -27,10 +27,13 @@ const providerVisuals: Partial<Record<IntegrationProvider, ProviderVisual>> = {
 
 export const formatExternalWorkItemId = (externalId: string | number) => {
   const value = String(externalId).trim();
-  const numericValue = Number(value);
 
-  if (Number.isFinite(numericValue) && numericValue > 0) {
-    return String(Math.floor(numericValue));
+  if (
+    typeof externalId === "number" &&
+    Number.isSafeInteger(externalId) &&
+    externalId > 0
+  ) {
+    return String(externalId);
   }
 
   return value;
