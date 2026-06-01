@@ -1103,7 +1103,7 @@ export default function ReleaseTrackingPage() {
     const isBug = item.type.trim().toLowerCase() === "bug";
     const itemTags = parseWorkItemTags(item.tags);
     const iconClassName = compact ? "h-3.5 w-3.5" : "h-4 w-4";
-    const idClassName = compact ? "text-[10px]" : "text-xs";
+    const idClassName = compact ? "text-[11px]" : "text-sm";
     const statusBadgeClassName = compact
       ? "h-4 px-1.5 text-[10px]"
       : "h-5 px-2 text-xs";
@@ -1136,6 +1136,7 @@ export default function ReleaseTrackingPage() {
                   provider="azure_devops"
                   externalId={item.id}
                   className={idClassName}
+                  iconClassName={iconClassName}
                 />
                 <div className="min-w-0 flex-1">
                   {canOpenAzureDevOpsItem ? (
