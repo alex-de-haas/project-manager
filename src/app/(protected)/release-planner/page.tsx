@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/tooltip";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { AssigneeBadge } from "@/components/AssigneeBadge";
+import { ExternalWorkItemReference } from "@/components/ExternalWorkItemReference";
 import {
   DndContext,
   closestCenter,
@@ -1131,12 +1132,11 @@ export default function ReleaseTrackingPage() {
               <div
                 className={`flex min-w-0 items-center gap-1.5 font-medium leading-5 text-foreground ${titleTextClassName}`}
               >
-                <span
-                  className={`flex-shrink-0 font-mono font-semibold tracking-[0.01em] text-muted-foreground ${idClassName}`}
-                  title={`Azure DevOps Work Item ${item.id}`}
-                >
-                  #{item.id}
-                </span>
+                <ExternalWorkItemReference
+                  provider="azure_devops"
+                  externalId={item.id}
+                  className={idClassName}
+                />
                 <div className="min-w-0 flex-1">
                   {canOpenAzureDevOpsItem ? (
                     <button
@@ -1778,9 +1778,10 @@ export default function ReleaseTrackingPage() {
                                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                                     <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium leading-5 text-foreground">
                                       {item.external_id && (
-                                        <span className="flex-shrink-0 font-mono text-xs font-semibold tracking-[0.01em] text-muted-foreground">
-                                          #{Math.floor(Number(item.external_id))}
-                                        </span>
+                                        <ExternalWorkItemReference
+                                          provider={item.external_source}
+                                          externalId={item.external_id}
+                                        />
                                       )}
                                       <div className="truncate min-w-0 flex-1" title={item.title}>
                                         {item.external_source === "azure_devops" && item.external_id ? (

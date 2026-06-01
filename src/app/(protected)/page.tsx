@@ -69,6 +69,10 @@ import {
 } from "@/components/ui/dialog";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { AssigneeBadge } from "@/components/AssigneeBadge";
+import {
+  ExternalWorkItemReference,
+  formatExternalWorkItemId,
+} from "@/components/ExternalWorkItemReference";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   Bug,
@@ -1247,11 +1251,11 @@ export default function Home() {
   };
 
   const handleCopyExternalId = useCallback(async (externalId: string) => {
-    const formattedExternalId = `#${parseInt(externalId, 10)}`;
+    const formattedExternalId = formatExternalWorkItemId(externalId);
 
     try {
       await copyTextToClipboard(formattedExternalId);
-      toast.success(`Copied work item ${formattedExternalId}`);
+      toast.success(`Copied Azure DevOps work item ${formattedExternalId}`);
     } catch (err) {
       console.error("Failed to copy work item ID:", err);
       toast.error("Failed to copy work item ID");
@@ -1815,14 +1819,11 @@ export default function Home() {
                                 <div className="min-w-0 flex-1">
                                   <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium leading-5 text-foreground">
                                     {task.external_source === "azure_devops" && task.external_id && (
-                                      <button
-                                        type="button"
+                                      <ExternalWorkItemReference
+                                        provider={task.external_source}
+                                        externalId={task.external_id}
                                         onClick={() => handleCopyExternalId(task.external_id!)}
-                                        className="flex-shrink-0 font-mono text-xs font-semibold tracking-[0.01em] text-muted-foreground transition-colors hover:text-foreground"
-                                        title={`Azure DevOps Work Item ${parseInt(task.external_id, 10)}`}
-                                      >
-                                        #{parseInt(task.external_id, 10)}
-                                      </button>
+                                      />
                                     )}
                                     <div className="min-w-0 truncate" title={task.title}>
                                       {task.external_source === "azure_devops" && task.external_id ? (
