@@ -14,12 +14,14 @@ interface ExternalWorkItemReferenceProps {
 interface ProviderVisual {
   label: string;
   iconSrc?: string;
+  brandColorClassName?: string;
 }
 
 const providerVisuals: Partial<Record<IntegrationProvider, ProviderVisual>> = {
   azure_devops: {
     label: "Azure DevOps",
     iconSrc: "/icons/azure-devops.svg",
+    brandColorClassName: "bg-[#0078D4]",
   },
 };
 
@@ -52,7 +54,8 @@ export function ExternalWorkItemReference({
         <span
           aria-hidden="true"
           className={cn(
-            "h-4 w-4 flex-shrink-0 bg-[#0078D4]",
+            "h-4 w-4 flex-shrink-0",
+            visual.brandColorClassName || "bg-muted-foreground",
             iconClassName
           )}
           style={{
