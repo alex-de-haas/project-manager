@@ -19,7 +19,11 @@ import {
   getStoredAzureDevOpsUserIdentity,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
-import { displayWorkItemStatus, upsertExternalLink } from "@/lib/work-items";
+import {
+  displayWorkItemStatus,
+  markExternalLinkSyncFailed,
+  upsertExternalLink,
+} from "@/lib/work-items";
 
 interface ExportRequest {
   taskId: number;
@@ -40,18 +44,15 @@ const getAzureDevOpsAssignmentValue = (
   );
 };
 
-const isUnsupportedStateError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    (message.includes("field 'state'") ||
-      message.includes('field "state"') ||
-      message.includes("system.state")) &&
-    (message.includes("supported values") ||
-      message.includes("allowed values") ||
-      message.includes("invalid value"))
-  );
+const readNativeState = (
+  workItem: { fields?: Record<string, unknown> } | null | undefined
+) => {
+  const state = workItem?.fields?.["System.State"];
+  return typeof state === "string" ? state : null;
 };
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "Unknown error";
 
 export async function POST(request: NextRequest) {
   try {
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
     const workItemType = task.type === "bug" ? "Bug" : "Task";
     const nativeStatus = displayWorkItemStatus(task.status);
 
-    const buildPatchDocument = (includeState: boolean): JsonPatchDocument => {
+    const buildCreatePatchDocument = (): JsonPatchDocument => {
       const patchOperations: JsonPatchOperation[] = [
         {
           op: Operation.Add,
@@ -132,14 +133,6 @@ export async function POST(request: NextRequest) {
         } as JsonPatchOperation);
       }
 
-      if (includeState && task.status) {
-        patchOperations.push({
-          op: Operation.Add,
-          path: "/fields/System.State",
-          value: nativeStatus,
-        } as JsonPatchOperation);
-      }
-
       if (parentWorkItemId) {
         patchOperations.push({
           op: Operation.Add,
@@ -157,26 +150,12 @@ export async function POST(request: NextRequest) {
       return patchOperations;
     };
 
-    let createdWorkItem;
-    try {
-      createdWorkItem = await witApi.createWorkItem(
-        undefined,
-        buildPatchDocument(true),
-        settings.project,
-        workItemType
-      );
-    } catch (error) {
-      if (!task.status || !isUnsupportedStateError(error)) throw error;
-      console.warn(
-        `Azure DevOps export: retrying work item creation without System.State (taskId=${taskId}, status="${task.status}")`
-      );
-      createdWorkItem = await witApi.createWorkItem(
-        undefined,
-        buildPatchDocument(false),
-        settings.project,
-        workItemType
-      );
-    }
+    const createdWorkItem = await witApi.createWorkItem(
+      undefined,
+      buildCreatePatchDocument(),
+      settings.project,
+      workItemType
+    );
 
     if (!createdWorkItem?.id) {
       return NextResponse.json(
@@ -185,13 +164,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let syncedNativeStatus = readNativeState(createdWorkItem) || "New";
+    let statusSyncError: string | null = null;
+
+    if (nativeStatus !== syncedNativeStatus) {
+      const statusPatchDocument: JsonPatchDocument = [
+        {
+          op: Operation.Add,
+          path: "/fields/System.State",
+          value: nativeStatus,
+        } as JsonPatchOperation,
+      ];
+
+      try {
+        const updatedWorkItem = await witApi.updateWorkItem(
+          undefined,
+          statusPatchDocument,
+          createdWorkItem.id,
+          settings.project
+        );
+        syncedNativeStatus = readNativeState(updatedWorkItem) || nativeStatus;
+      } catch (error) {
+        statusSyncError = getErrorMessage(error);
+        console.error("Azure DevOps export status sync error:", error);
+      }
+    }
+
     upsertExternalLink({
       workItemId: task.id,
       projectId,
       provider: "azure_devops",
       externalId: createdWorkItem.id,
       nativeType: workItemType,
-      nativeStatus,
+      nativeStatus: syncedNativeStatus,
       nativeAssigneeId: assignedUserIdentity?.id ?? assignedUserIdentity?.descriptor ?? null,
       nativeAssigneeName: assignedUserIdentity?.displayName ?? null,
       nativeAssigneeUniqueName: assignedUserIdentity?.uniqueName ?? null,
@@ -200,24 +205,32 @@ export async function POST(request: NextRequest) {
         id: createdWorkItem.id,
         title: task.title,
         type: workItemType,
-        state: nativeStatus,
+        state: syncedNativeStatus,
       },
     });
+
+    if (statusSyncError) {
+      markExternalLinkSyncFailed(task.id, "azure_devops", statusSyncError);
+    }
 
     db.prepare(
       `
         UPDATE work_items
-        SET sync_state = 'synced',
+        SET sync_state = ?,
             updated_by_user_id = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND project_id = ?
       `
-    ).run(userId, task.id, projectId);
+    ).run(statusSyncError ? "sync_failed" : "synced", userId, task.id, projectId);
 
     return NextResponse.json({
       success: true,
       workItemId: createdWorkItem.id,
-      message: `Successfully exported to Azure DevOps as work item #${createdWorkItem.id}`,
+      statusSynced: !statusSyncError,
+      statusSyncFailed: Boolean(statusSyncError),
+      message: statusSyncError
+        ? `Exported to Azure DevOps as work item #${createdWorkItem.id}, but failed to sync status to ${nativeStatus}: ${statusSyncError}`
+        : `Successfully exported to Azure DevOps as work item #${createdWorkItem.id}`,
     });
   } catch (error) {
     const projectError = projectContextErrorResponse(error);

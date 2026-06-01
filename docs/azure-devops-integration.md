@@ -20,6 +20,7 @@ Project Manager remains the local source of truth for its own work item records.
 - Upsert child tasks and bugs for imported user stories.
 - Map Azure DevOps assignees to Project Manager users when provider identities are known.
 - Export local tasks and bugs to Azure DevOps, including Markdown descriptions.
+- Export creates Azure DevOps work items first, then applies the current Project Manager status in a separate state update so process rules can run on the newly created work item.
 - Synchronize local status and assignment changes back to Azure DevOps when permissions and process rules allow it.
 - Preserve local status changes and mark sync failures when Azure DevOps updates fail.
 

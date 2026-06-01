@@ -90,7 +90,11 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
       const data = await response.json();
 
       if (response.ok) {
-        toast.success(data.message || "Successfully exported to Azure DevOps");
+        if (data.statusSyncFailed) {
+          toast.info(data.message || "Exported to Azure DevOps, but status sync failed");
+        } else {
+          toast.success(data.message || "Successfully exported to Azure DevOps");
+        }
         onSuccess();
       } else {
         toast.error(`Export failed: ${data.error || "Unknown error"}`);

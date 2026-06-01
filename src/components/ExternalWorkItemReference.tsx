@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { IntegrationProvider } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -14,14 +15,12 @@ interface ExternalWorkItemReferenceProps {
 interface ProviderVisual {
   label: string;
   iconSrc?: string;
-  brandColorClassName?: string;
 }
 
 const providerVisuals: Partial<Record<IntegrationProvider, ProviderVisual>> = {
   azure_devops: {
     label: "Azure DevOps",
-    iconSrc: "/icons/azure-devops.svg",
-    brandColorClassName: "bg-[#0078D4]",
+    iconSrc: "/icons/azure-devops.png",
   },
 };
 
@@ -54,31 +53,24 @@ export function ExternalWorkItemReference({
   const content = (
     <>
       {visual?.iconSrc && (
-        <span
+        <Image
           aria-hidden="true"
           className={cn(
             "h-4 w-4 flex-shrink-0",
-            visual.brandColorClassName || "bg-muted-foreground",
             iconClassName
           )}
-          style={{
-            WebkitMaskImage: `url("${visual.iconSrc}")`,
-            WebkitMaskPosition: "center",
-            WebkitMaskRepeat: "no-repeat",
-            WebkitMaskSize: "contain",
-            maskImage: `url("${visual.iconSrc}")`,
-            maskPosition: "center",
-            maskRepeat: "no-repeat",
-            maskSize: "contain",
-          }}
+          src={visual.iconSrc}
+          alt=""
+          width={16}
+          height={16}
         />
       )}
-      <span className="relative top-px">{displayId}</span>
+      <span className="flex h-5 items-center leading-none">{displayId}</span>
     </>
   );
 
   const baseClassName = cn(
-    "inline-flex flex-shrink-0 items-center gap-1 font-mono text-sm font-semibold tracking-[0.01em] text-muted-foreground",
+    "inline-flex h-5 flex-shrink-0 items-center gap-1 align-middle font-mono text-sm font-normal leading-none tabular-nums text-muted-foreground",
     onClick && "cursor-pointer border-0 bg-transparent p-0 transition-colors hover:text-foreground",
     className
   );
