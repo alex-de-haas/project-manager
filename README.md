@@ -80,8 +80,8 @@ npm run lint
 
 ## Data
 
-- Main database: `data/time_tracker.db`
-- Backups: `data/backups/*.db`
+- Main database: `data/project_manager.db`
+- Backups: `data/backups/project_manager_backup_*.db`
 
 Use the Settings area in the app to import supported Project Manager migration JSON, manage database backups, and restore from an existing backup.
 

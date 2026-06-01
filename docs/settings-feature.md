@@ -48,7 +48,7 @@ The Releases tab lists releases for the active project as compact reorderable ca
 
 ## Backups
 
-The Backups tab allows administrators to create database snapshot files and review existing backup files in a table. Each backup row has actions for restoring from that backup or deleting the backup file.
+The Backups tab allows administrators to create database snapshot files and review existing backup files in a table. New automatic backup files use the `project_manager_backup_YYYYMMDD_HHMMSS.db` naming pattern. Each backup row has actions for restoring from that backup or deleting the backup file.
 
 The module creates `project_manager.db` from the current fresh schema when it starts with empty storage. The legacy `time_tracker.db` database name is not reused for the new domain model.
 

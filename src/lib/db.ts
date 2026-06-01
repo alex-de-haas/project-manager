@@ -4,8 +4,10 @@ import path from "path";
 import { getBackupDirPath, getDataDirPath } from "@/lib/storage";
 
 const dataDirPath = getDataDirPath();
-const dbPath = path.join(dataDirPath, "project_manager.db");
+const databaseFileName = "project_manager.db";
+const dbPath = path.join(dataDirPath, databaseFileName);
 const backupDirPath = getBackupDirPath();
+const backupFilePrefix = path.basename(databaseFileName, ".db");
 const backupAlias = "restore_source";
 const schemaVersion = "domain-model-v3";
 
@@ -432,7 +434,7 @@ const generateBackupFileName = () => {
   const min = `${now.getMinutes()}`.padStart(2, "0");
   const sec = `${now.getSeconds()}`.padStart(2, "0");
 
-  return `time_tracker_backup_${yyyy}${mm}${dd}_${hh}${min}${sec}.db`;
+  return `${backupFilePrefix}_backup_${yyyy}${mm}${dd}_${hh}${min}${sec}.db`;
 };
 
 export const createDatabaseBackup = async (
