@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
@@ -25,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ImportWorkItemList } from "@/components/ImportWorkItemList";
 import type { AzureDevOpsWorkItem } from "@/types";
 import {
   DEFAULT_IMPORT_STATUS_FILTERS,
@@ -102,6 +102,22 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     ? "Import status filter active"
     : "Import status filter";
   const activeWorkItems = workItemsBySource[activeTab];
+  const displayWorkItems = useMemo(
+    () =>
+      activeWorkItems.map((item) => {
+        const isExternal = activeTab === "external";
+        const hasExternalId = Boolean(item.externalId?.trim());
+
+        return {
+          ...item,
+          externalId: item.externalId ?? (isExternal ? String(item.id) : undefined),
+          externalSource:
+            item.externalSource ??
+            (isExternal || hasExternalId ? "azure_devops" : undefined),
+        };
+      }),
+    [activeTab, activeWorkItems]
+  );
   const loading = loadingBySource[activeTab] || settingsLoading;
 
   const fetchWorkItems = useCallback(async (
@@ -384,8 +400,15 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
             </div>
           </form>
 
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ImportSource)}>
-            <TabsList className={externalAvailable ? "grid w-full grid-cols-2" : "grid w-full grid-cols-1"}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as ImportSource)}
+          >
+            <TabsList
+              className={
+                externalAvailable ? "grid w-full grid-cols-2" : "grid w-full grid-cols-1"
+              }
+            >
               {externalAvailable && (
                 <TabsTrigger value="external">Azure DevOps</TabsTrigger>
               )}
@@ -451,68 +474,16 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     }
 
     return (
-      <div className="border rounded-md max-h-[400px] overflow-y-auto">
-        <table className="w-full">
-          <thead className="bg-muted sticky top-0">
-            <tr>
-              <th className="p-2 text-left w-12">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = someSelected;
-                  }}
-                  onChange={toggleSelectAll}
-                  className="h-4 w-4"
-                  disabled={importing || filteredWorkItemIds.length === 0}
-                />
-              </th>
-              <th className="p-2 text-left w-20">ID</th>
-              <th className="p-2 text-left">Title</th>
-              <th className="p-2 text-left w-28">Source</th>
-              <th className="p-2 text-left w-24">Type</th>
-              <th className="p-2 text-left w-24">State</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activeWorkItems.map((item) => (
-              <tr
-                key={item.id}
-                className="border-t hover:bg-muted/50 cursor-pointer"
-                onClick={() => toggleSelect(item.id)}
-              >
-                <td className="p-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(item.id)}
-                    onChange={() => toggleSelect(item.id)}
-                    className="h-4 w-4"
-                    disabled={importing}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </td>
-                <td className="p-2 font-mono text-sm">{item.id}</td>
-                <td className="p-2">{item.title}</td>
-                <td className="p-2">
-                  {activeTab === "external" ? (
-                    <Badge variant="outline">Azure DevOps</Badge>
-                  ) : item.externalId ? (
-                    <Badge variant="outline">ADO #{item.externalId}</Badge>
-                  ) : (
-                    <Badge variant="secondary">Local</Badge>
-                  )}
-                </td>
-                <td className="p-2">
-                  <Badge variant="outline">{item.type}</Badge>
-                </td>
-                <td className="p-2">
-                  <Badge variant="secondary">{item.state}</Badge>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ImportWorkItemList
+        items={displayWorkItems}
+        selectedIds={selectedIds}
+        allSelected={allSelected}
+        someSelected={someSelected}
+        importing={importing}
+        showExternalReference={activeTab === "external" || externalAvailable}
+        onToggleSelect={toggleSelect}
+        onToggleSelectAll={toggleSelectAll}
+      />
     );
   }
 }
