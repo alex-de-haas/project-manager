@@ -1,7 +1,8 @@
-import { getDockerHostInternalOrigin, getModuleId } from "@/lib/module-runtime";
+import { getAppId, getHostyInternalOrigin } from "@/lib/module-runtime";
 
 export const DOCKER_HOST_IDENTITY_HEADER = "x-docker-host-identity";
-export const DOCKER_HOST_IDENTITY_COOKIE = "project_manager_module_identity";
+export const HOSTY_APP_IDENTITY_COOKIE = "project_manager_hosty_identity";
+export const LEGACY_DOCKER_HOST_IDENTITY_COOKIE = "project_manager_module_identity";
 export const INTERNAL_HOST_USER_ID_HEADER = "x-project-manager-host-user-id";
 export const INTERNAL_HOST_USER_EMAIL_HEADER = "x-project-manager-host-user-email";
 export const INTERNAL_HOST_USER_NAME_HEADER = "x-project-manager-host-user-name";
@@ -90,10 +91,12 @@ const timeoutSignal = (timeoutMs: number) => {
 const uniqueUrls = (urls: string[]) => Array.from(new Set(urls));
 
 const resolveJwksUrls = async (): Promise<string[]> => {
-  const configured = process.env.DOCKER_HOST_IDENTITY_JWKS_URL?.trim();
+  const configured =
+    process.env.HOSTY_IDENTITY_JWKS_URL?.trim() ||
+    process.env.DOCKER_HOST_IDENTITY_JWKS_URL?.trim();
   if (configured) return [configured];
 
-  const origin = getDockerHostInternalOrigin();
+  const origin = getHostyInternalOrigin();
   if (!origin) return [];
 
   const fallbackUrl = `${origin}/.well-known/docker-host/jwks.json`;
@@ -128,7 +131,7 @@ const fetchJwks = async (url: string): Promise<HostJsonWebKey[]> => {
     signal: timeoutSignal(JWKS_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`Failed to fetch Docker Host JWKS: ${response.status}`);
+    throw new Error(`Failed to fetch Hosty JWKS: ${response.status}`);
   }
 
   const jwks = (await response.json()) as JsonWebKeySet;
@@ -212,7 +215,7 @@ export const verifyDockerHostIdentityToken = async (
 
     const claims = base64UrlToJson<HostIdentityClaims>(encodedPayload);
     if (claims.iss !== "docker-host") return null;
-    if (!claims.sub || !claims.aud || !hasAudience(claims.aud, getModuleId())) return null;
+    if (!claims.sub || !claims.aud || !hasAudience(claims.aud, getAppId())) return null;
     if (
       typeof claims.exp !== "number" ||
       claims.exp + JWT_EXPIRATION_LEEWAY_SECONDS <= Math.floor(Date.now() / 1000)
@@ -246,8 +249,8 @@ export const verifyDockerHostIdentityToken = async (
 
         if (isValid) return claims;
       } catch {
-        // Try the next resolved JWKS URL. Docker Host dev runs can advertise
-        // a container-internal JWKS URL while the module runs on the host.
+        // Try the next resolved JWKS URL. Hosty dev runs can advertise
+        // a container-internal JWKS URL while the app runs on the host.
       }
     }
 

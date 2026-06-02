@@ -414,7 +414,7 @@ function fetchHasBody(input: FetchInput, init: FetchInit) {
 function identityRefreshRequiredResponse() {
   return new Response(
     JSON.stringify({
-      error: "Docker Host identity refresh is required.",
+      error: "Hosty identity refresh is required.",
     }),
     {
       status: 401,

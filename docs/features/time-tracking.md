@@ -24,7 +24,7 @@ Trackable work item rows include:
 
 Time entries are stored by work item, user, and date. A user can edit time for work items assigned to them in the active project.
 
-Expected-hour calculations use the current user's profile work schedule for the active project. Missing schedules use the module-level `PROJECT_MANAGER_DEFAULT_DAY_LENGTH` environment value, which defaults to 8 hours.
+Expected-hour calculations use the current user's profile work schedule for the active project. Missing schedules use the app-level `PROJECT_MANAGER_DEFAULT_DAY_LENGTH` environment value, which defaults to 8 hours.
 
 Completed work items with no period time remain hidden from the grid so old closed work does not clutter current tracking.
 

@@ -1,4 +1,4 @@
-import { getDockerHostInternalOrigin, getModuleId } from "@/lib/module-runtime";
+import { getAppId, getHostyInternalOrigin } from "@/lib/module-runtime";
 
 export type HostDirectoryStatus =
   | "not-configured"
@@ -31,7 +31,9 @@ const DIRECTORY_TIMEOUT_MS = 1500;
 
 export const getHostDirectorySnapshot = async (): Promise<HostDirectorySnapshot> => {
   const endpoint = buildDirectoryEndpoint();
-  const serviceToken = process.env.DOCKER_HOST_MODULE_SERVICE_TOKEN?.trim();
+  const serviceToken =
+    process.env.HOSTY_APP_SERVICE_TOKEN?.trim() ||
+    process.env.DOCKER_HOST_MODULE_SERVICE_TOKEN?.trim();
 
   if (!endpoint || !serviceToken) {
     return {
@@ -44,8 +46,8 @@ export const getHostDirectorySnapshot = async (): Promise<HostDirectorySnapshot>
         status: null,
         code: "module_directory_not_configured",
         message: endpoint
-          ? "DOCKER_HOST_MODULE_SERVICE_TOKEN is not configured."
-          : "DOCKER_HOST_INTERNAL_ORIGIN is not configured or is not a valid URL.",
+          ? "HOSTY_APP_SERVICE_TOKEN or DOCKER_HOST_MODULE_SERVICE_TOKEN is not configured."
+          : "HOSTY_INTERNAL_ORIGIN or DOCKER_HOST_INTERNAL_ORIGIN is not configured or is not a valid URL.",
       },
     };
   }
@@ -97,12 +99,12 @@ export const getHostDirectorySnapshot = async (): Promise<HostDirectorySnapshot>
 };
 
 const buildDirectoryEndpoint = () => {
-  const internalOrigin = getDockerHostInternalOrigin();
+  const internalOrigin = getHostyInternalOrigin();
   if (!internalOrigin) return null;
 
   try {
     return new URL(
-      `/api/internal/modules/${encodeURIComponent(getModuleId())}/directory/users`,
+      `/api/internal/modules/${encodeURIComponent(getAppId())}/directory/users`,
       internalOrigin
     ).toString();
   } catch {

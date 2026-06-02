@@ -2,7 +2,7 @@
   "schemaVersion": "0.3",
   "id": "com.haas.project-manager",
   "name": "Project Manager",
-  "description": "Project planning, time tracking, release planning, and Azure DevOps coordination for Docker Host users.",
+  "description": "Project planning, time tracking, release planning, and Azure DevOps coordination for Hosty users.",
   "version": "1.0.0",
   "services": [
     {
@@ -51,7 +51,7 @@
       {
         "key": "data",
         "label": "Application Data",
-        "description": "SQLite database, backups, and module-owned persistent state.",
+        "description": "SQLite database, backups, and app-owned persistent state.",
         "purpose": "data",
         "required": true,
         "targets": [

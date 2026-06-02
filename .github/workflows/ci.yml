@@ -9,7 +9,7 @@ on:
       - "public/**"
       - "scripts/**"
       - "Dockerfile"
-      - "metadata.json"
+      - "manifest.json"
       - "metadata.dev.json"
       - "next.config.js"
       - "package.json"

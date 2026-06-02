@@ -60,32 +60,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Render Docker Host module metadata
+      - name: Render Hosty app manifest
         run: |
-          node scripts/render-module-metadata.mjs \
+          node scripts/render-app-manifest.mjs \
             --repository "$IMAGE_NAME" \
             --tag "sha-${GITHUB_SHA::7}" \
-            --output dist/module-metadata/metadata.json
+            --output dist/app-manifest/manifest.json
 
-      - name: Upload Docker Host module metadata
+      - name: Upload Hosty app manifest
         uses: actions/upload-artifact@v4
         with:
-          name: docker-host-module-metadata
-          path: dist/module-metadata/metadata.json
+          name: hosty-app-manifest
+          path: dist/app-manifest/manifest.json
 
-      - name: Publish latest Docker Host module metadata release
+      - name: Publish latest Hosty app manifest release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          METADATA_RELEASE_TAG: latest
-          METADATA_RELEASE_TITLE: Latest Docker Host module metadata
-          METADATA_ASSET_PATH: dist/module-metadata/metadata.json
+          MANIFEST_RELEASE_TAG: latest
+          MANIFEST_RELEASE_TITLE: Latest Hosty app manifest
+          MANIFEST_ASSET_PATH: dist/app-manifest/manifest.json
         run: |
-          if gh release view "$METADATA_RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$METADATA_RELEASE_TAG" "$METADATA_ASSET_PATH" --clobber
+          if gh release view "$MANIFEST_RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$MANIFEST_RELEASE_TAG" "$MANIFEST_ASSET_PATH" --clobber
           else
-            gh release create "$METADATA_RELEASE_TAG" "$METADATA_ASSET_PATH" \
+            gh release create "$MANIFEST_RELEASE_TAG" "$MANIFEST_ASSET_PATH" \
               --target "$GITHUB_SHA" \
-              --title "$METADATA_RELEASE_TITLE" \
-              --notes "Mutable Docker Host metadata channel for the latest Project Manager image." \
+              --title "$MANIFEST_RELEASE_TITLE" \
+              --notes "Mutable Hosty app manifest channel for the latest Project Manager image." \
               --latest=false
           fi

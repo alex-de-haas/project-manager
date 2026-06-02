@@ -12,7 +12,7 @@ Project Manager remains the local source of truth for its own work item records.
 - Store each user's Azure DevOps Personal Access Token separately for each Project Manager project.
 - Resolve the project-specific Azure DevOps identity represented by each user's PAT.
 - Store technical provider identity fields for assignment mapping.
-- Show the active project's linked Azure DevOps account without renaming the Docker Host user.
+- Show the active project's linked Azure DevOps account without renaming the Hosty user.
 - Import assigned tasks and bugs into Time Management. User stories are excluded
   from Time Management imports.
 - Import specific work items by ID.
@@ -30,7 +30,7 @@ Project Manager remains the local source of truth for its own work item records.
 
 1. Create a Personal Access Token in Azure DevOps.
 2. Give the token access to work items.
-3. Open Settings in Project Manager as a Docker Host administrator.
+3. Open Settings in Project Manager as a Hosty administrator.
 4. Create or edit a Project Manager project.
 5. Select Azure DevOps as the project integration.
 6. Enter the Azure DevOps project URL, such as `https://dev.azure.com/{organization}/{project}`.
@@ -41,7 +41,7 @@ For status updates and exported work items, the token needs work item write acce
 
 Saved tokens are project-scoped personal credentials. Project Manager stores each Host user's Azure DevOps PAT separately for each Project Manager project and uses only the current Host user's PAT for the active project during import, export, refresh, status synchronization, and assignment synchronization. API responses never expose the PAT value. Profile responses expose only the active project's saved-link status and the resolved non-secret Azure DevOps name and email for the current user.
 
-When a PAT is saved, Project Manager immediately resolves the Azure DevOps identity represented by that token for the active project. Technical identity fields are stored by project, provider, and user for assignment mapping. Profile shows the resolved name and email for the active project. If Azure DevOps only returns an account or email, Profile falls back to the Docker Host name for the display line while still showing the Azure DevOps email separately. The Docker Host user name is not changed. Later import, refresh, status-sync, and assignment-sync flows use the stored active-project identity for matching instead of resolving the PAT user on every request. Runtime identity resolution remains only as a fallback for project identity records that do not have a stored provider identity yet.
+When a PAT is saved, Project Manager immediately resolves the Azure DevOps identity represented by that token for the active project. Technical identity fields are stored by project, provider, and user for assignment mapping. Profile shows the resolved name and email for the active project. If Azure DevOps only returns an account or email, Profile falls back to the Hosty name for the display line while still showing the Azure DevOps email separately. The Hosty user name is not changed. Later import, refresh, status-sync, and assignment-sync flows use the stored active-project identity for matching instead of resolving the PAT user on every request. Runtime identity resolution remains only as a fallback for project identity records that do not have a stored provider identity yet.
 
 ## Type Mapping
 

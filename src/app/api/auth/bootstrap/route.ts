@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  DOCKER_HOST_IDENTITY_COOKIE,
+  HOSTY_APP_IDENTITY_COOKIE,
+  LEGACY_DOCKER_HOST_IDENTITY_COOKIE,
   verifyDockerHostIdentityToken,
 } from "@/lib/host-identity";
 
@@ -24,8 +25,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: {
-          code: "module_identity_token_required",
-          message: "A Docker Host module identity token is required.",
+          code: "app_identity_token_required",
+          message: "A Hosty app identity token is required.",
         },
       },
       { status: 422 }
@@ -37,8 +38,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: {
-          code: "module_identity_token_invalid",
-          message: "The Docker Host module identity token could not be verified.",
+          code: "app_identity_token_invalid",
+          message: "The Hosty app identity token could not be verified.",
         },
       },
       { status: 401 }
@@ -51,8 +52,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: {
-          code: "module_identity_token_expired",
-          message: "The Docker Host module identity token has expired.",
+          code: "app_identity_token_expired",
+          message: "The Hosty app identity token has expired.",
         },
       },
       { status: 401 }
@@ -68,13 +69,14 @@ export async function POST(request: NextRequest) {
     }
   );
 
-  response.cookies.set(DOCKER_HOST_IDENTITY_COOKIE, token.trim(), {
+  response.cookies.set(HOSTY_APP_IDENTITY_COOKIE, token.trim(), {
     httpOnly: true,
     maxAge,
     path: "/",
     sameSite: secure ? "none" : "lax",
     secure,
   });
+  response.cookies.delete(LEGACY_DOCKER_HOST_IDENTITY_COOKIE);
 
   return response;
 }
