@@ -20,6 +20,7 @@ import {
 } from "@/lib/azure-devops/settings";
 import {
   mapAzureDevOpsStatusToWorkItemStatus,
+  mapAzureDevOpsTypeToWorkItemType,
   upsertExternalLink,
 } from "@/lib/work-items";
 
@@ -84,11 +85,29 @@ export async function POST(request: NextRequest) {
 
     const imported: ReleaseWorkItem[] = [];
     const skipped: Array<{ id: number; reason: string }> = [];
+    const parentIdsToSync = new Set<number>();
 
     for (const workItem of workItems || []) {
       if (!workItem.id || !workItem.fields) {
         continue;
       }
+
+      const title =
+        (workItem.fields["System.Title"] as string) ||
+        `Work Item ${workItem.id}`;
+      const workItemType =
+        (workItem.fields["System.WorkItemType"] as string) || "User Story";
+      const normalizedType = mapAzureDevOpsTypeToWorkItemType(workItemType);
+
+      if (normalizedType !== "user_story") {
+        skipped.push({
+          id: workItem.id,
+          reason: "Only Azure DevOps user stories can be imported into Planning",
+        });
+        continue;
+      }
+
+      parentIdsToSync.add(workItem.id);
 
       const existingReleaseItem = db
         .prepare(
@@ -109,11 +128,6 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const title =
-        (workItem.fields["System.Title"] as string) ||
-        `Work Item ${workItem.id}`;
-      const workItemType =
-        (workItem.fields["System.WorkItemType"] as string) || "User Story";
       const state = (workItem.fields["System.State"] as string) || null;
       const tagsString = (workItem.fields["System.Tags"] as string) || null;
       const status = mapAzureDevOpsStatusToWorkItemStatus(state);
@@ -219,13 +233,7 @@ export async function POST(request: NextRequest) {
       imported.push(newItem);
     }
 
-    const parentIds = Array.from(
-      new Set(
-        workItemIds.filter(
-          (id): id is number => Number.isInteger(id) && id > 0
-        )
-      )
-    );
+    const parentIds = Array.from(parentIdsToSync);
 
     let childItemsSync: { parents: number; items: number; deleted: number } = {
       parents: 0,

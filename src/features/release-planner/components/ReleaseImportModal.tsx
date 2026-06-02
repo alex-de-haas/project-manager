@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { AzureDevOpsWorkItem } from "@/types";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,6 +34,12 @@ const formatImportSummary = (imported: number, skipped: number) => {
   ]
     .filter(Boolean)
     .join(", ");
+};
+
+const formatChildImportSummary = (childItems: number) => {
+  if (childItems === 0) return null;
+  const childLabel = childItems === 1 ? "child item" : "child items";
+  return `synced ${childItems} ${childLabel}`;
 };
 
 interface ReleaseImportModalProps {
@@ -144,7 +150,16 @@ export default function ReleaseImportModal({
       const data = await response.json();
 
       if (response.ok) {
-        toast.success(formatImportSummary(data.imported ?? 0, data.skipped ?? 0));
+        const summary = [
+          formatImportSummary(data.imported ?? 0, data.skipped ?? 0),
+          formatChildImportSummary(data.childItemsSync?.items ?? 0),
+        ]
+          .filter(Boolean)
+          .join(", ");
+        toast.success(summary);
+        if (data.childItemsSyncError) {
+          toast.error(`Child work item sync failed: ${data.childItemsSyncError}`);
+        }
         onSuccess();
       } else {
         toast.error(`Import failed: ${data.error || "Unknown error"}`);
@@ -168,7 +183,8 @@ export default function ReleaseImportModal({
         <DialogHeader>
           <DialogTitle>Import User Stories</DialogTitle>
           <DialogDescription>
-            Select Azure DevOps user stories to add to this release.
+            Select Azure DevOps user stories to add to this release. Child tasks
+            and bugs are synced automatically.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

@@ -30,6 +30,9 @@ Notifications are used across workflows where immediate feedback matters:
 - Notifications should be short and action-oriented.
 - Success messages should confirm the completed action.
 - Error messages should help the user understand what to fix next.
+- Error notifications use the destructive red style, include a close button, and
+  stay visible until the user closes them. This keeps debugging details available
+  long enough to read or copy.
 - Do not show both progress and success notifications for the same dialog action.
   Prefer inline progress such as a disabled button label, then show one final
   success or error notification.

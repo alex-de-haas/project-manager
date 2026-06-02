@@ -13,6 +13,7 @@ import {
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from '@/lib/azure-devops/settings';
+import { mapAzureDevOpsTypeToTrackableWorkItemType } from '@/lib/work-items';
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,6 +37,10 @@ export async function GET(request: NextRequest) {
         FROM WorkItems
         WHERE [System.AssignedTo] = @Me
           AND [System.TeamProject] = @project
+          AND (
+            [System.WorkItemType] = 'Task'
+            OR [System.WorkItemType] = 'Bug'
+          )
           AND [System.State] <> 'Closed'
           AND [System.State] <> 'Removed'
         ORDER BY [System.ChangedDate] DESC
@@ -78,12 +83,19 @@ export async function GET(request: NextRequest) {
 
     const result: AzureDevOpsWorkItem[] = (workItems || [])
       .filter(wi => wi.id && wi.fields)
-      .map(wi => ({
-        id: wi.id!,
-        title: wi.fields?.['System.Title'] || 'Untitled',
-        type: wi.fields?.['System.WorkItemType'] || 'Unknown',
-        state: wi.fields?.['System.State'] || 'Unknown',
-      }))
+      .map((wi) => {
+        const nativeType = wi.fields?.['System.WorkItemType'] || 'Unknown';
+        const type = mapAzureDevOpsTypeToTrackableWorkItemType(nativeType);
+        if (!type) return null;
+
+        return {
+          id: wi.id!,
+          title: wi.fields?.['System.Title'] || 'Untitled',
+          type: nativeType,
+          state: wi.fields?.['System.State'] || 'Unknown',
+        };
+      })
+      .filter((item): item is AzureDevOpsWorkItem => item !== null)
       .filter((item) => !importedIds.has(item.id));
 
     return NextResponse.json({ workItems: result });

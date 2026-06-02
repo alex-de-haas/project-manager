@@ -84,6 +84,13 @@ export const mapAzureDevOpsTypeToWorkItemType = (
   nativeType: string | null | undefined
 ): WorkItemType => normalizeWorkItemType(nativeType, "task");
 
+export const mapAzureDevOpsTypeToTrackableWorkItemType = (
+  nativeType: string | null | undefined
+): TrackableWorkItemType | null => {
+  const normalized = normalizeWorkItemType(nativeType, "user_story");
+  return isTrackableWorkItemType(normalized) ? normalized : null;
+};
+
 export const mapAzureDevOpsStatusToWorkItemStatus = (
   nativeStatus: string | null | undefined
 ): WorkItemStatus => normalizeWorkItemStatus(nativeStatus);

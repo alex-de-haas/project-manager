@@ -13,7 +13,8 @@ Project Manager remains the local source of truth for its own work item records.
 - Resolve the project-specific Azure DevOps identity represented by each user's PAT.
 - Store technical provider identity fields for assignment mapping.
 - Show the active project's linked Azure DevOps account without renaming the Docker Host user.
-- Import assigned tasks and bugs into Time Management.
+- Import assigned tasks and bugs into Time Management. User stories are excluded
+  from Time Management imports.
 - Import specific work items by ID.
 - Import user stories into Release Planning.
 - Refresh linked work items from Azure DevOps.
@@ -67,13 +68,13 @@ Provider-native status is preserved separately on the provider link. This allows
 
 Assigned imports use Azure DevOps WIQL with the `@Me` macro, so Azure DevOps resolves the assignee from the PAT-authenticated request identity. Import does not depend on the Project Manager user's email address.
 
-Imported tasks and bugs are assigned to the current Project Manager user and can appear in Time Management. Imported user stories are attached to releases and do not appear in Time Management.
+Imported tasks and bugs are assigned to the current Project Manager user and can appear in Time Management. User stories are attached to releases from Release Planning and do not appear in Time Management import results.
 
 Project Manager prevents duplicate provider imports by enforcing uniqueness on project, provider, and external work item id.
 
 ## Release Planning
 
-Release Planning imports Azure DevOps user stories as Project Manager `user_story` work items. During import and refresh, Project Manager also fetches child tasks and bugs and upserts them as separate Project Manager work items with `parent_work_item_id` pointing to the user story.
+Release Planning imports Azure DevOps user stories as Project Manager `user_story` work items. During import and refresh, Project Manager also fetches open and closed child tasks and bugs and upserts them as separate Project Manager work items with `parent_work_item_id` pointing to the user story.
 
 If a child task or bug has an Azure DevOps assignee that maps to a Project Manager user, the child item is assigned locally and can appear in that user's Time Management page. If no mapping exists, the child item remains unassigned locally and the provider assignee snapshot remains visible for planning context.
 
