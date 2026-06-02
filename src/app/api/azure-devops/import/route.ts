@@ -21,7 +21,7 @@ import {
 } from "@/lib/azure-devops/identity";
 import {
   mapAzureDevOpsStatusToWorkItemStatus,
-  mapAzureDevOpsTypeToWorkItemType,
+  mapAzureDevOpsTypeToTrackableWorkItemType,
   upsertExternalLink,
 } from "@/lib/work-items";
 
@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
           FROM WorkItems
           WHERE [System.AssignedTo] = @Me
             AND [System.TeamProject] = @project
+            AND [System.WorkItemType] IN ('Task', 'Bug')
             AND [System.State] <> 'Closed'
             AND [System.State] <> 'Removed'
           ORDER BY [System.ChangedDate] DESC
@@ -133,9 +134,12 @@ export async function POST(request: NextRequest) {
 
       const title = (workItem.fields["System.Title"] as string) || `Work Item ${workItem.id}`;
       const nativeType = (workItem.fields["System.WorkItemType"] as string) || "Task";
-      const type = mapAzureDevOpsTypeToWorkItemType(nativeType);
-      if (type === "user_story") {
-        skipped.push({ id: workItem.id, reason: "User stories are imported in Planning" });
+      const type = mapAzureDevOpsTypeToTrackableWorkItemType(nativeType);
+      if (!type) {
+        skipped.push({
+          id: workItem.id,
+          reason: "Only Azure DevOps Tasks and Bugs can be imported into Time Management",
+        });
         continue;
       }
 

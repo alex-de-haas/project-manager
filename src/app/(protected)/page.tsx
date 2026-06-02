@@ -18,7 +18,7 @@ import {
   parseISO,
 } from "date-fns";
 import type { TaskWithTimeEntries, DayOff, Blocker } from "@/types";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
   Card,

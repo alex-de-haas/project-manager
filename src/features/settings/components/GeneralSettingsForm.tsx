@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { parseAzureDevOpsProjectUrl } from "@/lib/azure-devops/project-url";
 import { ProfileSettingsForm } from "@/features/settings/components/ProfileSettingsForm";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   Dialog,
   DialogContent,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -153,7 +153,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
         <DialogHeader>
           <DialogTitle>Import from Azure DevOps</DialogTitle>
           <DialogDescription>
-            Select work items to import from your Azure DevOps project
+            Select Azure DevOps tasks and bugs assigned to you for Time Management.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -178,7 +178,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
           ) : filteredWorkItems.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               {workItems.length === 0
-                ? "No new work items available to import"
+                ? "No new tasks or bugs available to import"
                 : "No work items match your filter"}
             </div>
           ) : (

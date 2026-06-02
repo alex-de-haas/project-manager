@@ -311,12 +311,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const childParentIds = releaseId
-      ? externalIds
-      : externalIds.filter((externalId) => {
-          const item = linkedByExternalId.get(externalId);
-          return item?.type === "user_story";
-        });
+    const childParentIds = externalIds.filter((externalId) => {
+      const item = linkedByExternalId.get(externalId);
+      return item?.type === "user_story";
+    });
 
     let childItemsSync = { parents: 0, items: 0, deleted: 0 };
     let childItemsSyncError: string | null = null;

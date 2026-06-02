@@ -30,7 +30,7 @@ Child tasks and bugs are separate Project Manager work items with a `parent_work
 
 Planning supports creating discipline-specific child tasks for backend, frontend, and design work. The user creating the child task can assign it to any project member, including non-admin members.
 
-Imported Azure DevOps child tasks and bugs are upserted as Project Manager work items. When the provider assignee maps to a Project Manager user, the child item is assigned locally and can appear in that user's Time Management page. If the assignee cannot be mapped, the child item remains unassigned locally and keeps the provider assignee snapshot for display.
+Imported Azure DevOps user stories automatically sync their open and closed child tasks and bugs. Child items are upserted as Project Manager work items. When the provider assignee maps to a Project Manager user, the child item is assigned locally and can appear in that user's Time Management page. If the assignee cannot be mapped, the child item remains unassigned locally and keeps the provider assignee snapshot for display.
 
 ## Refresh
 

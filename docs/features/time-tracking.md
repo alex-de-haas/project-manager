@@ -4,7 +4,7 @@
 
 Time Management shows weekly and monthly trackable work items for the active project. Users can enter time inline, review totals, filter by status, manage blockers and checklists, refresh linked provider items, and export monthly time to Excel.
 
-Only Project Manager `task` and `bug` work items appear in time tracking. `user_story` work items are reserved for release planning and are excluded from time entry editing and time export.
+Only Project Manager `task` and `bug` work items appear in time tracking. Azure DevOps Time Management import also lists only Tasks and Bugs. `user_story` work items are reserved for release planning and are excluded from import, time entry editing, and time export.
 
 ## Work Items
 
