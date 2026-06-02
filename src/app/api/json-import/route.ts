@@ -7,7 +7,10 @@ import {
   getRequestUserId,
   projectContextErrorResponse,
 } from "@/lib/user-context";
-import { upsertExternalLink } from "@/lib/work-items";
+import {
+  ensureTimeTrackingItem,
+  upsertExternalLink,
+} from "@/lib/work-items";
 
 interface JsonImportEntry {
   date?: unknown;
@@ -94,13 +97,6 @@ const getOrCreateTaskForWorkItem = (
     return { taskId: existing.id, created: false };
   }
 
-  const maxOrder = db
-    .prepare(
-      "SELECT MAX(display_order) AS max_order FROM work_items WHERE assigned_user_id = ? AND project_id = ? AND type IN ('task', 'bug')"
-    )
-    .get(userId, projectId) as { max_order: number | null };
-  const displayOrder = (maxOrder.max_order ?? -1) + 1;
-
   const result = db
     .prepare(
       `
@@ -110,15 +106,14 @@ const getOrCreateTaskForWorkItem = (
         type,
         status,
         assigned_user_id,
-        display_order,
         sync_state,
         created_by_user_id,
         updated_by_user_id
       )
-      VALUES (?, ?, 'task', 'new', ?, ?, 'synced', ?, ?)
+      VALUES (?, ?, 'task', 'new', ?, 'synced', ?, ?)
     `
     )
-    .run(projectId, `Azure DevOps #${workItemId}`, userId, displayOrder, userId, userId);
+    .run(projectId, `Azure DevOps #${workItemId}`, userId, userId, userId);
 
   upsertExternalLink({
     workItemId: Number(result.lastInsertRowid),
@@ -174,6 +169,13 @@ export async function POST(request: NextRequest) {
         }
 
         const { taskId, created } = getOrCreateTaskForWorkItem(userId, projectId, workItemId);
+        ensureTimeTrackingItem({
+          projectId,
+          userId,
+          workItemId: taskId,
+          addedByUserId: userId,
+        });
+
         if (created) {
           tasksCreated += 1;
         } else {

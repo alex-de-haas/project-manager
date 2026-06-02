@@ -77,13 +77,17 @@ export async function POST(request: NextRequest) {
           LEFT JOIN work_item_external_links link
             ON link.work_item_id = wi.id
             AND link.provider = 'azure_devops'
+          INNER JOIN time_tracking_items tti
+            ON tti.work_item_id = wi.id
+            AND tti.project_id = wi.project_id
+            AND tti.user_id = ?
           WHERE wi.id = ?
             AND wi.assigned_user_id = ?
             AND wi.project_id = ?
             AND wi.type IN ('task', 'bug')
         `
       )
-      .get(taskId, userId, projectId) as Task | undefined;
+      .get(userId, taskId, userId, projectId) as Task | undefined;
 
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });

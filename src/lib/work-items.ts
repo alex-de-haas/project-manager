@@ -182,11 +182,82 @@ export const getProjectMembers = (projectId: number) =>
     is_admin: number;
   }>;
 
+export const getNextTimeTrackingDisplayOrder = (
+  projectId: number,
+  userId: number
+): number => {
+  const maxOrder = db
+    .prepare(
+      `
+        SELECT MAX(display_order) AS max_order
+        FROM time_tracking_items
+        WHERE project_id = ?
+          AND user_id = ?
+      `
+    )
+    .get(projectId, userId) as { max_order: number | null };
+
+  return (maxOrder.max_order ?? -1) + 1;
+};
+
+export const ensureTimeTrackingItem = ({
+  projectId,
+  userId,
+  workItemId,
+  addedByUserId,
+  displayOrder,
+}: {
+  projectId: number;
+  userId: number;
+  workItemId: number;
+  addedByUserId?: number | null;
+  displayOrder?: number | null;
+}): { created: boolean; displayOrder: number } => {
+  const existing = db
+    .prepare(
+      `
+        SELECT display_order
+        FROM time_tracking_items
+        WHERE project_id = ?
+          AND user_id = ?
+          AND work_item_id = ?
+        LIMIT 1
+      `
+    )
+    .get(projectId, userId, workItemId) as { display_order: number | null } | undefined;
+
+  if (existing) {
+    return { created: false, displayOrder: existing.display_order ?? 0 };
+  }
+
+  const nextDisplayOrder = displayOrder ?? getNextTimeTrackingDisplayOrder(projectId, userId);
+
+  db.prepare(
+    `
+      INSERT INTO time_tracking_items (
+        project_id,
+        user_id,
+        work_item_id,
+        display_order,
+        added_by_user_id,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `
+  ).run(projectId, userId, workItemId, nextDisplayOrder, addedByUserId ?? userId);
+
+  return { created: true, displayOrder: nextDisplayOrder };
+};
+
 export const getWorkItemForUser = (
   workItemId: number,
   projectId: number,
   userId: number,
-  options: { requireAssigned?: boolean; requireTrackable?: boolean } = {}
+  options: {
+    requireAssigned?: boolean;
+    requireTrackable?: boolean;
+    requireTimeTracking?: boolean;
+  } = {}
 ): WorkItem | null => {
   const conditions = ["wi.id = ?", "wi.project_id = ?"];
   const params: Array<number | string> = [workItemId, projectId];
@@ -197,6 +268,18 @@ export const getWorkItemForUser = (
   }
   if (options.requireTrackable) {
     conditions.push("wi.type IN ('task', 'bug')");
+  }
+  if (options.requireTimeTracking) {
+    conditions.push(
+      `EXISTS (
+        SELECT 1
+        FROM time_tracking_items tti
+        WHERE tti.work_item_id = wi.id
+          AND tti.project_id = wi.project_id
+          AND tti.user_id = ?
+      )`
+    );
+    params.push(userId);
   }
 
   const item = db

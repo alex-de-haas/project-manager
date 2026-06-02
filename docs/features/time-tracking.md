@@ -2,13 +2,15 @@
 
 ## Overview
 
-Time Management shows weekly and monthly trackable work items for the active project. Users can enter time inline, review totals, filter by status, manage blockers and checklists, refresh linked provider items, and export monthly time to Excel.
+Time Management shows weekly and monthly trackable work items that the user has explicitly added to Time Management for the active project. Users can enter time inline, review totals, filter by status, manage blockers and checklists, refresh linked provider items, and export monthly time to Excel.
 
-Only Project Manager `task` and `bug` work items appear in time tracking. Azure DevOps Time Management import also lists only Tasks and Bugs. `user_story` work items are reserved for release planning and are excluded from import, time entry editing, and time export.
+Only Project Manager `task` and `bug` work items can be added to time tracking. Azure DevOps Time Management import also lists only Tasks and Bugs. `user_story` work items are reserved for release planning and are excluded from import, time entry editing, and time export.
 
 ## Work Items
 
 Users can create local tasks and bugs from a dialog. Work item descriptions support Markdown and are stored on the canonical work item record.
+
+Time Management membership is stored separately from the canonical work item. A task or bug can exist in Project Manager as planning context without appearing in Time Management. The row appears only after a user creates it from Time Management, imports it through the Time Management Azure DevOps import, imports time entries for it, or otherwise creates a per-user Time Management membership record.
 
 Trackable work item rows include:
 
@@ -22,7 +24,7 @@ Trackable work item rows include:
 
 ## Time Entries
 
-Time entries are stored by work item, user, and date. A user can edit time for work items assigned to them in the active project.
+Time entries are stored by work item, user, and date. A user can edit time for work items assigned to them in the active project after the item has been added to that user's Time Management list.
 
 Expected-hour calculations use the current user's profile work schedule for the active project. Missing schedules use the app-level `PROJECT_MANAGER_DEFAULT_DAY_LENGTH` environment value, which defaults to 8 hours.
 
@@ -42,7 +44,7 @@ Refresh updates:
 - Provider assignee snapshot.
 - Local assignment when a refreshed Azure DevOps assignee maps to a Project Manager user.
 
-Time Management refresh does not read release-planning-only user stories and does not surface unrelated project work owned by other users unless the current user has tracked time on that work item in the selected period. If Azure DevOps reports a refreshed task or bug as assigned to someone other than the current PAT-authenticated user, Project Manager records that assignee snapshot. If the assignee does not map to a Project Manager user, the local assignment is cleared while the Azure DevOps assignee name remains visible with an external-assignee indicator.
+Time Management refresh does not read release-planning-only user stories and does not surface unrelated project work owned by other users. If Azure DevOps reports a refreshed task or bug as assigned to someone other than the current PAT-authenticated user, Project Manager records that assignee snapshot. If the assignee does not map to a Project Manager user, the local assignment is cleared while the Azure DevOps assignee name remains visible with an external-assignee indicator.
 
 Rows assigned away in Azure DevOps remain visible to the current user only when the selected week or month contains that user's tracked time. This keeps historical reporting and monthly export accurate after a handoff to a user who does not exist in Project Manager yet.
 
@@ -54,4 +56,4 @@ When a work item is linked to Azure DevOps, Project Manager first validates and 
 
 ## Export
 
-Monthly Excel export includes time entries for trackable work items only. User stories are not exported as time rows.
+Monthly Excel export includes Time Management work items for the current user only. User stories and project tasks or bugs that have not been added to the user's Time Management list are not exported as time rows.

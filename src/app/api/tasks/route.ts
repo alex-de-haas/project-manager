@@ -6,6 +6,8 @@ import type { Blocker, TaskWithTimeEntries, TrackableWorkItemType, WorkItem } fr
 import {
   applyLocalStatusChange,
   displayWorkItemStatus,
+  ensureTimeTrackingItem,
+  getNextTimeTrackingDisplayOrder,
   getUserProjectMembership,
   getWorkItemForUser,
   isTrackableWorkItemType,
@@ -74,6 +76,7 @@ export async function GET(request: NextRequest) {
         `
           SELECT
             wi.*,
+            tti.display_order AS display_order,
             wi.assigned_user_id AS user_id,
             COALESCE(u.app_display_name, u.name) AS assignedUserName,
             u.email AS assignedUserEmail,
@@ -83,17 +86,17 @@ export async function GET(request: NextRequest) {
             link.native_assignee_name AS azure_assigned_to_name,
             link.native_assignee_unique_name AS azure_assigned_to_unique_name,
             link.native_assignee_is_current_user AS azure_assignee_is_current_user
-          FROM work_items wi
+          FROM time_tracking_items tti
+          INNER JOIN work_items wi
+            ON wi.id = tti.work_item_id
+            AND wi.project_id = tti.project_id
           LEFT JOIN users u ON u.id = wi.assigned_user_id
           LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
-          WHERE wi.project_id = ?
+          WHERE tti.project_id = ?
+            AND tti.user_id = ?
             AND wi.type IN ('task', 'bug')
             AND (
-              (
-                wi.assigned_user_id = ?
-                AND DATE(wi.created_at) <= ?
-                AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
-              )
+              (DATE(wi.created_at) <= ? AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?))
               OR EXISTS (
                 SELECT 1
                 FROM time_entries te_scope
@@ -105,8 +108,8 @@ export async function GET(request: NextRequest) {
               )
             )
           ORDER BY
-            COALESCE(wi.display_order, 999999),
-            wi.created_at ASC
+            COALESCE(tti.display_order, 999999),
+            tti.created_at ASC
         `
       )
       .all(projectId, userId, endDate, startDate, userId, startDate, endDate) as WorkItemRow[];
@@ -136,15 +139,15 @@ export async function GET(request: NextRequest) {
           SELECT b.*, b.work_item_id AS task_id
           FROM blockers b
           INNER JOIN work_items wi ON wi.id = b.work_item_id
+          INNER JOIN time_tracking_items tti
+            ON tti.work_item_id = wi.id
+            AND tti.project_id = wi.project_id
+            AND tti.user_id = ?
           WHERE wi.project_id = ?
             AND wi.type IN ('task', 'bug')
             AND b.is_resolved = 0
             AND (
-              (
-                wi.assigned_user_id = ?
-                AND DATE(wi.created_at) <= ?
-                AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
-              )
+              (DATE(wi.created_at) <= ? AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?))
               OR EXISTS (
                 SELECT 1
                 FROM time_entries te_scope
@@ -158,7 +161,7 @@ export async function GET(request: NextRequest) {
           ORDER BY b.work_item_id, b.created_at DESC
         `
       )
-      .all(projectId, userId, endDate, startDate, userId, startDate, endDate) as Blocker[];
+      .all(userId, projectId, endDate, startDate, userId, startDate, endDate) as Blocker[];
 
     const checklistSummaries = db
       .prepare(
@@ -291,49 +294,51 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const maxOrder = db
-      .prepare(
-        `
-          SELECT MAX(display_order) as max_order
-          FROM work_items
-          WHERE assigned_user_id = ?
-            AND project_id = ?
-            AND type IN ('task', 'bug')
-        `
-      )
-      .get(targetUserId, projectId) as { max_order: number | null };
-    const newOrder = (maxOrder.max_order ?? -1) + 1;
+    const newOrder = getNextTimeTrackingDisplayOrder(projectId, targetUserId);
 
-    const result = db
-      .prepare(
-        `
-          INSERT INTO work_items (
-            project_id,
-            title,
-            description,
-            type,
-            status,
-            assigned_user_id,
-            parent_work_item_id,
-            display_order,
-            sync_state,
-            created_by_user_id,
-            updated_by_user_id
-          )
-          VALUES (?, ?, ?, ?, 'new', ?, ?, ?, 'not_synced', ?, ?)
-        `
-      )
-      .run(
+    const createWorkItem = db.transaction(() => {
+      const result = db
+        .prepare(
+          `
+            INSERT INTO work_items (
+              project_id,
+              title,
+              description,
+              type,
+              status,
+              assigned_user_id,
+              parent_work_item_id,
+              sync_state,
+              created_by_user_id,
+              updated_by_user_id
+            )
+            VALUES (?, ?, ?, ?, 'new', ?, ?, 'not_synced', ?, ?)
+          `
+        )
+        .run(
+          projectId,
+          title,
+          description,
+          type,
+          targetUserId,
+          parentWorkItemId,
+          userId,
+          userId
+        );
+
+      const workItemId = Number(result.lastInsertRowid);
+      ensureTimeTrackingItem({
         projectId,
-        title,
-        description,
-        type,
-        targetUserId,
-        parentWorkItemId,
-        newOrder,
-        userId,
-        userId
-      );
+        userId: targetUserId,
+        workItemId,
+        addedByUserId: userId,
+        displayOrder: newOrder,
+      });
+
+      return result;
+    });
+
+    const result = createWorkItem();
 
     return NextResponse.json(
       { message: "Work item created successfully", id: result.lastInsertRowid },
@@ -362,6 +367,7 @@ export async function PATCH(request: NextRequest) {
     const item = getWorkItemForUser(id, projectId, userId, {
       requireAssigned: true,
       requireTrackable: true,
+      requireTimeTracking: true,
     });
     if (!item) {
       return NextResponse.json({ error: "Work item not found" }, { status: 404 });
@@ -462,9 +468,16 @@ export async function PATCH(request: NextRequest) {
             AND project_id = ?
             AND assigned_user_id = ?
             AND type IN ('task', 'bug')
+            AND EXISTS (
+              SELECT 1
+              FROM time_tracking_items tti
+              WHERE tti.work_item_id = work_items.id
+                AND tti.project_id = work_items.project_id
+                AND tti.user_id = ?
+            )
         `
       )
-      .run(...values, id, projectId, userId);
+      .run(...values, id, projectId, userId, userId);
 
     if (result.changes === 0) {
       return NextResponse.json({ error: "Work item not found" }, { status: 404 });
@@ -498,9 +511,16 @@ export async function DELETE(request: NextRequest) {
             AND assigned_user_id = ?
             AND project_id = ?
             AND type IN ('task', 'bug')
+            AND EXISTS (
+              SELECT 1
+              FROM time_tracking_items tti
+              WHERE tti.work_item_id = work_items.id
+                AND tti.project_id = work_items.project_id
+                AND tti.user_id = ?
+            )
         `
       )
-      .run(id, userId, projectId);
+      .run(id, userId, projectId, userId);
 
     if (result.changes === 0) {
       return NextResponse.json({ error: "Work item not found" }, { status: 404 });

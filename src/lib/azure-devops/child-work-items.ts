@@ -400,16 +400,6 @@ export const syncChildWorkItemsSnapshot = (params: {
     `
   );
 
-  const maxOrderStmt = db.prepare(
-    `
-      SELECT MAX(display_order) AS max_order
-      FROM work_items
-      WHERE project_id = ?
-        AND assigned_user_id = ?
-        AND type IN ('task', 'bug')
-    `
-  );
-
   const insertWorkItemStmt = db.prepare(
     `
       INSERT INTO work_items (
@@ -420,10 +410,9 @@ export const syncChildWorkItemsSnapshot = (params: {
         tags,
         assigned_user_id,
         parent_work_item_id,
-        display_order,
         sync_state
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'synced')
     `
   );
 
@@ -474,10 +463,6 @@ export const syncChildWorkItemsSnapshot = (params: {
         );
       } else {
         const assignedUserId = syncedAssignedUserId;
-        const maxOrder = assignedUserId
-          ? (maxOrderStmt.get(projectId, assignedUserId) as { max_order: number | null })
-          : { max_order: null };
-        const displayOrder = assignedUserId ? (maxOrder.max_order ?? -1) + 1 : 0;
         const result = insertWorkItemStmt.run(
           projectId,
           item.title,
@@ -485,8 +470,7 @@ export const syncChildWorkItemsSnapshot = (params: {
           status,
           item.tags ?? null,
           assignedUserId,
-          parentWorkItemId,
-          displayOrder
+          parentWorkItemId
         );
         workItemId = Number(result.lastInsertRowid);
       }

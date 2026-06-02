@@ -10,6 +10,7 @@ The SQLite database is created as `project_manager.db`. This database name inten
 flowchart LR
   Project["Project"]
   WorkItem["Work Item\nuser_story | task | bug"]
+  TimeTracking["Time Management Items"]
   Time["Time Entries"]
   Release["Release Items"]
   Checklist["Checklist Items"]
@@ -18,7 +19,9 @@ flowchart LR
   DaysOff["Global Days Off"]
 
   Project --> WorkItem
+  WorkItem --> TimeTracking
   WorkItem --> Time
+  TimeTracking --> Time
   WorkItem --> Release
   WorkItem --> Checklist
   WorkItem --> Blocker
@@ -28,7 +31,7 @@ flowchart LR
 
 ## Work Items
 
-`work_items` is the canonical table for planned and tracked work. Every work item has a Project Manager type and normalized Project Manager status.
+`work_items` is the canonical table for planned work and trackable work identity. Every work item has a Project Manager type and normalized Project Manager status. Time Management visibility is stored separately so imported planning children can exist in the system without appearing in a user's time tracker.
 
 Supported types:
 
@@ -42,9 +45,23 @@ Core fields:
 - Project Manager type and normalized status.
 - Optional assigned Project Manager user.
 - Optional parent work item for child tasks and bugs.
-- Optional display order for user-specific time tracking order.
+- Legacy display order column retained for compatibility only. Runtime ordering is stored on screen-specific relationship tables such as `time_tracking_items` and `release_items`.
 - Audit fields for creation and update ownership.
 - Sync state for provider diagnostics.
+
+## Time Management Membership
+
+`time_tracking_items` stores the per-user relationship between a trackable work item and Time Management.
+
+Core fields:
+
+- Project Manager project.
+- Project Manager user whose Time Management list contains the item.
+- Trackable `work_item_id`.
+- Per-user display order.
+- User who added the item.
+
+A `task` or `bug` can be assigned to a user and still remain absent from that user's Time Management list. This is the expected state for child tasks and bugs imported through Release Planning until a user explicitly adds the item to Time Management.
 
 ## Statuses
 

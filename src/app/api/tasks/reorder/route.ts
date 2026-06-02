@@ -22,19 +22,25 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Update display_order for each task in a transaction
+    // Update the current user's Time Management order.
     const updateStmt = db.prepare(`
-      UPDATE work_items
-      SET display_order = ?, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-        AND assigned_user_id = ?
+      UPDATE time_tracking_items
+      SET display_order = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE work_item_id = ?
+        AND user_id = ?
         AND project_id = ?
-        AND type IN ('task', 'bug')
+        AND EXISTS (
+          SELECT 1
+          FROM work_items wi
+          WHERE wi.id = time_tracking_items.work_item_id
+            AND wi.project_id = time_tracking_items.project_id
+            AND wi.type IN ('task', 'bug')
+        )
     `);
     
     const transaction = db.transaction((orders: Array<{ id: number; order: number }>) => {
       for (const { id, order } of orders) {
-        updateStmt.run(order, userId, id, userId, projectId);
+        updateStmt.run(order, id, userId, projectId);
       }
     });
 

@@ -62,11 +62,15 @@ export async function GET(request: NextRequest) {
 
     const importedRows = db.prepare(`
       SELECT link.external_id
-      FROM work_item_external_links link
-      INNER JOIN work_items wi ON wi.id = link.work_item_id
-      WHERE link.provider = 'azure_devops'
-        AND wi.assigned_user_id = ?
-        AND wi.project_id = ?
+      FROM time_tracking_items tti
+      INNER JOIN work_items wi
+        ON wi.id = tti.work_item_id
+        AND wi.project_id = tti.project_id
+      INNER JOIN work_item_external_links link
+        ON link.work_item_id = wi.id
+        AND link.provider = 'azure_devops'
+      WHERE tti.user_id = ?
+        AND tti.project_id = ?
         AND link.external_id IS NOT NULL
     `).all(userId, projectId) as Array<{ external_id: string | number | null }>;
 

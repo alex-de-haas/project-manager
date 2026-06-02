@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
               WHEN 'bug' THEN 1
               ELSE 2
             END,
-            child.updated_at DESC,
+            lower(child.title) ASC,
             CAST(COALESCE(child_link.external_id, child.id) AS INTEGER) DESC
         `
       )
