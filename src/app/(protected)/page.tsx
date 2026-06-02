@@ -1552,7 +1552,7 @@ export default function Home() {
                   <DropdownMenuItem onClick={() => setShowImport(true)}>
                     <span className="flex items-center gap-2">
                       <Upload className="h-4 w-4" />
-                      <span>Import from Azure DevOps</span>
+                      <span>Import work items</span>
                     </span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>

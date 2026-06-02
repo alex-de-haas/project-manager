@@ -13,12 +13,29 @@ import {
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from '@/lib/azure-devops/settings';
+import {
+  AZURE_STATES_BY_IMPORT_STATUS,
+  parseImportStatusFilters,
+} from '@/lib/import-filters';
 import { mapAzureDevOpsTypeToTrackableWorkItemType } from '@/lib/work-items';
+
+const escapeWiqlString = (value: string): string => value.replace(/'/g, "''");
 
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
+    const searchParams = request.nextUrl.searchParams;
+    const searchParam = (searchParams.get("search") || "").trim();
+    const searchText = searchParam.length > 0 ? searchParam : null;
+    const selectedStatuses = parseImportStatusFilters(searchParams.get("statuses"));
+    const selectedAzureStates = Array.from(
+      new Set(selectedStatuses.flatMap((status) => AZURE_STATES_BY_IMPORT_STATUS[status]))
+    );
+
+    if (selectedAzureStates.length === 0) {
+      return NextResponse.json({ workItems: [] });
+    }
 
     const settingsResult = getAzureDevOpsSettingsForUser(userId, projectId);
     if (isAzureDevOpsConfigProblem(settingsResult)) {
@@ -29,6 +46,18 @@ export async function GET(request: NextRequest) {
     }
 
     const { settings, witApi } = await createAzureDevOpsConnectionContext(settingsResult);
+    const stateClause = selectedAzureStates
+      .map((status) => `'${escapeWiqlString(status)}'`)
+      .join(", ");
+    const escapedSearchText = searchText ? escapeWiqlString(searchText) : null;
+    const isNumericSearch = searchText ? /^\d{1,9}$/.test(searchText) : false;
+    const searchClause = searchText
+      ? isNumericSearch
+        ? `AND ([System.Title] CONTAINS '${escapedSearchText}' OR [System.Id] = ${Number(
+            searchText
+          )})`
+        : `AND [System.Title] CONTAINS '${escapedSearchText}'`
+      : "";
 
     // @Me is resolved by Azure DevOps from the PAT-authenticated request identity.
     const wiql = {
@@ -38,8 +67,9 @@ export async function GET(request: NextRequest) {
         WHERE [System.AssignedTo] = @Me
           AND [System.TeamProject] = @project
           AND [System.WorkItemType] IN ('Task', 'Bug')
-          AND [System.State] <> 'Closed'
+          AND [System.State] IN (${stateClause})
           AND [System.State] <> 'Removed'
+          ${searchClause}
         ORDER BY [System.ChangedDate] DESC
       `
     };

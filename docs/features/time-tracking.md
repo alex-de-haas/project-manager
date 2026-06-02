@@ -10,7 +10,7 @@ Only Project Manager `task` and `bug` work items can be added to time tracking. 
 
 Users can create local tasks and bugs from a dialog. Work item descriptions support Markdown and are stored on the canonical work item record.
 
-Time Management membership is stored separately from the canonical work item. A task or bug can exist in Project Manager as planning context without appearing in Time Management. The row appears only after a user creates it from Time Management, imports it through the Time Management Azure DevOps import, imports time entries for it, or otherwise creates a per-user Time Management membership record.
+Time Management membership is stored separately from the canonical work item. A task or bug can exist in Project Manager as planning context without appearing in Time Management. The row appears only after a user creates it from Time Management, imports it through the Time Management import dialog, imports time entries for it, or otherwise creates a per-user Time Management membership record.
 
 Trackable work item rows include:
 
@@ -21,6 +21,12 @@ Trackable work item rows include:
 - Checklist progress when checklist items exist.
 - Active blocker count and highest-severity blocker highlighting.
 - Linked provider metadata when the item is synchronized with Azure DevOps.
+
+## Import
+
+The Time Management import dialog has a shared search and status filter for all import sources. The default status filter includes New and Active work items. Users can also include Resolved and Closed work items when they need to add completed work.
+
+When the active project and current user have Azure DevOps configured, the dialog opens on the Azure DevOps tab and searches assigned Azure DevOps Tasks and Bugs. The Backlog tab is always available and lists local Project Manager tasks and bugs from `work_items` that have not yet been added to the current user's Time Management list.
 
 ## Time Entries
 
