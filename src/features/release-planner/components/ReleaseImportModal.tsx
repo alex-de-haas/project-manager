@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AzureDevOpsWorkItem } from "@/types";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ImportWorkItemList } from "@/components/ImportWorkItemList";
 import {
   Select,
   SelectContent,
@@ -110,6 +110,15 @@ export default function ReleaseImportModal({
   };
 
   const selectableWorkItems = workItems.filter((item) => !item.isImported);
+  const displayWorkItems = useMemo(
+    () =>
+      workItems.map((item) => ({
+        ...item,
+        externalId: item.externalId ?? String(item.id),
+        externalSource: item.externalSource ?? "azure_devops",
+      })),
+    [workItems]
+  );
 
   const toggleSelectAll = () => {
     if (selectedIds.size === selectableWorkItems.length) {
@@ -238,82 +247,18 @@ export default function ReleaseImportModal({
                 : "No user stories available to import"}
             </div>
           ) : (
-            <div className="border rounded-md max-h-[400px] overflow-y-auto">
-              <table className="w-full">
-                <thead className="bg-muted sticky top-0">
-                  <tr>
-                    <th className="p-2 text-left w-12">
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        ref={(el) => {
-                          if (el) el.indeterminate = someSelected;
-                        }}
-                        onChange={toggleSelectAll}
-                        className="h-4 w-4"
-                        disabled={importing || selectableWorkItems.length === 0}
-                      />
-                    </th>
-                    <th className="p-2 text-left w-20">ID</th>
-                    <th className="p-2 text-left">Title</th>
-                    <th className="p-2 text-left w-24">Type</th>
-                    <th className="p-2 text-left w-24">State</th>
-                    <th className="p-2 text-left w-32">Tags</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workItems.map((item) => (
-                    <tr
-                      key={item.id}
-                      className={`border-t ${
-                        item.isImported
-                          ? "bg-muted/40 text-muted-foreground"
-                          : "hover:bg-muted/50 cursor-pointer"
-                      }`}
-                      onClick={() => {
-                        if (!item.isImported) {
-                          toggleSelect(item.id);
-                        }
-                      }}
-                    >
-                      <td className="p-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(item.id)}
-                          onChange={() => toggleSelect(item.id)}
-                          className="h-4 w-4"
-                          disabled={importing || item.isImported}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </td>
-                      <td className="p-2 font-mono text-sm">{Math.floor(item.id)}</td>
-                      <td className="p-2">{item.title}</td>
-                      <td className="p-2">
-                        <Badge variant="outline">{item.type}</Badge>
-                      </td>
-                      <td className="p-2">
-                        <Badge variant="secondary">{item.state}</Badge>
-                      </td>
-                      <td className="p-2">
-                        {item.isImported ? (
-                          <Badge variant="secondary">Already imported</Badge>
-                        ) : item.tags && item.tags.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {item.tags.map((tag, idx) => (
-                              <Badge key={idx} variant="outline" className="text-xs">
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ImportWorkItemList
+              items={displayWorkItems}
+              selectedIds={selectedIds}
+              allSelected={allSelected}
+              someSelected={someSelected}
+              importing={importing}
+              showExternalReference={true}
+              onToggleSelect={toggleSelect}
+              onToggleSelectAll={toggleSelectAll}
+              selectAllDisabled={selectableWorkItems.length === 0}
+              isItemDisabled={(item) => Boolean(item.isImported)}
+            />
           )}
 
           {selectedIds.size > 0 && (
