@@ -84,6 +84,7 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 - `DOCKER_HOST_INTERNAL_ORIGIN` and `DOCKER_HOST_IDENTITY_JWKS_URL` remain accepted while the identity discovery and JWKS routes use the current compatibility names.
 - `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to read the scoped directory for users assigned to this app.
 - `DOCKER_HOST_MODULE_SERVICE_TOKEN` remains accepted as a legacy compatibility fallback.
+- Scoped directory routes and `module_directory_*` error codes keep their legacy names as stable compatibility identifiers while Project Manager treats them as Hosty app directory behavior.
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts only the signed Hosty identity token after signature, issuer, audience, and expiration validation.
 - Direct-origin Shell iframe traffic uses the `project_manager_hosty_identity` HttpOnly app-origin identity cookie after `/api/auth/bootstrap`; the cookie stores the signed Hosty token and is refreshed by the client bridge before token expiry.

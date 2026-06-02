@@ -1,22 +1,24 @@
 import fs from "node:fs";
 import path from "node:path";
-import process from "node:process";
+import { parseArgs } from "node:util";
 
-const args = new Map();
-for (let index = 2; index < process.argv.length; index += 2) {
-  const key = process.argv[index];
-  const value = process.argv[index + 1];
-  if (!key?.startsWith("--") || !value) {
-    throw new Error(
-      "Usage: node scripts/render-app-manifest.mjs --tag <image-tag> --output <path> [--repository <image-repository>]"
-    );
-  }
-  args.set(key.slice(2), value);
+const usage =
+  "Usage: node scripts/render-app-manifest.mjs --tag <image-tag> --output <path> [--repository <image-repository>]";
+
+let values;
+try {
+  ({ values } = parseArgs({
+    options: {
+      tag: { type: "string" },
+      output: { type: "string" },
+      repository: { type: "string" },
+    },
+  }));
+} catch {
+  throw new Error(usage);
 }
 
-const tag = args.get("tag");
-const outputPath = args.get("output");
-const repository = args.get("repository");
+const { tag, output: outputPath, repository } = values;
 
 if (!tag || !outputPath) {
   throw new Error("Both --tag and --output are required");
@@ -31,6 +33,12 @@ const updateImage = (runtime) => {
   }
 
   if (typeof runtime.image === "string") {
+    if (runtime.image.includes("@")) {
+      throw new Error(
+        "Digest image references are not supported by the release manifest renderer; use an image object with repository and tag."
+      );
+    }
+
     const lastSlash = runtime.image.lastIndexOf("/");
     const lastColon = runtime.image.lastIndexOf(":");
     const existingRepository =

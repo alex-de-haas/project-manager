@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     sameSite: secure ? "none" : "lax",
     secure,
   });
-  response.cookies.delete(LEGACY_DOCKER_HOST_IDENTITY_COOKIE);
+  response.cookies.delete({ name: LEGACY_DOCKER_HOST_IDENTITY_COOKIE, path: "/" });
 
   return response;
 }
