@@ -101,11 +101,10 @@ export async function GET(request: NextRequest) {
        INNER JOIN work_items wi ON wi.id = te.work_item_id
        WHERE te.work_item_id = ?
          AND te.user_id = ?
-         AND wi.assigned_user_id = ?
          AND wi.project_id = ?
          AND wi.type IN ('task', 'bug')
        ORDER BY te.date DESC`
-    ).all(workItemId, userId, userId, projectId);
+    ).all(workItemId, userId, projectId);
 
     return NextResponse.json(entries);
   } catch (error) {

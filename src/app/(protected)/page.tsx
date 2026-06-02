@@ -206,11 +206,14 @@ const hasTaskTimeInPeriod = (
     ([date, hours]) => periodDateKeys.has(date) && hours > 0
   );
 
-const getAssignedUserLabel = (task: TaskWithTimeEntries) =>
-  task.assignedUserName || task.assignedUserEmail || "another user";
-
 const getAzureAssignedUserLabel = (task: TaskWithTimeEntries) =>
   task.azureAssignedToName || task.azureAssignedToUniqueName || "Unassigned";
+
+const getAssignedUserLabel = (task: TaskWithTimeEntries) =>
+  task.assignedUserName ||
+  task.assignedUserEmail ||
+  (task.external_source === "azure_devops" ? getAzureAssignedUserLabel(task) : null) ||
+  "another user";
 
 interface SortableRowProps {
   id: number;
@@ -226,6 +229,9 @@ interface TaskMetaRowProps {
   description?: string | null;
   assignedUserName?: string | null;
   assignedUserEmail?: string | null;
+  azureAssignedToName?: string | null;
+  azureAssignedToUniqueName?: string | null;
+  isAzureAssignedToCurrentUser?: boolean | null;
   activeBlockers: Blocker[];
   checklistSummary?: TaskWithTimeEntries["checklistSummary"];
   onOpenBlockers: () => void;
@@ -243,6 +249,9 @@ function TaskMetaRow({
   description,
   assignedUserName,
   assignedUserEmail,
+  azureAssignedToName,
+  azureAssignedToUniqueName,
+  isAzureAssignedToCurrentUser,
   activeBlockers,
   checklistSummary,
   onOpenBlockers,
@@ -253,7 +262,11 @@ function TaskMetaRow({
   const parsedTags = useMemo(() => parseTaskTags(tags), [tags]);
   const hasDescription = Boolean(description?.trim());
   const assigneeLabel = assignedUserName?.trim() || assignedUserEmail?.trim() || "";
+  const azureAssigneeLabel =
+    azureAssignedToName?.trim() || azureAssignedToUniqueName?.trim() || "";
   const hasAssignee = Boolean(assigneeLabel);
+  const hasExternalAssignee =
+    !hasAssignee && isAzureAssignedToCurrentUser === false && Boolean(azureAssigneeLabel);
   const statusTone = getStatusTone(status);
 
   useEffect(() => {
@@ -300,6 +313,7 @@ function TaskMetaRow({
         : []),
       ...(hasDescription ? [estimateChipWidth("", true)] : []),
       ...(hasAssignee ? [estimateChipWidth(assigneeLabel, true)] : []),
+      ...(hasExternalAssignee ? [estimateChipWidth(azureAssigneeLabel, true)] : []),
     ];
 
     let usedWidth =
@@ -339,8 +353,10 @@ function TaskMetaRow({
     assigneeLabel,
     checklistSummary,
     containerWidth,
+    azureAssigneeLabel,
     hasAssignee,
     hasDescription,
+    hasExternalAssignee,
     parsedTags,
     status,
   ]);
@@ -359,6 +375,13 @@ function TaskMetaRow({
       </Badge>
       {hasAssignee && (
         <AssigneeBadge name={assignedUserName} email={assignedUserEmail} />
+      )}
+      {hasExternalAssignee && (
+        <AssigneeBadge
+          name={azureAssignedToName}
+          email={azureAssignedToUniqueName}
+          source="external"
+        />
       )}
       {activeBlockers.length > 0 && (
         <HoverCard openDelay={100} closeDelay={100}>
@@ -1848,6 +1871,9 @@ export default function Home() {
                                 description={task.description}
                                 assignedUserName={task.assignedUserName}
                                 assignedUserEmail={task.assignedUserEmail}
+                                azureAssignedToName={task.azureAssignedToName}
+                                azureAssignedToUniqueName={task.azureAssignedToUniqueName}
+                                isAzureAssignedToCurrentUser={task.isAzureAssignedToCurrentUser}
                                 activeBlockers={activeBlockers}
                                 checklistSummary={task.checklistSummary}
                                 onOpenBlockers={() =>

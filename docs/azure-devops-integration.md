@@ -19,6 +19,7 @@ Project Manager remains the local source of truth for its own work item records.
 - Refresh linked work items from Azure DevOps.
 - Upsert child tasks and bugs for imported user stories.
 - Map Azure DevOps assignees to Project Manager users when provider identities are known.
+- Preserve Azure DevOps assignee snapshots when the assignee is not a Project Manager user.
 - Export local tasks and bugs to Azure DevOps, including Markdown descriptions.
 - Export creates Azure DevOps work items first, then applies the current Project Manager status in a separate state update so process rules can run on the newly created work item.
 - Synchronize local status and assignment changes back to Azure DevOps when permissions and process rules allow it.
@@ -75,6 +76,8 @@ Project Manager prevents duplicate provider imports by enforcing uniqueness on p
 Release Planning imports Azure DevOps user stories as Project Manager `user_story` work items. During import and refresh, Project Manager also fetches child tasks and bugs and upserts them as separate Project Manager work items with `parent_work_item_id` pointing to the user story.
 
 If a child task or bug has an Azure DevOps assignee that maps to a Project Manager user, the child item is assigned locally and can appear in that user's Time Management page. If no mapping exists, the child item remains unassigned locally and the provider assignee snapshot remains visible for planning context.
+
+When refresh finds that a task or bug moved to an Azure DevOps assignee that does not map to a Project Manager user, Project Manager clears the local assignment and keeps the native assignee snapshot. Time Management still shows the row to a user who has tracked time on it in the selected period, with an external-assignee indicator instead of a local user badge.
 
 When Project Manager syncs child tasks and bugs through a user's Azure DevOps PAT, it also checks the child work item ids against Azure DevOps `@Me`. This protects assignment mapping when `System.AssignedTo` contains only a display name and does not include a stable id or email address.
 

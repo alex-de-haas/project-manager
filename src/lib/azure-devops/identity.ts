@@ -1,4 +1,5 @@
 import type { AzureDevOpsAuthenticatedUser } from "@/lib/azure-devops/settings";
+import db from "@/lib/db";
 
 export interface AzureDevOpsIdentitySnapshot {
   id: string | null;
@@ -37,6 +38,24 @@ const extractEmail = (value: string | null): string | null => {
 
 const normalizeComparable = (value: string | null): string | null =>
   value?.trim().toLowerCase() || null;
+
+const getAzureDevOpsIdentityCandidates = (
+  identity: AzureDevOpsIdentitySnapshot | null
+): string[] => {
+  if (!identity) return [];
+
+  return Array.from(
+    new Set(
+      [
+        normalizeComparable(identity.id),
+        normalizeComparable(identity.uniqueName),
+        normalizeComparable(identity.displayName),
+        extractEmail(identity.displayName),
+        extractEmail(identity.uniqueName),
+      ].filter(Boolean) as string[]
+    )
+  );
+};
 
 export const normalizeAzureDevOpsWorkItemIdentity = (
   value: unknown
@@ -105,4 +124,59 @@ export const isAzureDevOpsIdentityAssignedToUser = (
   ].filter(Boolean) as string[];
 
   return currentUserCandidates.some((candidate) => assignedCandidates.has(candidate));
+};
+
+export const findMappedAzureDevOpsUserId = (
+  projectId: number,
+  assignedTo: AzureDevOpsIdentitySnapshot | null
+): number | null => {
+  const candidates = getAzureDevOpsIdentityCandidates(assignedTo);
+  if (candidates.length === 0) return null;
+
+  const placeholders = candidates.map(() => "?").join(", ");
+
+  const row = db
+    .prepare(
+      `
+        SELECT provider_user_identities.user_id
+        FROM provider_user_identities
+        INNER JOIN users ON users.id = provider_user_identities.user_id
+        WHERE provider_user_identities.provider = 'azure_devops'
+          AND provider_user_identities.project_id = ?
+          AND (
+            lower(COALESCE(provider_user_identities.email, '')) IN (${placeholders})
+            OR lower(COALESCE(users.email, '')) IN (${placeholders})
+            OR lower(COALESCE(provider_user_identities.external_user_id, '')) IN (${placeholders})
+            OR lower(COALESCE(provider_user_identities.descriptor, '')) IN (${placeholders})
+            OR lower(COALESCE(provider_user_identities.display_name, '')) IN (${placeholders})
+          )
+        LIMIT 1
+      `
+    )
+    .get(
+      projectId,
+      ...candidates,
+      ...candidates,
+      ...candidates,
+      ...candidates,
+      ...candidates
+    ) as { user_id: number } | undefined;
+
+  return row?.user_id ?? null;
+};
+
+export const createAzureDevOpsUserMapper = (projectId: number) => {
+  const cache = new Map<string, number | null>();
+
+  return (assignedTo: AzureDevOpsIdentitySnapshot | null): number | null => {
+    const candidates = getAzureDevOpsIdentityCandidates(assignedTo);
+    if (candidates.length === 0) return null;
+
+    const cacheKey = candidates.join("\u0000");
+    if (!cache.has(cacheKey)) {
+      cache.set(cacheKey, findMappedAzureDevOpsUserId(projectId, assignedTo));
+    }
+
+    return cache.get(cacheKey) ?? null;
+  };
 };
