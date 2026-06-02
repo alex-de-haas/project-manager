@@ -26,6 +26,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AzureDevOpsWorkItem } from "@/types";
+import {
+  DEFAULT_IMPORT_STATUS_FILTERS,
+  IMPORT_STATUS_FILTER_OPTIONS,
+  type ImportStatusFilter,
+} from "@/lib/import-filters";
 
 const formatImportSummary = (imported: number, skipped: number) => {
   const importedLabel = imported === 1 ? "work item" : "work items";
@@ -39,15 +44,23 @@ const formatImportSummary = (imported: number, skipped: number) => {
     .join(", ");
 };
 
-const STATUS_FILTER_OPTIONS = ["New", "Active", "Resolved", "Closed"] as const;
-type StatusFilter = (typeof STATUS_FILTER_OPTIONS)[number];
 type ImportSource = "external" | "backlog";
-
-const DEFAULT_STATUS_FILTERS = new Set<StatusFilter>(["New", "Active"]);
 
 const sourceLabels: Record<ImportSource, string> = {
   external: "Azure DevOps",
   backlog: "Backlog",
+};
+
+const parseAzureDevOpsSettings = (value: unknown) => {
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  return value;
 };
 
 interface ImportModalProps {
@@ -73,11 +86,12 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   const [importing, setImporting] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [appliedFilter, setAppliedFilter] = useState("");
-  const [selectedStatuses, setSelectedStatuses] =
-    useState<Set<StatusFilter>>(DEFAULT_STATUS_FILTERS);
+  const [selectedStatuses, setSelectedStatuses] = useState<
+    Set<ImportStatusFilter>
+  >(() => new Set(DEFAULT_IMPORT_STATUS_FILTERS));
 
   const selectedStatusList = useMemo(
-    () => STATUS_FILTER_OPTIONS.filter((status) => selectedStatuses.has(status)),
+    () => IMPORT_STATUS_FILTER_OPTIONS.filter((status) => selectedStatuses.has(status)),
     [selectedStatuses]
   );
   const statusParam = selectedStatusList.join(",");
@@ -93,7 +107,8 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   const fetchWorkItems = useCallback(async (
     source: ImportSource,
     searchTerm: string,
-    statuses: string
+    statuses: string,
+    signal?: AbortSignal
   ) => {
     try {
       setLoadingBySource((current) => ({ ...current, [source]: true }));
@@ -106,7 +121,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
         source === "external"
           ? "/api/azure-devops/work-items"
           : "/api/tasks/backlog";
-      const response = await fetch(`${endpoint}?${params.toString()}`);
+      const response = await fetch(`${endpoint}?${params.toString()}`, { signal });
       const data = await response.json();
 
       if (response.ok) {
@@ -123,9 +138,14 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
         );
       }
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       toast.error(`Failed to fetch ${sourceLabels[source]} work items: Network error`);
     } finally {
-      setLoadingBySource((current) => ({ ...current, [source]: false }));
+      if (!signal?.aborted) {
+        setLoadingBySource((current) => ({ ...current, [source]: false }));
+      }
     }
   }, []);
 
@@ -144,7 +164,9 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
         }
 
         const data = await response.json();
-        const settings = data.value;
+        const settings = parseAzureDevOpsSettings(data.value) as
+          | { organization?: unknown; project?: unknown; hasPat?: unknown }
+          | null;
         const hasExternalSource = Boolean(
           settings?.organization && settings?.project && settings?.hasPat
         );
@@ -175,7 +197,12 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     if (settingsLoading) return;
     if (activeTab === "external" && !externalAvailable) return;
 
-    void fetchWorkItems(activeTab, appliedFilter, statusParam);
+    const controller = new AbortController();
+    void fetchWorkItems(activeTab, appliedFilter, statusParam, controller.signal);
+
+    return () => {
+      controller.abort();
+    };
   }, [
     activeTab,
     appliedFilter,
@@ -198,7 +225,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     setAppliedFilter(filterText.trim());
   };
 
-  const toggleStatus = (status: StatusFilter) => {
+  const toggleStatus = (status: ImportStatusFilter) => {
     setSelectedStatuses((current) => {
       const next = new Set(current);
       if (next.has(status)) {
@@ -337,7 +364,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuLabel>Status</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {STATUS_FILTER_OPTIONS.map((status) => (
+                  {IMPORT_STATUS_FILTER_OPTIONS.map((status) => (
                     <DropdownMenuCheckboxItem
                       key={status}
                       checked={selectedStatuses.has(status)}

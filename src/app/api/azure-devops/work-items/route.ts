@@ -13,35 +13,13 @@ import {
   getAzureDevOpsSettingsForUser,
   isAzureDevOpsConfigProblem,
 } from '@/lib/azure-devops/settings';
+import {
+  AZURE_STATES_BY_IMPORT_STATUS,
+  parseImportStatusFilters,
+} from '@/lib/import-filters';
 import { mapAzureDevOpsTypeToTrackableWorkItemType } from '@/lib/work-items';
 
-const STATUS_FILTER_OPTIONS = ["New", "Active", "Resolved", "Closed"] as const;
-type StatusFilter = (typeof STATUS_FILTER_OPTIONS)[number];
-
-const DEFAULT_STATUS_FILTERS: StatusFilter[] = ["New", "Active"];
-const AZURE_STATES_BY_STATUS: Record<StatusFilter, string[]> = {
-  New: ["New"],
-  Active: ["Active"],
-  Resolved: ["Resolved"],
-  Closed: ["Closed"],
-};
-
 const escapeWiqlString = (value: string): string => value.replace(/'/g, "''");
-
-const parseStatusFilters = (value: string | null): StatusFilter[] => {
-  if (value === null) return DEFAULT_STATUS_FILTERS;
-  if (!value.trim()) return [];
-
-  const allowed = new Set<string>(STATUS_FILTER_OPTIONS);
-  return Array.from(
-    new Set(
-      value
-        .split(",")
-        .map((status) => status.trim())
-        .filter((status): status is StatusFilter => allowed.has(status))
-    )
-  );
-};
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,9 +28,9 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const searchParam = (searchParams.get("search") || "").trim();
     const searchText = searchParam.length > 0 ? searchParam : null;
-    const selectedStatuses = parseStatusFilters(searchParams.get("statuses"));
+    const selectedStatuses = parseImportStatusFilters(searchParams.get("statuses"));
     const selectedAzureStates = Array.from(
-      new Set(selectedStatuses.flatMap((status) => AZURE_STATES_BY_STATUS[status]))
+      new Set(selectedStatuses.flatMap((status) => AZURE_STATES_BY_IMPORT_STATUS[status]))
     );
 
     if (selectedAzureStates.length === 0) {
@@ -72,7 +50,7 @@ export async function GET(request: NextRequest) {
       .map((status) => `'${escapeWiqlString(status)}'`)
       .join(", ");
     const escapedSearchText = searchText ? escapeWiqlString(searchText) : null;
-    const isNumericSearch = searchText ? /^\d+$/.test(searchText) : false;
+    const isNumericSearch = searchText ? /^\d{1,9}$/.test(searchText) : false;
     const searchClause = searchText
       ? isNumericSearch
         ? `AND ([System.Title] CONTAINS '${escapedSearchText}' OR [System.Id] = ${Number(

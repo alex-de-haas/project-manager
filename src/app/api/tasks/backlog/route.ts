@@ -4,6 +4,10 @@ import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
 import type { AzureDevOpsWorkItem, IntegrationProvider, WorkItemStatus } from "@/types";
 import {
+  LOCAL_STATUS_BY_IMPORT_FILTER,
+  parseImportStatusFilters,
+} from "@/lib/import-filters";
+import {
   displayWorkItemStatus,
   displayWorkItemType,
   ensureTimeTrackingItem,
@@ -14,16 +18,7 @@ import {
   projectContextErrorResponse,
 } from "@/lib/user-context";
 
-const STATUS_FILTER_OPTIONS = ["New", "Active", "Resolved", "Closed"] as const;
-type StatusFilter = (typeof STATUS_FILTER_OPTIONS)[number];
-
-const DEFAULT_STATUS_FILTERS: StatusFilter[] = ["New", "Active"];
-const LOCAL_STATUS_BY_FILTER: Record<StatusFilter, WorkItemStatus> = {
-  New: "new",
-  Active: "in_progress",
-  Resolved: "resolved",
-  Closed: "completed",
-};
+const MAX_BACKLOG_IMPORT_ITEMS = 100;
 
 type BacklogRow = {
   id: number;
@@ -33,21 +28,6 @@ type BacklogRow = {
   tags: string | null;
   external_id: string | null;
   external_source: IntegrationProvider | null;
-};
-
-const parseStatusFilters = (value: string | null): StatusFilter[] => {
-  if (value === null) return DEFAULT_STATUS_FILTERS;
-  if (!value.trim()) return [];
-
-  const allowed = new Set<string>(STATUS_FILTER_OPTIONS);
-  return Array.from(
-    new Set(
-      value
-        .split(",")
-        .map((status) => status.trim())
-        .filter((status): status is StatusFilter => allowed.has(status))
-    )
-  );
 };
 
 const parseWorkItemIds = (value: unknown): number[] => {
@@ -80,8 +60,10 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const searchParam = (searchParams.get("search") || "").trim();
     const searchText = searchParam.length > 0 ? searchParam : null;
-    const selectedStatuses = parseStatusFilters(searchParams.get("statuses"));
-    const localStatuses = selectedStatuses.map((status) => LOCAL_STATUS_BY_FILTER[status]);
+    const selectedStatuses = parseImportStatusFilters(searchParams.get("statuses"));
+    const localStatuses = selectedStatuses.map(
+      (status) => LOCAL_STATUS_BY_IMPORT_FILTER[status]
+    );
 
     if (localStatuses.length === 0) {
       return NextResponse.json({ workItems: [] });
@@ -162,6 +144,13 @@ export async function POST(request: NextRequest) {
     if (workItemIds.length === 0) {
       return NextResponse.json(
         { error: "Work item ids are required" },
+        { status: 400 }
+      );
+    }
+
+    if (workItemIds.length > MAX_BACKLOG_IMPORT_ITEMS) {
+      return NextResponse.json(
+        { error: `Cannot import more than ${MAX_BACKLOG_IMPORT_ITEMS} work items at once` },
         { status: 400 }
       );
     }
