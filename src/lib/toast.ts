@@ -13,7 +13,12 @@ const error: typeof sonnerToast.error = (message, data) =>
     ...stickyErrorOptions,
   });
 
-const toastWithStickyErrors = ((...args: Parameters<typeof sonnerToast>) =>
-  sonnerToast(...args)) as typeof sonnerToast;
+export const toast = new Proxy(sonnerToast, {
+  get(target, prop, receiver) {
+    if (prop === "error") {
+      return error;
+    }
 
-export const toast = Object.assign(toastWithStickyErrors, sonnerToast, { error });
+    return Reflect.get(target, prop, receiver);
+  },
+}) as typeof sonnerToast;

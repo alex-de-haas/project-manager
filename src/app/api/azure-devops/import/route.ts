@@ -74,10 +74,7 @@ export async function POST(request: NextRequest) {
           FROM WorkItems
           WHERE [System.AssignedTo] = @Me
             AND [System.TeamProject] = @project
-            AND (
-              [System.WorkItemType] = 'Task'
-              OR [System.WorkItemType] = 'Bug'
-            )
+            AND [System.WorkItemType] IN ('Task', 'Bug')
             AND [System.State] <> 'Closed'
             AND [System.State] <> 'Removed'
           ORDER BY [System.ChangedDate] DESC
