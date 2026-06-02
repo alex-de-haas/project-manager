@@ -22,6 +22,7 @@ export interface ChildWorkItemSnapshot {
   title: string;
   type: string;
   state: string;
+  tags?: string | null;
   assignedTo?: string | null;
   assignedToId?: string | null;
   assignedToUniqueName?: string | null;
@@ -251,6 +252,7 @@ export const fetchChildWorkItemsForParentIds = async (
         "System.Title",
         "System.WorkItemType",
         "System.State",
+        "System.Tags",
         "System.AssignedTo",
       ],
       undefined,
@@ -282,6 +284,7 @@ export const fetchChildWorkItemsForParentIds = async (
         title: String(workItem.fields["System.Title"] ?? "Untitled"),
         type: normalizedType === "bug" ? "Bug" : "Task",
         state,
+        tags: (workItem.fields["System.Tags"] as string) || null,
         assignedTo: assignedTo?.displayName ?? assignedTo?.uniqueName ?? null,
         assignedToId: assignedTo?.id ?? null,
         assignedToUniqueName: assignedTo?.uniqueName ?? null,
@@ -328,6 +331,7 @@ export const syncChildWorkItemsSnapshot = (params: {
       assignedToId: item.assignedToId ?? null,
       assignedToUniqueName: item.assignedToUniqueName ?? null,
       assignedToCurrentUser: item.assignedToCurrentUser ?? null,
+      tags: item.tags ?? null,
     });
   }
 
@@ -413,12 +417,13 @@ export const syncChildWorkItemsSnapshot = (params: {
         title,
         type,
         status,
+        tags,
         assigned_user_id,
         parent_work_item_id,
         display_order,
         sync_state
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'synced')
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')
     `
   );
 
@@ -428,6 +433,7 @@ export const syncChildWorkItemsSnapshot = (params: {
       SET title = ?,
           type = ?,
           status = ?,
+          tags = ?,
           assigned_user_id = ?,
           parent_work_item_id = ?,
           completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE NULL END,
@@ -459,6 +465,7 @@ export const syncChildWorkItemsSnapshot = (params: {
           item.title,
           type,
           status,
+          item.tags ?? null,
           assignedUserId,
           parentWorkItemId,
           status,
@@ -476,6 +483,7 @@ export const syncChildWorkItemsSnapshot = (params: {
           item.title,
           type,
           status,
+          item.tags ?? null,
           assignedUserId,
           parentWorkItemId,
           displayOrder
