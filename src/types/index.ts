@@ -112,6 +112,8 @@ export interface AzureDevOpsWorkItem {
   state: string;
   tags?: string[];
   isImported?: boolean;
+  externalId?: string | null;
+  externalSource?: IntegrationProvider | null;
 }
 
 export interface DayOff {
