@@ -20,6 +20,7 @@ import {
   normalizeAzureDevOpsWorkItemIdentity,
 } from "@/lib/azure-devops/identity";
 import {
+  ensureTimeTrackingItem,
   mapAzureDevOpsStatusToWorkItemStatus,
   mapAzureDevOpsTypeToTrackableWorkItemType,
   upsertExternalLink,
@@ -32,6 +33,24 @@ interface ImportRequest {
 }
 
 const escapeWiqlString = (value: string): string => value.replace(/'/g, "''");
+
+const readImportedTask = (workItemId: number): Task =>
+  db
+    .prepare(
+      `
+        SELECT
+          wi.*,
+          wi.assigned_user_id AS user_id,
+          link.external_id,
+          link.provider AS external_source
+        FROM work_items wi
+        LEFT JOIN work_item_external_links link
+          ON link.work_item_id = wi.id
+          AND link.provider = 'azure_devops'
+        WHERE wi.id = ?
+      `
+    )
+    .get(workItemId) as Task;
 
 const hasCurrentProjectScope = (query: string, project: string): boolean => {
   const normalizedQuery = query.replace(/\s+/g, " ").toLowerCase();
@@ -167,7 +186,7 @@ export async function POST(request: NextRequest) {
       const existing = db
         .prepare(
           `
-            SELECT wi.id, wi.assigned_user_id, wi.display_order
+            SELECT wi.id, wi.assigned_user_id
             FROM work_item_external_links link
             INNER JOIN work_items wi ON wi.id = link.work_item_id
             WHERE link.project_id = ?
@@ -178,26 +197,10 @@ export async function POST(request: NextRequest) {
           `
         )
         .get(projectId, String(workItem.id)) as
-        | { id: number; assigned_user_id: number | null; display_order: number | null }
+        | { id: number; assigned_user_id: number | null }
         | undefined;
 
       if (existing) {
-        let displayOrder = existing.display_order ?? 0;
-        if (assignedUserId && existing.assigned_user_id !== assignedUserId) {
-          const maxOrder = db
-            .prepare(
-              `
-                SELECT MAX(display_order) as max_order
-                FROM work_items
-                WHERE assigned_user_id = ?
-                  AND project_id = ?
-                  AND type IN ('task', 'bug')
-              `
-            )
-            .get(assignedUserId, projectId) as { max_order: number | null };
-          displayOrder = (maxOrder.max_order ?? -1) + 1;
-        }
-
         db.prepare(
           `
             UPDATE work_items
@@ -206,7 +209,6 @@ export async function POST(request: NextRequest) {
                 status = ?,
                 tags = ?,
                 assigned_user_id = ?,
-                display_order = ?,
                 completed_at = ?,
                 sync_state = 'synced',
                 updated_by_user_id = ?,
@@ -219,7 +221,6 @@ export async function POST(request: NextRequest) {
           status,
           tags,
           assignedUserId,
-          displayOrder,
           status === "completed" ? closedDate ?? new Date().toISOString() : null,
           userId,
           existing.id,
@@ -246,27 +247,27 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        skipped.push({
-          id: workItem.id,
-          reason: assignedUserId ? "Already imported; assignment refreshed" : "Already imported",
-        });
+        const trackingResult = assignedUserId
+          ? ensureTimeTrackingItem({
+              projectId,
+              userId: assignedUserId,
+              workItemId: existing.id,
+              addedByUserId: userId,
+            })
+          : null;
+
+        if (trackingResult?.created) {
+          imported.push(readImportedTask(existing.id));
+        } else {
+          skipped.push({
+            id: workItem.id,
+            reason: assignedUserId
+              ? "Already added to Time Management; assignment refreshed"
+              : "Already imported; no matching Project Manager assignee",
+          });
+        }
         continue;
       }
-
-      const maxOrder = assignedUserId
-        ? (db
-            .prepare(
-              `
-                SELECT MAX(display_order) as max_order
-                FROM work_items
-                WHERE assigned_user_id = ?
-                  AND project_id = ?
-                  AND type IN ('task', 'bug')
-              `
-            )
-            .get(assignedUserId, projectId) as { max_order: number | null })
-        : { max_order: null };
-      const displayOrder = assignedUserId ? (maxOrder.max_order ?? -1) + 1 : 0;
 
       const result = db
         .prepare(
@@ -278,13 +279,12 @@ export async function POST(request: NextRequest) {
               status,
               tags,
               assigned_user_id,
-              display_order,
               completed_at,
               sync_state,
               created_by_user_id,
               updated_by_user_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?, ?)
           `
         )
         .run(
@@ -294,7 +294,6 @@ export async function POST(request: NextRequest) {
           status,
           tags,
           assignedUserId,
-          displayOrder,
           status === "completed" ? closedDate ?? new Date().toISOString() : null,
           userId,
           userId
@@ -321,21 +320,20 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      const newTask = db
-        .prepare(
-          `
-            SELECT
-              wi.*,
-              wi.assigned_user_id AS user_id,
-              link.external_id,
-              link.provider AS external_source
-            FROM work_items wi
-            LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
-            WHERE wi.id = ?
-          `
-        )
-        .get(workItemId) as Task;
-      imported.push(newTask);
+      if (assignedUserId) {
+        ensureTimeTrackingItem({
+          projectId,
+          userId: assignedUserId,
+          workItemId,
+          addedByUserId: userId,
+        });
+        imported.push(readImportedTask(workItemId));
+      } else {
+        skipped.push({
+          id: workItem.id,
+          reason: "Imported as a stored work item, but no matching Project Manager assignee was found",
+        });
+      }
     }
 
     return NextResponse.json({

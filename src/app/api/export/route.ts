@@ -35,19 +35,20 @@ export async function GET(request: NextRequest) {
     const tasks = db.prepare(`
       SELECT
         wi.*,
+        tti.display_order AS display_order,
         wi.assigned_user_id AS user_id,
         link.provider AS external_source,
         link.external_id
-        FROM work_items wi
+        FROM time_tracking_items tti
+        INNER JOIN work_items wi
+          ON wi.id = tti.work_item_id
+          AND wi.project_id = tti.project_id
         LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
-        WHERE wi.project_id = ?
+        WHERE tti.project_id = ?
+          AND tti.user_id = ?
           AND wi.type IN ('task', 'bug')
           AND (
-            (
-              wi.assigned_user_id = ?
-              AND DATE(wi.created_at) <= ?
-              AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
-            )
+            (DATE(wi.created_at) <= ? AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?))
             OR EXISTS (
               SELECT 1
               FROM time_entries te_scope
@@ -55,10 +56,10 @@ export async function GET(request: NextRequest) {
                 AND te_scope.user_id = ?
                 AND te_scope.date >= ?
                 AND te_scope.date <= ?
-                AND te_scope.hours > 0
+              AND te_scope.hours > 0
             )
           )
-        ORDER BY COALESCE(wi.display_order, 999999), wi.created_at ASC
+        ORDER BY COALESCE(tti.display_order, 999999), tti.created_at ASC
     `).all(projectId, userId, endDate, startDate, userId, startDate, endDate) as Task[];
 
     const timeEntries = db.prepare(

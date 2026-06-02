@@ -42,7 +42,6 @@ interface LinkedWorkItemRow {
   status: string;
   tags: string | null;
   assigned_user_id: number | null;
-  display_order: number | null;
   completed_at?: string | null;
   external_id: string;
 }
@@ -113,7 +112,6 @@ export async function POST(request: NextRequest) {
           wi.status,
           wi.tags,
           wi.assigned_user_id,
-          wi.display_order,
           wi.completed_at,
           link.external_id
         FROM work_items wi
@@ -126,6 +124,16 @@ export async function POST(request: NextRequest) {
 
     if (releaseId) {
       queryParts.push("INNER JOIN release_items ri ON ri.work_item_id = wi.id");
+    } else {
+      queryParts.push(
+        `
+          INNER JOIN time_tracking_items tti
+            ON tti.work_item_id = wi.id
+            AND tti.project_id = wi.project_id
+            AND tti.user_id = ?
+        `
+      );
+      params.push(userId);
     }
 
     queryParts.push("WHERE wi.project_id = ?");
@@ -202,15 +210,6 @@ export async function POST(request: NextRequest) {
     const updated: Array<{ id: number; title: string; status: string }> = [];
     const skipped: Array<{ id: number; reason: string }> = [];
     const findMappedAssignedUserId = createAzureDevOpsUserMapper(projectId);
-    const maxOrderStmt = db.prepare(
-      `
-        SELECT MAX(display_order) AS max_order
-        FROM work_items
-        WHERE project_id = ?
-          AND assigned_user_id = ?
-          AND type IN ('task', 'bug')
-      `
-    );
 
     for (const workItem of workItems) {
       if (!workItem.id || !workItem.fields) continue;
@@ -235,13 +234,6 @@ export async function POST(request: NextRequest) {
       const mappedAssignedUserId = findMappedAssignedUserId(assignedTo);
       const assignedUserId =
         mappedAssignedUserId ?? (isAssignedToCurrentUser === true ? userId : null);
-      let displayOrder = localItem.display_order ?? 0;
-      if (assignedUserId && localItem.assigned_user_id !== assignedUserId) {
-        const maxOrder = maxOrderStmt.get(projectId, assignedUserId) as {
-          max_order: number | null;
-        };
-        displayOrder = (maxOrder.max_order ?? -1) + 1;
-      }
       const closedDate =
         (workItem.fields["Microsoft.VSTS.Common.ClosedDate"] as string) ||
         (workItem.fields["Microsoft.VSTS.Common.ResolvedDate"] as string) ||
@@ -264,7 +256,6 @@ export async function POST(request: NextRequest) {
                 status = ?,
                 tags = ?,
                 assigned_user_id = ?,
-                display_order = ?,
                 completed_at = ?,
                 sync_state = 'synced',
                 updated_by_user_id = ?,
@@ -277,7 +268,6 @@ export async function POST(request: NextRequest) {
           status,
           tags,
           assignedUserId,
-          displayOrder,
           status === "completed"
             ? closedDate || localItem.completed_at || new Date().toISOString()
             : null,

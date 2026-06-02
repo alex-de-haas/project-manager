@@ -83,8 +83,6 @@ export async function POST(request: NextRequest) {
         `
           SELECT
             wi.id,
-            wi.assigned_user_id,
-            wi.display_order,
             link.native_type,
             link.native_status
           FROM work_item_external_links link
@@ -99,8 +97,6 @@ export async function POST(request: NextRequest) {
       .get(projectId, String(externalWorkItemId)) as
       | {
           id: number;
-          assigned_user_id: number | null;
-          display_order: number | null;
           native_type: string | null;
           native_status: string | null;
         }
@@ -131,32 +127,15 @@ export async function POST(request: NextRequest) {
       settings.project
     );
 
-    let displayOrder = linked.display_order ?? 0;
-    if (linked.assigned_user_id !== assignedUserId) {
-      const maxOrder = db
-        .prepare(
-          `
-            SELECT MAX(display_order) AS max_order
-            FROM work_items
-            WHERE project_id = ?
-              AND assigned_user_id = ?
-              AND type IN ('task', 'bug')
-          `
-        )
-        .get(projectId, assignedUserId) as { max_order: number | null };
-      displayOrder = (maxOrder.max_order ?? -1) + 1;
-    }
-
     db.prepare(
       `
         UPDATE work_items
         SET assigned_user_id = ?,
-            display_order = ?,
             updated_by_user_id = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND project_id = ?
       `
-    ).run(assignedUserId, displayOrder, currentUserId, linked.id, projectId);
+    ).run(assignedUserId, currentUserId, linked.id, projectId);
 
     const assignedUserIdentity = getStoredAzureDevOpsUserIdentity(assignedUserId, projectId);
     upsertExternalLink({

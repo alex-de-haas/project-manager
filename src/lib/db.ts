@@ -69,6 +69,7 @@ const initDb = () => {
     db.exec(`
       DROP TABLE IF EXISTS checklist_items;
       DROP TABLE IF EXISTS blockers;
+      DROP TABLE IF EXISTS time_tracking_items;
       DROP TABLE IF EXISTS time_entries;
       DROP TABLE IF EXISTS release_items;
       DROP TABLE IF EXISTS releases;
@@ -220,6 +221,22 @@ const initDb = () => {
       UNIQUE(work_item_id, user_id, date)
     );
 
+    CREATE TABLE IF NOT EXISTS time_tracking_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      work_item_id INTEGER NOT NULL,
+      display_order INTEGER DEFAULT 0,
+      added_by_user_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (work_item_id) REFERENCES work_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (added_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      UNIQUE(project_id, user_id, work_item_id)
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -348,6 +365,8 @@ const initDb = () => {
     CREATE INDEX IF NOT EXISTS idx_provider_user_identities_project_provider ON provider_user_identities(project_id, provider);
     CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(date);
     CREATE INDEX IF NOT EXISTS idx_time_entries_work_item_date ON time_entries(work_item_id, user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_time_tracking_items_user_project_order ON time_tracking_items(user_id, project_id, display_order);
+    CREATE INDEX IF NOT EXISTS idx_time_tracking_items_work_item_id ON time_tracking_items(work_item_id);
     CREATE INDEX IF NOT EXISTS idx_settings_user_project_key ON settings(user_id, project_id, key);
     CREATE INDEX IF NOT EXISTS idx_user_credentials_user_project_key ON user_credentials(user_id, project_id, key);
     CREATE INDEX IF NOT EXISTS idx_module_settings_key ON module_settings(key);
@@ -380,6 +399,7 @@ const initDb = () => {
       WHERE app_display_name IS NULL
     `
   ).run();
+
   db.prepare(`
     INSERT INTO module_settings (key, value, updated_at)
     VALUES ('schema_version', ?, CURRENT_TIMESTAMP)

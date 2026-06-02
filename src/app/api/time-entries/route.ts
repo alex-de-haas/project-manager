@@ -7,7 +7,7 @@ import {
   getRequestUserId,
   projectContextErrorResponse,
 } from '@/lib/user-context';
-import { getWorkItemForUser } from '@/lib/work-items';
+import { ensureTimeTrackingItem, getWorkItemForUser } from '@/lib/work-items';
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,8 +44,15 @@ export async function POST(request: NextRequest) {
                AND assigned_user_id = ?
                AND project_id = ?
                AND type IN ('task', 'bug')
+               AND EXISTS (
+                 SELECT 1
+                 FROM time_tracking_items tti
+                 WHERE tti.work_item_id = work_items.id
+                   AND tti.project_id = work_items.project_id
+                   AND tti.user_id = ?
+               )
            )`
-      ).run(workItemId, userId, date, workItemId, userId, projectId);
+      ).run(workItemId, userId, date, workItemId, userId, projectId, userId);
     } else {
       const item = getWorkItemForUser(workItemId, projectId, userId, {
         requireAssigned: true,
@@ -54,6 +61,13 @@ export async function POST(request: NextRequest) {
       if (!item) {
         return NextResponse.json({ error: 'Work item not found' }, { status: 404 });
       }
+
+      ensureTimeTrackingItem({
+        projectId,
+        userId,
+        workItemId,
+        addedByUserId: userId,
+      });
 
       db.prepare(
         `INSERT INTO time_entries (work_item_id, user_id, date, hours, updated_at) 
@@ -103,6 +117,13 @@ export async function GET(request: NextRequest) {
          AND te.user_id = ?
          AND wi.project_id = ?
          AND wi.type IN ('task', 'bug')
+         AND EXISTS (
+           SELECT 1
+           FROM time_tracking_items tti
+           WHERE tti.work_item_id = wi.id
+             AND tti.project_id = wi.project_id
+             AND tti.user_id = te.user_id
+         )
        ORDER BY te.date DESC`
     ).all(workItemId, userId, projectId);
 
