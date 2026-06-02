@@ -21,6 +21,17 @@ import { mapAzureDevOpsTypeToTrackableWorkItemType } from '@/lib/work-items';
 
 const escapeWiqlString = (value: string): string => value.replace(/'/g, "''");
 
+const parseAzureDevOpsTags = (tags: unknown): string[] | undefined => {
+  if (typeof tags !== "string") return undefined;
+
+  const parsed = tags
+    .split(";")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+
+  return parsed.length > 0 ? parsed : undefined;
+};
+
 export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
@@ -84,7 +95,13 @@ export async function GET(request: NextRequest) {
     // Fetch work item details
     const workItems = await witApi.getWorkItems(
       workItemIds,
-      undefined,
+      [
+        "System.Id",
+        "System.Title",
+        "System.WorkItemType",
+        "System.State",
+        "System.Tags",
+      ],
       undefined,
       undefined,
       undefined
@@ -112,21 +129,25 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    const result: AzureDevOpsWorkItem[] = (workItems || [])
-      .filter(wi => wi.id && wi.fields)
-      .map((wi) => {
-        const nativeType = wi.fields?.['System.WorkItemType'] || 'Unknown';
-        const type = mapAzureDevOpsTypeToTrackableWorkItemType(nativeType);
-        if (!type) return null;
+    const result = (workItems || [])
+      .reduce<AzureDevOpsWorkItem[]>((items, wi) => {
+        const fields = wi.fields;
+        if (!wi.id || !fields) return items;
 
-        return {
-          id: wi.id!,
-          title: wi.fields?.['System.Title'] || 'Untitled',
+        const nativeType = String(fields['System.WorkItemType'] || 'Unknown');
+        const type = mapAzureDevOpsTypeToTrackableWorkItemType(nativeType);
+        if (!type) return items;
+
+        items.push({
+          id: wi.id,
+          title: String(fields['System.Title'] || 'Untitled'),
           type: nativeType,
-          state: wi.fields?.['System.State'] || 'Unknown',
-        };
-      })
-      .filter((item): item is AzureDevOpsWorkItem => item !== null)
+          state: String(fields['System.State'] || 'Unknown'),
+          tags: parseAzureDevOpsTags(fields["System.Tags"]),
+        });
+
+        return items;
+      }, [])
       .filter((item) => !importedIds.has(item.id));
 
     return NextResponse.json({ workItems: result });
