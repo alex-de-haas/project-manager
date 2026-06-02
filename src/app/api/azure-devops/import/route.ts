@@ -44,7 +44,9 @@ const readImportedTask = (workItemId: number): Task =>
           link.external_id,
           link.provider AS external_source
         FROM work_items wi
-        LEFT JOIN work_item_external_links link ON link.work_item_id = wi.id
+        LEFT JOIN work_item_external_links link
+          ON link.work_item_id = wi.id
+          AND link.provider = 'azure_devops'
         WHERE wi.id = ?
       `
     )

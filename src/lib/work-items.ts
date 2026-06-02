@@ -232,9 +232,9 @@ export const ensureTimeTrackingItem = ({
 
   const nextDisplayOrder = displayOrder ?? getNextTimeTrackingDisplayOrder(projectId, userId);
 
-  db.prepare(
+  const result = db.prepare(
     `
-      INSERT INTO time_tracking_items (
+      INSERT OR IGNORE INTO time_tracking_items (
         project_id,
         user_id,
         work_item_id,
@@ -246,7 +246,24 @@ export const ensureTimeTrackingItem = ({
     `
   ).run(projectId, userId, workItemId, nextDisplayOrder, addedByUserId ?? userId);
 
-  return { created: true, displayOrder: nextDisplayOrder };
+  if (result.changes > 0) {
+    return { created: true, displayOrder: nextDisplayOrder };
+  }
+
+  const current = db
+    .prepare(
+      `
+        SELECT display_order
+        FROM time_tracking_items
+        WHERE project_id = ?
+          AND user_id = ?
+          AND work_item_id = ?
+        LIMIT 1
+      `
+    )
+    .get(projectId, userId, workItemId) as { display_order: number | null } | undefined;
+
+  return { created: false, displayOrder: current?.display_order ?? nextDisplayOrder };
 };
 
 export const getWorkItemForUser = (

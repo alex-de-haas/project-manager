@@ -294,9 +294,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const newOrder = getNextTimeTrackingDisplayOrder(projectId, targetUserId);
-
     const createWorkItem = db.transaction(() => {
+      const newOrder = getNextTimeTrackingDisplayOrder(projectId, targetUserId);
       const result = db
         .prepare(
           `
