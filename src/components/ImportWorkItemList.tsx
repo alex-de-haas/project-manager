@@ -110,8 +110,8 @@ export function ImportWorkItemList({
   );
 
   return (
-    <div className="max-h-[400px] overflow-y-auto rounded-md border">
-      <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-muted px-3 py-2">
+    <div className="max-h-[400px] w-full min-w-0 max-w-full overflow-y-auto overflow-x-hidden rounded-md border">
+      <div className="sticky top-0 z-10 flex min-w-0 items-center gap-3 border-b bg-muted px-3 py-2">
         <input
           type="checkbox"
           checked={allSelected}
@@ -125,15 +125,15 @@ export function ImportWorkItemList({
           className="h-4 w-4"
           disabled={importing || selectAllDisabled || items.length === 0}
         />
-        <span className="text-xs font-medium uppercase text-muted-foreground">
+        <span className="min-w-0 truncate text-xs font-medium uppercase text-muted-foreground">
           Work items
         </span>
-        <span className="ml-auto text-xs text-muted-foreground">
+        <span className="ml-auto flex-shrink-0 text-xs text-muted-foreground">
           {items.length} item{items.length === 1 ? "" : "s"}
         </span>
       </div>
 
-      <div role="list">
+      <div role="list" className="min-w-0">
         {items.map((item) => {
           const disabled = importing || Boolean(isItemDisabled?.(item));
           const selected = selectedIds.has(item.id);
@@ -149,7 +149,7 @@ export function ImportWorkItemList({
               tabIndex={disabled ? -1 : 0}
               aria-label={selectionLabel}
               className={cn(
-                "flex items-start gap-3 border-b px-3 py-3 last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                "flex w-full min-w-0 max-w-full items-start gap-3 overflow-hidden border-b px-3 py-3 last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                 disabled
                   ? "bg-muted/40 text-muted-foreground"
                   : "cursor-pointer hover:bg-muted/50"
@@ -183,7 +183,7 @@ export function ImportWorkItemList({
                 {typeVisual.icon}
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium leading-5">
+                <div className="flex min-w-0 max-w-full items-center gap-1.5 text-sm font-medium leading-5">
                   {getDisplayReference(item, showExternalReference)}
                   <div className="min-w-0 flex-1 truncate" title={item.title}>
                     {item.title}
@@ -208,10 +208,10 @@ export function ImportWorkItemList({
                     <Badge
                       key={`${item.id}-${tag}`}
                       variant="outline"
-                      className="h-5 max-w-[11rem] flex-shrink-0 border-border/70 bg-background/80 px-2 text-[10px] text-muted-foreground"
+                      className="h-5 max-w-[11rem] shrink overflow-hidden border-border/70 bg-background/80 px-2 text-[10px] text-muted-foreground"
                       title={tag}
                     >
-                      <span className="truncate">{tag}</span>
+                      <span className="block min-w-0 truncate">{tag}</span>
                     </Badge>
                   ))}
                 </div>

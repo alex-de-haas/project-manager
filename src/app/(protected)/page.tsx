@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import type { KeyboardEvent } from "react";
+import type { CSSProperties, KeyboardEvent } from "react";
 import dynamic from "next/dynamic";
 import {
   format,
@@ -150,6 +150,11 @@ const MAX_VISIBLE_TASK_TAGS = 3;
 const CHIP_GAP_PX = 6;
 const COMPLETED_STATUSES = new Set(["closed", "resolved", "done", "completed"]);
 const STATUS_FILTER_OPTIONS = ["New", "Active", "Resolved", "Closed"] as const;
+const WORK_ITEM_COLUMN_STYLE: CSSProperties = {
+  minWidth: "180px",
+  width: "28vw",
+  maxWidth: "28vw",
+};
 
 const parseTaskTags = (rawTags?: string | null): string[] =>
   rawTags
@@ -1629,7 +1634,10 @@ export default function Home() {
                   <th className="p-3 sticky left-0 bg-muted dark:bg-muted z-[21]" style={{ width: "40px" }}>
                     {/* Drag handle column */}
                   </th>
-                  <th className="p-3 text-left font-normal text-muted-foreground text-sm sticky left-[40px] bg-muted dark:bg-muted z-[21] overflow-hidden" style={{ minWidth: "180px", maxWidth: "28vw" }}>
+                  <th
+                    className="p-3 text-left font-normal text-muted-foreground text-sm sticky left-[40px] bg-muted dark:bg-muted z-[21] overflow-hidden"
+                    style={WORK_ITEM_COLUMN_STYLE}
+                  >
                     {/* Empty for task names */}
                   </th>
                   {calendarDays.map((day) => {
@@ -1800,11 +1808,10 @@ export default function Home() {
                     id={task.id}
                     rowClassName={getRowClass()}
                     dragHandleBgClassName={getDragHandleBgClass()}
-                    isDragDisabled={!canManageTask}
                   >
                     <td
-                      className={getStickyBgClass()}
-                      style={{ minWidth: "180px", maxWidth: "28vw" }}
+                      className={`${getStickyBgClass()} overflow-hidden`}
+                      style={WORK_ITEM_COLUMN_STYLE}
                     >
                     {(() => {
                       return (
@@ -2153,7 +2160,10 @@ export default function Home() {
                 <td className="p-3 sticky left-0 bg-muted dark:bg-muted z-[11]" style={{ width: "40px" }}>
                   {/* Empty drag handle cell */}
                 </td>
-                <td className="p-3 sticky left-[40px] bg-muted dark:bg-muted z-[11] overflow-hidden" style={{ minWidth: "180px", maxWidth: "28vw" }}>
+                <td
+                  className="p-3 sticky left-[40px] bg-muted dark:bg-muted z-[11] overflow-hidden"
+                  style={WORK_ITEM_COLUMN_STYLE}
+                >
                   {/* Empty cell */}
                 </td>
                 {calendarDays.map((day, index) => {

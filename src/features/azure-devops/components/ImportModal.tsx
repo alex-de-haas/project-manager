@@ -331,23 +331,23 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[800px] max-h-[80vh]">
+      <DialogContent className="max-h-[80vh] min-w-0 overflow-hidden sm:max-w-[800px]">
         <DialogHeader>
           <DialogTitle>Import Work Items</DialogTitle>
           <DialogDescription>
             Select tasks and bugs to add to Time Management.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <form
-            className="space-y-2"
+            className="min-w-0 space-y-2"
             onSubmit={(event) => {
               event.preventDefault();
               handleSearch();
             }}
           >
             <Label htmlFor="filter">Search by ID or Title</Label>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
               <Input
                 id="filter"
                 type="text"
@@ -355,14 +355,14 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Filter by work item ID or title..."
                 disabled={loading || importing}
-                className="flex-1"
+                className="min-w-0 flex-1"
               />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
                     variant="outline"
-                    className="justify-start gap-2 sm:w-[150px]"
+                    className="justify-start gap-2 sm:w-[150px] sm:flex-shrink-0"
                     disabled={loading || importing}
                     aria-label={statusFilterLabel}
                     title={statusFilterLabel}
@@ -391,7 +391,12 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button type="submit" variant="secondary" disabled={loading || importing}>
+              <Button
+                type="submit"
+                variant="secondary"
+                className="sm:flex-shrink-0"
+                disabled={loading || importing}
+              >
                 Search
               </Button>
             </div>
@@ -403,10 +408,13 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
           <Tabs
             value={activeTab}
             onValueChange={(value) => setActiveTab(value as ImportSource)}
+            className="min-w-0"
           >
             <TabsList
               className={
-                externalAvailable ? "grid w-full grid-cols-2" : "grid w-full grid-cols-1"
+                externalAvailable
+                  ? "grid w-full min-w-0 grid-cols-2"
+                  : "grid w-full min-w-0 grid-cols-1"
               }
             >
               {externalAvailable && (
@@ -416,11 +424,11 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
             </TabsList>
 
             {externalAvailable && (
-              <TabsContent value="external" className="mt-4">
+              <TabsContent value="external" className="mt-4 min-w-0 overflow-hidden">
                 {renderWorkItemList()}
               </TabsContent>
             )}
-            <TabsContent value="backlog" className="mt-4">
+            <TabsContent value="backlog" className="mt-4 min-w-0 overflow-hidden">
               {renderWorkItemList()}
             </TabsContent>
           </Tabs>

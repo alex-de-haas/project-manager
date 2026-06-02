@@ -188,7 +188,7 @@ export default function ReleaseImportModal({
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[800px] max-h-[80vh]">
+      <DialogContent className="max-h-[80vh] min-w-0 overflow-hidden sm:max-w-[800px]">
         <DialogHeader>
           <DialogTitle>Import User Stories</DialogTitle>
           <DialogDescription>
@@ -196,10 +196,10 @@ export default function ReleaseImportModal({
             and bugs are synced automatically.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <form className="space-y-2" onSubmit={handleSearchSubmit}>
+        <div className="min-w-0 space-y-4">
+          <form className="min-w-0 space-y-2" onSubmit={handleSearchSubmit}>
             <Label htmlFor="filter">Search by ID or Title</Label>
-            <div className="flex gap-2">
+            <div className="flex min-w-0 gap-2">
               <Input
                 id="filter"
                 type="text"
@@ -207,8 +207,14 @@ export default function ReleaseImportModal({
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Enter ID or title and press Search"
                 disabled={loading || importing}
+                className="min-w-0 flex-1"
               />
-              <Button type="submit" variant="secondary" disabled={loading || importing}>
+              <Button
+                type="submit"
+                variant="secondary"
+                className="flex-shrink-0"
+                disabled={loading || importing}
+              >
                 Search
               </Button>
             </div>
