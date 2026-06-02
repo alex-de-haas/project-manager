@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { BookOpen, Bug, ClipboardCheck } from "lucide-react";
 import type { AzureDevOpsWorkItem } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -22,9 +23,10 @@ interface ImportWorkItemListProps {
   isItemDisabled?: (item: AzureDevOpsWorkItem) => boolean;
 }
 
-const normalizeType = (type: string) => type.trim().toLowerCase().replace(/\s+/g, "_");
+const normalizeType = (type: string | null | undefined) =>
+  type ? type.trim().toLowerCase().replace(/\s+/g, "_") : "";
 
-const getTypeVisual = (type: string) => {
+const getTypeVisual = (type: string | null | undefined) => {
   const normalizedType = normalizeType(type);
 
   if (normalizedType === "bug") {
@@ -98,16 +100,28 @@ export function ImportWorkItemList({
   selectAllDisabled,
   isItemDisabled,
 }: ImportWorkItemListProps) {
+  const setIndeterminate = useCallback(
+    (el: HTMLInputElement | null) => {
+      if (el) {
+        el.indeterminate = someSelected;
+      }
+    },
+    [someSelected]
+  );
+
   return (
     <div className="max-h-[400px] overflow-y-auto rounded-md border">
       <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-muted px-3 py-2">
         <input
           type="checkbox"
           checked={allSelected}
-          ref={(el) => {
-            if (el) el.indeterminate = someSelected;
-          }}
+          ref={setIndeterminate}
           onChange={onToggleSelectAll}
+          aria-label={
+            allSelected
+              ? "Deselect all visible work items"
+              : "Select all visible work items"
+          }
           className="h-4 w-4"
           disabled={importing || selectAllDisabled || items.length === 0}
         />
@@ -125,13 +139,17 @@ export function ImportWorkItemList({
           const selected = selectedIds.has(item.id);
           const typeVisual = getTypeVisual(item.type);
           const tags = item.tags ?? [];
+          const itemLabel = item.title || `work item ${item.id}`;
+          const selectionLabel = `${selected ? "Deselect" : "Select"} ${itemLabel}`;
 
           return (
             <div
               key={`${item.externalSource ?? "local"}-${item.id}`}
               role="listitem"
+              tabIndex={disabled ? -1 : 0}
+              aria-label={selectionLabel}
               className={cn(
-                "flex items-start gap-3 border-b px-3 py-3 last:border-b-0",
+                "flex items-start gap-3 border-b px-3 py-3 last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                 disabled
                   ? "bg-muted/40 text-muted-foreground"
                   : "cursor-pointer hover:bg-muted/50"
@@ -141,11 +159,22 @@ export function ImportWorkItemList({
                   onToggleSelect(item.id);
                 }
               }}
+              onKeyDown={(event) => {
+                if (disabled || event.target !== event.currentTarget) {
+                  return;
+                }
+
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onToggleSelect(item.id);
+                }
+              }}
             >
               <input
                 type="checkbox"
                 checked={selected}
                 onChange={() => onToggleSelect(item.id)}
+                aria-label={selectionLabel}
                 className="mt-0.5 h-4 w-4 flex-shrink-0"
                 disabled={disabled}
                 onClick={(event) => event.stopPropagation()}

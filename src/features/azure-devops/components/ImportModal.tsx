@@ -104,15 +104,18 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   const activeWorkItems = workItemsBySource[activeTab];
   const displayWorkItems = useMemo(
     () =>
-      activeWorkItems.map((item) =>
-        activeTab === "external"
-          ? {
-              ...item,
-              externalId: item.externalId ?? String(item.id),
-              externalSource: item.externalSource ?? "azure_devops",
-            }
-          : item
-      ),
+      activeWorkItems.map((item) => {
+        const isExternal = activeTab === "external";
+        const hasExternalId = Boolean(item.externalId?.trim());
+
+        return {
+          ...item,
+          externalId: item.externalId ?? (isExternal ? String(item.id) : undefined),
+          externalSource:
+            item.externalSource ??
+            (isExternal || hasExternalId ? "azure_devops" : undefined),
+        };
+      }),
     [activeTab, activeWorkItems]
   );
   const loading = loadingBySource[activeTab] || settingsLoading;
