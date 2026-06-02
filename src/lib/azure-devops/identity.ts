@@ -164,3 +164,19 @@ export const findMappedAzureDevOpsUserId = (
 
   return row?.user_id ?? null;
 };
+
+export const createAzureDevOpsUserMapper = (projectId: number) => {
+  const cache = new Map<string, number | null>();
+
+  return (assignedTo: AzureDevOpsIdentitySnapshot | null): number | null => {
+    const candidates = getAzureDevOpsIdentityCandidates(assignedTo);
+    if (candidates.length === 0) return null;
+
+    const cacheKey = candidates.join("\u0000");
+    if (!cache.has(cacheKey)) {
+      cache.set(cacheKey, findMappedAzureDevOpsUserId(projectId, assignedTo));
+    }
+
+    return cache.get(cacheKey) ?? null;
+  };
+};

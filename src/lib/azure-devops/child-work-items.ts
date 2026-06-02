@@ -5,7 +5,7 @@ import {
 } from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
 import db from "@/lib/db";
 import {
-  findMappedAzureDevOpsUserId,
+  createAzureDevOpsUserMapper,
   isAzureDevOpsIdentityAssignedToUser,
   normalizeAzureDevOpsWorkItemIdentity,
 } from "@/lib/azure-devops/identity";
@@ -348,6 +348,7 @@ export const syncChildWorkItemsSnapshot = (params: {
   const parentInternalIdByExternalId = new Map(
     parentRows.map((row) => [Number(row.external_id), row.id])
   );
+  const findMappedAssignedUserId = createAzureDevOpsUserMapper(projectId);
 
   const getCurrentUserAssignmentMatch = (
     item: ChildWorkItemSnapshot
@@ -366,7 +367,7 @@ export const syncChildWorkItemsSnapshot = (params: {
   };
 
   const resolveAssignedUserId = (item: ChildWorkItemSnapshot): number | null => {
-    const mappedUserId = findMappedAzureDevOpsUserId(projectId, {
+    const mappedUserId = findMappedAssignedUserId({
       id: item.assignedToId ?? null,
       displayName: item.assignedTo ?? null,
       uniqueName: item.assignedToUniqueName ?? null,

@@ -13,7 +13,7 @@ import {
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
 import {
-  findMappedAzureDevOpsUserId,
+  createAzureDevOpsUserMapper,
   isAzureDevOpsIdentityAssignedToUser,
   normalizeAzureDevOpsWorkItemIdentity,
 } from "@/lib/azure-devops/identity";
@@ -201,6 +201,7 @@ export async function POST(request: NextRequest) {
 
     const updated: Array<{ id: number; title: string; status: string }> = [];
     const skipped: Array<{ id: number; reason: string }> = [];
+    const findMappedAssignedUserId = createAzureDevOpsUserMapper(projectId);
     const maxOrderStmt = db.prepare(
       `
         SELECT MAX(display_order) AS max_order
@@ -231,7 +232,7 @@ export async function POST(request: NextRequest) {
         assignedTo,
         authenticatedUser
       );
-      const mappedAssignedUserId = findMappedAzureDevOpsUserId(projectId, assignedTo);
+      const mappedAssignedUserId = findMappedAssignedUserId(assignedTo);
       const assignedUserId =
         mappedAssignedUserId ?? (isAssignedToCurrentUser === true ? userId : null);
       let displayOrder = localItem.display_order ?? 0;

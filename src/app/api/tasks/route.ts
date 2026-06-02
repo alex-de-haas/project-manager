@@ -136,13 +136,29 @@ export async function GET(request: NextRequest) {
           SELECT b.*, b.work_item_id AS task_id
           FROM blockers b
           INNER JOIN work_items wi ON wi.id = b.work_item_id
-          WHERE wi.assigned_user_id = ?
-            AND wi.project_id = ?
+          WHERE wi.project_id = ?
+            AND wi.type IN ('task', 'bug')
             AND b.is_resolved = 0
+            AND (
+              (
+                wi.assigned_user_id = ?
+                AND DATE(wi.created_at) <= ?
+                AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?)
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM time_entries te_scope
+                WHERE te_scope.work_item_id = wi.id
+                  AND te_scope.user_id = ?
+                  AND te_scope.date >= ?
+                  AND te_scope.date <= ?
+                  AND te_scope.hours > 0
+              )
+            )
           ORDER BY b.work_item_id, b.created_at DESC
         `
       )
-      .all(userId, projectId) as Blocker[];
+      .all(projectId, userId, endDate, startDate, userId, startDate, endDate) as Blocker[];
 
     const checklistSummaries = db
       .prepare(

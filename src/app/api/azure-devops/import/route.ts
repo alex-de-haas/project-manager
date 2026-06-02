@@ -15,7 +15,7 @@ import {
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
 import {
-  findMappedAzureDevOpsUserId,
+  createAzureDevOpsUserMapper,
   isAzureDevOpsIdentityAssignedToUser,
   normalizeAzureDevOpsWorkItemIdentity,
 } from "@/lib/azure-devops/identity";
@@ -126,6 +126,7 @@ export async function POST(request: NextRequest) {
 
     const imported: Task[] = [];
     const skipped: Array<{ id: number; reason: string }> = [];
+    const findMappedAssignedUserId = createAzureDevOpsUserMapper(projectId);
 
     for (const workItem of workItems || []) {
       if (!workItem.id || !workItem.fields) continue;
@@ -150,7 +151,7 @@ export async function POST(request: NextRequest) {
       );
       const isKnownAssignedToCurrentUser =
         assignedToCurrentUserIds.has(workItem.id) || isAssignedToCurrentUser;
-      const mappedAssignedUserId = findMappedAzureDevOpsUserId(projectId, assignedTo);
+      const mappedAssignedUserId = findMappedAssignedUserId(assignedTo);
       const assignedUserId =
         mappedAssignedUserId ?? (isKnownAssignedToCurrentUser === true ? userId : null);
       const closedDate =
