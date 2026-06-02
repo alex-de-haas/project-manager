@@ -11,7 +11,7 @@ export const PROJECT_USER_COOKIE_NAME = "pm_project_user_id";
 export const getRequestUserId = (request: NextRequest): number => {
   const userId = getAuthenticatedUserId(request);
   if (!userId) {
-    throw new Error("Docker Host identity is required");
+    throw new Error("Hosty app identity is required");
   }
   return userId;
 };

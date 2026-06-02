@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "module:metadata": "node scripts/render-module-metadata.mjs"
+    "app:manifest": "node scripts/render-app-manifest.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

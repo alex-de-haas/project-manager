@@ -15,7 +15,7 @@ export default async function SettingsPage() {
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold">Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Manage your profile and, for Host administrators, module projects and integrations.
+            Manage your profile and, for Host administrators, app projects and integrations.
           </p>
         </div>
         <Card className="w-full">

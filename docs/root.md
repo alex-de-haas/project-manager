@@ -7,6 +7,6 @@ Feature and operation documentation:
 - [Release planning](features/release-planning.md)
 - [Azure DevOps integration](azure-devops-integration.md)
 - [Blockers](blockers-feature.md)
-- [Docker Host module](docker-host-module.md)
+- [Hosty runtime app](features/hosty-runtime-app.md)
 - [Settings](settings-feature.md)
 - [Toast notifications](sonner-usage.md)

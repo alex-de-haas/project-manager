@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "app.0.1",
+  "id": "com.haas.project-manager",
+  "name": "Project Manager",
+  "description": "Project planning, time tracking, release planning, and Azure DevOps coordination for Hosty users.",
+  "version": "1.0.0",
+  "source": {
+    "type": "git",
+    "repository": "https://github.com/alex-de-haas/project-manager"
+  },
+  "runtimeProfiles": [
+    {
+      "key": "docker",
+      "type": "docker",
+      "default": true
+    }
+  ],
+  "services": [
+    {
+      "key": "app",
+      "runtimes": {
+        "docker": {
+          "type": "docker",
+          "image": {
+            "repository": "ghcr.io/alex-de-haas/project-manager",
+            "tag": "latest",
+            "pullPolicy": "ifNotPresent"
+          },
+          "ports": [
+            {
+              "key": "http",
+              "containerPort": 3000,
+              "protocol": "http",
+              "public": true
+            }
+          ],
+          "resources": {
+            "cpus": 1,
+            "memory": "1g"
+          },
+          "healthCheck": {
+            "type": "http",
+            "path": "/api/health",
+            "intervalSeconds": 10,
+            "timeoutSeconds": 2,
+            "successStatus": [200]
+          }
+        }
+      }
+    }
+  ],
+  "endpoints": [
+    {
+      "key": "http",
+      "service": "app",
+      "port": "http",
+      "public": true
+    }
+  ],
+  "ui": {
+    "category": "Apps",
+    "icon": "calendar-days",
+    "entrypoint": {
+      "endpoint": "http",
+      "path": "/"
+    },
+    "navigation": [
+      {
+        "label": "Time Management",
+        "path": "/"
+      },
+      {
+        "label": "Planning",
+        "path": "/release-planner"
+      },
+      {
+        "label": "Calendar",
+        "path": "/day-offs"
+      },
+      {
+        "label": "Settings",
+        "path": "/settings"
+      }
+    ]
+  },
+  "data": {
+    "enabled": true,
+    "targets": [
+      {
+        "runtime": "docker",
+        "service": "app",
+        "containerPath": "/app/data"
+      }
+    ]
+  }
+}

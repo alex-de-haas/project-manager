@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
     const settings = getAiProviderSettings();
     if (!hasConfiguredAiProvider(settings)) {
       return NextResponse.json(
-        { error: 'AI provider is not configured. Please ask a Docker Host administrator to configure provider URL and model in Settings.' },
+        { error: 'AI provider is not configured. Please ask a Hosty administrator to configure provider URL and model in Settings.' },
         { status: 400 }
       );
     }

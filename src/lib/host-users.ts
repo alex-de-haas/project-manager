@@ -21,7 +21,7 @@ const normalizeDisplayName = (identity: HostUserIdentityInput) => {
 };
 
 const buildUniqueName = (name: string, currentUserId?: number) => {
-  const baseName = name.slice(0, 120) || "Docker Host User";
+  const baseName = name.slice(0, 120) || "Hosty User";
   const existing = db.prepare("SELECT id FROM users WHERE LOWER(name) = LOWER(?)");
 
   const isAvailable = (candidate: string) => {

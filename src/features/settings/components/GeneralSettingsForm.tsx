@@ -857,7 +857,7 @@ export function GeneralSettingsForm({
       }
     } catch (err) {
       setMessage(
-        "Error: Connection failed. Make sure the AI provider is reachable from the module container."
+        "Error: Connection failed. Make sure the AI provider is reachable from the app container."
       );
       setMessageType("error");
     } finally {
@@ -1619,7 +1619,7 @@ export function GeneralSettingsForm({
               placeholder="http://host.docker.internal:1234"
             />
             <p className="text-xs text-muted-foreground">
-              Use a URL reachable from inside the module container, such as
+              Use a URL reachable from inside the app container, such as
               http://host.docker.internal:1234 for a host-running local provider.
             </p>
           </div>

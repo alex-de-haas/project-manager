@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  DOCKER_HOST_IDENTITY_COOKIE,
   DOCKER_HOST_IDENTITY_HEADER,
+  HOSTY_APP_IDENTITY_COOKIE,
+  LEGACY_DOCKER_HOST_IDENTITY_COOKIE,
   requestHeadersWithTrustedHostIdentity,
   verifyDockerHostIdentityToken,
 } from "@/lib/host-identity";
@@ -35,7 +36,9 @@ export async function proxy(request: NextRequest) {
   }
 
   const headerToken = request.headers.get(DOCKER_HOST_IDENTITY_HEADER)?.trim();
-  const cookieToken = request.cookies.get(DOCKER_HOST_IDENTITY_COOKIE)?.value?.trim();
+  const cookieToken =
+    request.cookies.get(HOSTY_APP_IDENTITY_COOKIE)?.value?.trim() ||
+    request.cookies.get(LEGACY_DOCKER_HOST_IDENTITY_COOKIE)?.value?.trim();
   const headerClaims = await verifyDockerHostIdentityToken(headerToken);
   const cookieClaims = headerClaims
     ? null
@@ -45,7 +48,7 @@ export async function proxy(request: NextRequest) {
   if (claims) {
     if (cookieClaims && isCrossSiteCookieMutation(request, pathname)) {
       return NextResponse.json(
-        { error: "Cross-site module cookie requests are not allowed" },
+        { error: "Cross-site app identity cookie requests are not allowed" },
         { status: 403 }
       );
     }
@@ -59,7 +62,7 @@ export async function proxy(request: NextRequest) {
 
   if (pathname.startsWith("/api/") || !["GET", "HEAD"].includes(request.method)) {
     return NextResponse.json(
-      { error: "Docker Host identity is required" },
+      { error: "Hosty app identity is required" },
       { status: 401 }
     );
   }

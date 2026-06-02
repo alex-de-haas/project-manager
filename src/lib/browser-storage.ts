@@ -14,7 +14,7 @@ export const writeLocalStorage = (key: string, value: string) => {
   try {
     window.localStorage.setItem(key, value);
   } catch {
-    // Docker Host embeds module apps in a sandboxed iframe where localStorage may be unavailable.
+    // Hosty embeds runtime apps in a sandboxed iframe where localStorage may be unavailable.
   }
 };
 
@@ -24,6 +24,6 @@ export const removeLocalStorage = (key: string) => {
   try {
     window.localStorage.removeItem(key);
   } catch {
-    // Docker Host embeds module apps in a sandboxed iframe where localStorage may be unavailable.
+    // Hosty embeds runtime apps in a sandboxed iframe where localStorage may be unavailable.
   }
 };
