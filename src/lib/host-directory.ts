@@ -1,4 +1,4 @@
-import { getAppId, getHostyInternalOrigin } from "@/lib/module-runtime";
+import { getAppId, getHostyCoreOrigin } from "@/lib/module-runtime";
 
 export type HostDirectoryStatus =
   | "not-configured"
@@ -31,9 +31,7 @@ const DIRECTORY_TIMEOUT_MS = 1500;
 
 export const getHostDirectorySnapshot = async (): Promise<HostDirectorySnapshot> => {
   const endpoint = buildDirectoryEndpoint();
-  const serviceToken =
-    process.env.HOSTY_APP_SERVICE_TOKEN?.trim() ||
-    process.env.DOCKER_HOST_MODULE_SERVICE_TOKEN?.trim();
+  const serviceToken = process.env.HOSTY_APP_SERVICE_TOKEN?.trim();
 
   if (!endpoint || !serviceToken) {
     return {
@@ -44,10 +42,10 @@ export const getHostDirectorySnapshot = async (): Promise<HostDirectorySnapshot>
       updatedAt: null,
       error: {
         status: null,
-        code: "module_directory_not_configured",
+        code: "app_directory_not_configured",
         message: endpoint
-          ? "HOSTY_APP_SERVICE_TOKEN or DOCKER_HOST_MODULE_SERVICE_TOKEN is not configured."
-          : "HOSTY_INTERNAL_ORIGIN or DOCKER_HOST_INTERNAL_ORIGIN is not configured or is not a valid URL.",
+          ? "HOSTY_APP_SERVICE_TOKEN is not configured."
+          : "HOSTY_CORE_ORIGIN is not configured or is not a valid URL.",
       },
     };
   }
@@ -91,7 +89,7 @@ export const getHostDirectorySnapshot = async (): Promise<HostDirectorySnapshot>
       updatedAt: null,
       error: {
         status: null,
-        code: "module_directory_unavailable",
+        code: "app_directory_unavailable",
         message: sanitizeError(error),
       },
     };
@@ -99,13 +97,13 @@ export const getHostDirectorySnapshot = async (): Promise<HostDirectorySnapshot>
 };
 
 const buildDirectoryEndpoint = () => {
-  const internalOrigin = getHostyInternalOrigin();
-  if (!internalOrigin) return null;
+  const coreOrigin = getHostyCoreOrigin();
+  if (!coreOrigin) return null;
 
   try {
     return new URL(
-      `/api/internal/modules/${encodeURIComponent(getAppId())}/directory/users`,
-      internalOrigin
+      `/api/internal/apps/${encodeURIComponent(getAppId())}/directory/users`,
+      coreOrigin
     ).toString();
   } catch {
     return null;
@@ -130,8 +128,8 @@ const readApiError = (
   if (!payload || typeof payload !== "object") {
     return {
       status,
-      code: "module_directory_error",
-      message: `Module directory returned HTTP ${status}.`,
+      code: "app_directory_error",
+      message: `App directory returned HTTP ${status}.`,
     };
   }
 
@@ -139,7 +137,7 @@ const readApiError = (
   if (typeof error === "string" && error.trim()) {
     return {
       status,
-      code: "module_directory_error",
+      code: "app_directory_error",
       message: error.trim(),
     };
   }
@@ -147,16 +145,16 @@ const readApiError = (
   if (!error || typeof error !== "object") {
     return {
       status,
-      code: "module_directory_error",
-      message: `Module directory returned HTTP ${status}.`,
+      code: "app_directory_error",
+      message: `App directory returned HTTP ${status}.`,
     };
   }
 
   const errorRecord = error as Record<string, unknown>;
   return {
     status,
-    code: readString(errorRecord.code) || "module_directory_error",
-    message: readString(errorRecord.message) || `Module directory returned HTTP ${status}.`,
+    code: readString(errorRecord.code) || "app_directory_error",
+    message: readString(errorRecord.message) || `App directory returned HTTP ${status}.`,
   };
 };
 

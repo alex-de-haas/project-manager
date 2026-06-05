@@ -1,15 +1,15 @@
 # Hosty Runtime App
 
-Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell embedding, and app access. Project Manager uses the signed Hosty app identity token to create or update local Host user records and keeps project membership for non-admin users in its own database.
+Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 
-There is no anonymous standalone mode. Direct API access without Hosty app identity is rejected, except for the health and identity bootstrap endpoints. Direct browser access without identity renders only the identity bootstrap state and does not expose application data.
+There is no anonymous standalone mode. Direct API access without Hosty app identity is rejected, except for the health and app-code exchange endpoints. Direct browser access without identity renders only the identity bootstrap state and does not expose application data.
 
 ## Implemented Scope
 
 - Hosty users are the only supported users.
-- Host-issued app identity tokens are validated for signature, issuer, audience, and expiration.
-- Project Manager maps the Host token `sub` claim to `users.host_user_id` and uses the local integer user id only for internal joins.
-- Host administrator status is derived from the signed `host.admin` role and cached on the local user record.
+- Host-issued app identity tokens are revalidated with Core before Project Manager trusts the request.
+- Project Manager maps the Core app session `userId` to `users.host_user_id` and uses the local integer user id only for internal joins.
+- Host administrator status is derived from Core's `host.admin` role and cached on the local user record.
 - Local login, invitation, password change, logout, and local role-management flows are not part of the runtime.
 - Project Manager creates a fresh SQLite database from the current schema when app storage is empty.
 - Project data, project membership, planning data, time-management data, Azure DevOps settings, AI settings, backups, blockers, checklists, and releases are app-owned data.
@@ -19,8 +19,10 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 ## User Access
 
 - Requests must include a valid signed Hosty app identity token issued by Hosty Core.
-- Shell iframe traffic receives identity through the Hosty `postMessage` bridge and exchanges it at `/api/auth/bootstrap` for an HttpOnly app-origin cookie.
-- Gateway and service/API traffic can still use the legacy `X-Docker-Host-Identity` header while the current compatibility contract uses that header.
+- Shell opens the app origin with a Core-issued app authorization code.
+- Project Manager exchanges the code at `/api/auth/app-code` through Core `/api/auth/apps/token`, then stores the app identity token in an HttpOnly app-origin cookie.
+- Server-rendered pages and same-origin APIs revalidate that token through Core `/api/auth/apps/revalidate`.
+- Direct probes can pass the same app identity token through `Authorization: Bearer`.
 - Host administrators receive administrative access in Project Manager automatically.
 - Settings are visible to all assigned app users; administrative settings are visible only to Host administrators.
 - Project Manager does not have separate application administrator role management. Non-admin project access is configured per project.
@@ -30,12 +32,12 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 ## App Packaging
 
 - Production app contract: `manifest.json`, schema `app.0.1`.
-- Runtime profile: `docker`.
+- Runtime profiles: `docker` and `dev`.
 - Runtime service: `app`, image `ghcr.io/alex-de-haas/project-manager`, port `3000`.
+- Local command runtime service: `app`, command `npm run dev`, local port `3100`.
 - Public endpoint: `http`.
 - Shell UI entrypoint: `/`.
 - Primary app data: enabled and mounted to `/app/data`.
-- Local process development metadata: `metadata.dev.json`, schema `0.3`, because the current `hosty dev` harness expects process services in legacy metadata format.
 - CI renders `manifest.json` with the immutable `sha-<commit>` image tag and publishes it on the `latest` GitHub release.
 
 Stable install URL:
@@ -77,42 +79,33 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 
 ## Runtime Contract
 
-- `HOSTY_APP_ID` is the preferred app audience override for Hosty identity tokens.
-- `DOCKER_HOST_MODULE_ID` remains accepted as a legacy compatibility fallback.
-- `HOSTY_INTERNAL_ORIGIN` is the preferred Hosty Core origin override.
-- `HOSTY_IDENTITY_JWKS_URL` is the preferred explicit JWKS URL override.
-- `DOCKER_HOST_INTERNAL_ORIGIN` and `DOCKER_HOST_IDENTITY_JWKS_URL` remain accepted while the identity discovery and JWKS routes use the current compatibility names.
+- `HOSTY_APP_ID` is the app audience id used by Core app identity.
+- `HOSTY_CORE_ORIGIN` is the Core origin used for app code exchange, token revalidation, and scoped directory access.
 - `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to read the scoped directory for users assigned to this app.
-- `DOCKER_HOST_MODULE_SERVICE_TOKEN` remains accepted as a legacy compatibility fallback.
-- Scoped directory routes and `module_directory_*` error codes keep their legacy names as stable compatibility identifiers while Project Manager treats them as Hosty app directory behavior.
 - Hosty should not forward Hosty session cookies to the app.
-- Project Manager trusts only the signed Hosty identity token after signature, issuer, audience, and expiration validation.
-- Direct-origin Shell iframe traffic uses the `project_manager_hosty_identity` HttpOnly app-origin identity cookie after `/api/auth/bootstrap`; the cookie stores the signed Hosty token and is refreshed by the client bridge before token expiry.
-- The client bridge stores only a non-secret identity fingerprint and expiry timestamp in `sessionStorage` so it can refresh before expiry and detect Host account switches before the old HttpOnly app cookie expires.
-- The app UI must allow being framed by the Hosty Shell origin.
+- Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
+- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`.
 
 ## Local Development
 
-Project Manager includes `metadata.dev.json` for Hosty developer mode. From the repository root, run:
+Project Manager includes a `dev` runtime in `manifest.json` for Core-managed local development. From the repository root, run:
 
 ```bash
-hosty dev up
+hosty core start
+hosty apps install manifest.json --runtime dev
+hosty apps start com.haas.project-manager
 ```
 
-The dev metadata starts the Next.js app on local port `3100` and links the public `http` endpoint through Hosty. When Hosty Core runs on a non-default local URL, pass that URL explicitly:
+The `dev` runtime starts the Next.js app on local port `3100`, injects `HOSTY_CORE_ORIGIN`, `HOSTY_APP_ID`, `HOSTY_APP_SERVICE_TOKEN`, and `HOSTY_APP_DATA_DIR`, and links the public `http` endpoint through Hosty.
+
+For direct API probes against the local app origin, request a Core app identity token:
 
 ```bash
-hosty dev up --host-url http://localhost:<host-port>
+TOKEN="$(hosty apps identity com.haas.project-manager --user user@docker-host.local --format token)"
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3100/api/auth/session
 ```
 
-For direct API probes against the local app origin, prepare the developer target and request a Hosty-signed development identity token:
-
-```bash
-TOKEN="$(hosty dev identity --manifest metadata.dev.json --format token)"
-curl -H "X-Docker-Host-Identity: $TOKEN" http://127.0.0.1:3100/api/auth/session
-```
-
-Gateway and Shell integration should still be checked through the Hosty URL printed by `hosty dev up`; direct-origin probes only validate endpoint behavior with a real Hosty-signed token.
+Shell integration should still be checked through the Hosty app link; direct-origin probes only validate endpoint behavior with a real Core app identity token.
 
 ## Navigation
 
@@ -136,7 +129,8 @@ Use these checks when changing the app contract or preparing a release:
 - Build the production image locally with Docker when packaging changes affect the runtime image.
 - Smoke-test `/api/health` in the built container; it should be public and return database/storage readiness.
 - Verify normal app and API requests reject missing Hosty identity.
-- Verify direct-origin iframe bootstrap with a real Hosty-issued app identity token.
+- Verify app-code exchange with a real Core-issued app authorization code.
+- Verify direct-origin API probes with a real Core-issued app identity token.
 - Verify assigned Hosty users can access the app through Hosty Shell.
 - Verify non-admin users cannot access administrative Settings APIs or administrative Settings UI.
 - Verify Host administrators can manage projects, project settings, releases, backups, and AI provider settings.

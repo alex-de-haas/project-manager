@@ -1,24 +1,19 @@
-import { getAppId, getHostyInternalOrigin } from "@/lib/module-runtime";
+import { getAppId, getHostyCoreOrigin } from "@/lib/module-runtime";
 
-export const DOCKER_HOST_IDENTITY_HEADER = "x-docker-host-identity";
+export const HOSTY_APP_IDENTITY_HEADER = "x-docker-host-identity";
 export const HOSTY_APP_IDENTITY_COOKIE = "project_manager_hosty_identity";
-export const LEGACY_DOCKER_HOST_IDENTITY_COOKIE = "project_manager_module_identity";
 export const INTERNAL_HOST_USER_ID_HEADER = "x-project-manager-host-user-id";
 export const INTERNAL_HOST_USER_EMAIL_HEADER = "x-project-manager-host-user-email";
 export const INTERNAL_HOST_USER_NAME_HEADER = "x-project-manager-host-user-name";
 export const INTERNAL_HOST_ROLE_HEADER = "x-project-manager-host-role";
 
 export interface HostIdentityClaims {
-  iss: string;
   sub: string;
-  aud: string | string[];
+  aud: string;
   exp: number;
-  hostRole?: string;
-  moduleAccess?: string;
-  moduleExposurePolicy?: string;
   email?: string;
   name?: string;
-  endpointKey?: string;
+  hostRole?: string;
 }
 
 export interface TrustedHostIdentity {
@@ -30,231 +25,72 @@ export interface TrustedHostIdentity {
 
 type HeaderReader = Pick<Headers, "get">;
 
-interface JwtHeader {
-  alg?: string;
-  kid?: string;
-}
-
-interface JsonWebKeySet {
-  keys?: HostJsonWebKey[];
-}
-
-type HostJsonWebKey = JsonWebKey & {
-  alg?: string;
-  kid?: string;
-};
-
-const JWKS_CACHE_MS = 5 * 60 * 1000;
-const JWKS_FETCH_TIMEOUT_MS = 5000;
-const JWT_EXPIRATION_LEEWAY_SECONDS = 60;
-
-let jwksCache:
-  | {
-      url: string;
-      fetchedAt: number;
-      keys: HostJsonWebKey[];
-    }
-  | null = null;
-
-const base64UrlToBytes = (value: string): Uint8Array => {
-  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-};
-
-const base64UrlToJson = <T>(value: string): T => {
-  const bytes = base64UrlToBytes(value);
-  return JSON.parse(new TextDecoder().decode(bytes)) as T;
-};
-
-const hasAudience = (audience: string | string[], expected: string) =>
-  Array.isArray(audience) ? audience.includes(expected) : audience === expected;
+const CORE_AUTH_TIMEOUT_MS = 1500;
 
 const sanitizeHeaderValue = (value: string | null | undefined) =>
   value?.replace(/[\r\n]/g, " ").trim() ?? "";
 
-const timeoutSignal = (timeoutMs: number) => {
-  if (typeof AbortSignal.timeout === "function") {
-    return AbortSignal.timeout(timeoutMs);
-  }
+const readString = (value: unknown) =>
+  typeof value === "string" && value.trim() ? value.trim() : null;
 
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), timeoutMs);
-  return controller.signal;
+const readExpiresAtMs = (value: unknown) => {
+  const expiresAt = readString(value);
+  if (!expiresAt) return null;
+
+  const parsed = Date.parse(expiresAt);
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
-const uniqueUrls = (urls: string[]) => Array.from(new Set(urls));
+const buildCoreEndpoint = (path: string) => {
+  const coreOrigin = getHostyCoreOrigin();
+  if (!coreOrigin) return null;
 
-const resolveJwksUrls = async (): Promise<string[]> => {
-  const configured =
-    process.env.HOSTY_IDENTITY_JWKS_URL?.trim() ||
-    process.env.DOCKER_HOST_IDENTITY_JWKS_URL?.trim();
-  if (configured) return [configured];
-
-  const origin = getHostyInternalOrigin();
-  if (!origin) return [];
-
-  const fallbackUrl = `${origin}/.well-known/docker-host/jwks.json`;
-  const discoveryUrl = `${origin}/.well-known/docker-host/module-identity.json`;
   try {
-    const response = await fetch(discoveryUrl, {
-      cache: "no-store",
-      signal: timeoutSignal(JWKS_FETCH_TIMEOUT_MS),
-    });
-    if (response.ok) {
-      const data = (await response.json()) as { jwksUrl?: string; jwks_uri?: string };
-      const discovered = data.jwksUrl || data.jwks_uri;
-      if (discovered) {
-        return uniqueUrls([new URL(discovered, origin).toString(), fallbackUrl]);
-      }
-    }
+    return new URL(path, coreOrigin).toString();
   } catch {
-    // Fall back to the documented JWKS path when discovery is unavailable.
+    return null;
   }
-
-  return [fallbackUrl];
 };
 
-const fetchJwks = async (url: string): Promise<HostJsonWebKey[]> => {
-  const now = Date.now();
-  if (jwksCache && jwksCache.url === url && now - jwksCache.fetchedAt < JWKS_CACHE_MS) {
-    return jwksCache.keys;
-  }
-
-  const response = await fetch(url, {
-    cache: "no-store",
-    signal: timeoutSignal(JWKS_FETCH_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Hosty JWKS: ${response.status}`);
-  }
-
-  const jwks = (await response.json()) as JsonWebKeySet;
-  const keys = Array.isArray(jwks.keys) ? jwks.keys : [];
-  jwksCache = { url, fetchedAt: now, keys };
-  return keys;
-};
-
-const isSupportedAlgorithm = (algorithm: string | undefined) =>
-  algorithm === "ES256" || algorithm === "RS256";
-
-const selectVerificationKey = (keys: HostJsonWebKey[], header: JwtHeader) => {
-  if (header.kid) {
-    const matching = keys.find(
-      (key) => key.kid === header.kid && (!header.alg || !key.alg || key.alg === header.alg)
-    );
-    if (matching) return matching;
-  }
-
-  if (header.alg === "ES256") {
-    return keys.find((key) => key.kty === "EC" && (!key.alg || key.alg === header.alg));
-  }
-
-  if (header.alg === "RS256") {
-    return keys.find((key) => key.kty === "RSA" && (!key.alg || key.alg === header.alg));
-  }
-
-  return undefined;
-};
-
-const importVerificationKey = async (jwk: HostJsonWebKey, algorithm: string) => {
-  if (algorithm === "ES256") {
-    return await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["verify"]
-    );
-  }
-
-  if (algorithm === "RS256") {
-    return await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["verify"]
-    );
-  }
-
-  return null;
-};
-
-const getVerifyAlgorithm = (algorithm: string) => {
-  if (algorithm === "ES256") {
-    return { name: "ECDSA", hash: "SHA-256" } as const;
-  }
-
-  if (algorithm === "RS256") {
-    return { name: "RSASSA-PKCS1-v1_5" } as const;
-  }
-
-  return null;
-};
-
-export const verifyDockerHostIdentityToken = async (
+export const revalidateHostyAppIdentityToken = async (
   token: string | null | undefined
 ): Promise<HostIdentityClaims | null> => {
-  if (!token) return null;
+  const accessToken = token?.trim();
+  if (!accessToken) return null;
 
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
-
-  const [encodedHeader, encodedPayload, encodedSignature] = parts;
-  if (!encodedHeader || !encodedPayload || !encodedSignature) return null;
+  const endpoint = buildCoreEndpoint("/api/auth/apps/revalidate");
+  if (!endpoint) return null;
 
   try {
-    const header = base64UrlToJson<JwtHeader>(encodedHeader);
-    if (!isSupportedAlgorithm(header.alg)) return null;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ accessToken }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(CORE_AUTH_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
 
-    const claims = base64UrlToJson<HostIdentityClaims>(encodedPayload);
-    if (claims.iss !== "docker-host") return null;
-    if (!claims.sub || !claims.aud || !hasAudience(claims.aud, getAppId())) return null;
-    if (
-      typeof claims.exp !== "number" ||
-      claims.exp + JWT_EXPIRATION_LEEWAY_SECONDS <= Math.floor(Date.now() / 1000)
-    ) {
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!payload || payload.active !== true) return null;
+
+    const appId = readString(payload.appId);
+    const userId = readString(payload.userId);
+    const expiresAtMs = readExpiresAtMs(payload.expiresAt);
+    if (!appId || appId !== getAppId() || !userId || !expiresAtMs || expiresAtMs <= Date.now()) {
       return null;
     }
 
-    const verifyAlgorithm = getVerifyAlgorithm(header.alg);
-    if (!verifyAlgorithm) return null;
-
-    const jwksUrls = await resolveJwksUrls();
-    if (jwksUrls.length === 0) return null;
-
-    const signature = base64UrlToBytes(encodedSignature) as BufferSource;
-    const signedData = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`) as BufferSource;
-
-    for (const jwksUrl of jwksUrls) {
-      try {
-        const jwk = selectVerificationKey(await fetchJwks(jwksUrl), header);
-        if (!jwk) continue;
-
-        const key = await importVerificationKey(jwk, header.alg);
-        if (!key) continue;
-
-        const isValid = await crypto.subtle.verify(
-          verifyAlgorithm,
-          key,
-          signature,
-          signedData
-        );
-
-        if (isValid) return claims;
-      } catch {
-        // Try the next resolved JWKS URL. Hosty dev runs can advertise
-        // a container-internal JWKS URL while the app runs on the host.
-      }
-    }
-
-    return null;
+    return {
+      sub: userId,
+      aud: appId,
+      exp: Math.floor(expiresAtMs / 1000),
+      email: readString(payload.email) ?? undefined,
+      name: readString(payload.displayName) ?? undefined,
+      hostRole: readString(payload.hostRole) ?? undefined,
+    };
   } catch {
     return null;
   }
@@ -265,6 +101,7 @@ export const requestHeadersWithTrustedHostIdentity = (
   claims: HostIdentityClaims
 ) => {
   const headers = new Headers(sourceHeaders);
+  headers.delete("authorization");
   headers.delete("x-user-id");
   for (const key of Array.from(headers.keys())) {
     if (key.toLowerCase().startsWith("x-docker-host-")) {

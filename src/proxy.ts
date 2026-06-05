@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  DOCKER_HOST_IDENTITY_HEADER,
+  HOSTY_APP_IDENTITY_HEADER,
   HOSTY_APP_IDENTITY_COOKIE,
-  LEGACY_DOCKER_HOST_IDENTITY_COOKIE,
+  revalidateHostyAppIdentityToken,
   requestHeadersWithTrustedHostIdentity,
-  verifyDockerHostIdentityToken,
 } from "@/lib/host-identity";
 
 const PUBLIC_PATHS = [
-  "/api/auth/bootstrap",
+  "/api/auth/app-code",
   "/api/health",
 ];
 
@@ -35,14 +34,17 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const headerToken = request.headers.get(DOCKER_HOST_IDENTITY_HEADER)?.trim();
-  const cookieToken =
-    request.cookies.get(HOSTY_APP_IDENTITY_COOKIE)?.value?.trim() ||
-    request.cookies.get(LEGACY_DOCKER_HOST_IDENTITY_COOKIE)?.value?.trim();
-  const headerClaims = await verifyDockerHostIdentityToken(headerToken);
+  const authorization = request.headers.get("authorization")?.trim();
+  const bearerToken = authorization?.toLowerCase().startsWith("bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : null;
+  const headerToken =
+    bearerToken || request.headers.get(HOSTY_APP_IDENTITY_HEADER)?.trim() || null;
+  const cookieToken = request.cookies.get(HOSTY_APP_IDENTITY_COOKIE)?.value?.trim();
+  const headerClaims = await revalidateHostyAppIdentityToken(headerToken);
   const cookieClaims = headerClaims
     ? null
-    : await verifyDockerHostIdentityToken(cookieToken);
+    : await revalidateHostyAppIdentityToken(cookieToken);
   const claims = headerClaims ?? cookieClaims;
 
   if (claims) {
