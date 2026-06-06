@@ -53,7 +53,7 @@ hosty apps install manifest.json --runtime dev
 hosty apps start com.haas.project-manager
 ```
 
-The `dev` runtime in `manifest.json` runs `npm run dev` on local port `3100` through Core's `localCommand` runtime.
+The `dev` runtime in `manifest.json` runs `npm run dev` through Core's `localCommand` runtime. Hosty assigns an available local port and injects it as `PORT` and `HOSTY_PORT_HTTP`.
 
 The application is Hosty-only. In Hosty Shell, Core opens the app with a short-lived authorization code. The app exchanges that code at `/api/auth/app-code`, stores the returned app identity token in an HttpOnly app-origin cookie, and revalidates that token with Core for server-rendered pages and same-origin API calls.
 

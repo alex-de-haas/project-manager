@@ -77,7 +77,6 @@ export async function POST(request: NextRequest) {
     typeof payload?.expiresInSeconds === "number" && Number.isFinite(payload.expiresInSeconds)
       ? Math.max(1, Math.min(payload.expiresInSeconds, 5 * 60))
       : 5 * 60;
-  const secure = request.nextUrl.protocol === "https:";
   const appResponse = NextResponse.json(
     { ok: true },
     {
@@ -88,8 +87,8 @@ export async function POST(request: NextRequest) {
   );
   appResponse.cookies.set(HOSTY_APP_IDENTITY_COOKIE, accessToken, {
     httpOnly: true,
-    sameSite: secure ? "none" : "lax",
-    secure,
+    sameSite: "none",
+    secure: true,
     path: "/",
     maxAge,
   });

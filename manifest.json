@@ -56,14 +56,10 @@
           "type": "localCommand",
           "workingDirectory": ".",
           "command": "npm run dev",
-          "environment": {
-            "PORT": "3100"
-          },
           "ports": [
             {
               "key": "http",
               "containerPort": 3000,
-              "localPort": 3100,
               "protocol": "http",
               "public": true
             }

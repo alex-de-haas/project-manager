@@ -33,8 +33,8 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 
 - Production app contract: `manifest.json`, schema `app.0.1`.
 - Runtime profiles: `docker` and `dev`.
-- Runtime service: `app`, image `ghcr.io/alex-de-haas/project-manager`, port `3000`.
-- Local command runtime service: `app`, command `npm run dev`, local port `3100`.
+- Runtime service: `app`, image `ghcr.io/alex-de-haas/project-manager`, container port `3000`.
+- Local command runtime service: `app`, command `npm run dev`, with the local port assigned by Hosty Core.
 - Public endpoint: `http`.
 - Shell UI entrypoint: `/`.
 - Primary app data: enabled and mounted to `/app/data`.
@@ -84,7 +84,7 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 - `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to read the scoped directory for users assigned to this app.
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
-- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`.
+- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. It uses `SameSite=None` and `Secure` so the token is available when Project Manager is embedded by Hosty Shell as an app iframe.
 
 ## Local Development
 
@@ -96,13 +96,13 @@ hosty apps install manifest.json --runtime dev
 hosty apps start com.haas.project-manager
 ```
 
-The `dev` runtime starts the Next.js app on local port `3100`, injects `HOSTY_CORE_ORIGIN`, `HOSTY_APP_ID`, `HOSTY_APP_SERVICE_TOKEN`, and `HOSTY_APP_DATA_DIR`, and links the public `http` endpoint through Hosty.
+The `dev` runtime starts the Next.js app on a Core-assigned local port, injects `HOSTY_CORE_ORIGIN`, `HOSTY_APP_ID`, `HOSTY_APP_SERVICE_TOKEN`, `HOSTY_APP_DATA_DIR`, `HOSTY_PORT_HTTP`, and `PORT`, and links the public `http` endpoint through Hosty.
 
 For direct API probes against the local app origin, request a Core app identity token:
 
 ```bash
 TOKEN="$(hosty apps identity com.haas.project-manager --user user@docker-host.local --format token)"
-curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3100/api/auth/session
+curl -H "Authorization: Bearer $TOKEN" <assigned-project-manager-origin>/api/auth/session
 ```
 
 Shell integration should still be checked through the Hosty app link; direct-origin probes only validate endpoint behavior with a real Core app identity token.
