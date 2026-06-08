@@ -75,8 +75,9 @@ export async function POST(request: NextRequest) {
 
   const maxAge =
     typeof payload?.expiresInSeconds === "number" && Number.isFinite(payload.expiresInSeconds)
-      ? Math.max(1, Math.min(payload.expiresInSeconds, 5 * 60))
+      ? Math.max(1, Math.floor(payload.expiresInSeconds))
       : 5 * 60;
+  const secureCookie = shouldUseSecureAppCookie(request);
   const appResponse = NextResponse.json(
     { ok: true },
     {
@@ -87,8 +88,8 @@ export async function POST(request: NextRequest) {
   );
   appResponse.cookies.set(HOSTY_APP_IDENTITY_COOKIE, accessToken, {
     httpOnly: true,
-    sameSite: "none",
-    secure: true,
+    sameSite: secureCookie ? "none" : "lax",
+    secure: secureCookie,
     path: "/",
     maxAge,
   });
@@ -151,4 +152,29 @@ function readString(value: unknown) {
 
 function isAbortError(error: unknown) {
   return error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError");
+}
+
+function shouldUseSecureAppCookie(request: NextRequest) {
+  const forwardedProto = request.headers.get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    ?.toLowerCase();
+
+  if (forwardedProto === "https" || request.nextUrl.protocol === "https:") {
+    return true;
+  }
+
+  return isLoopbackHost(request.nextUrl.hostname);
+}
+
+function isLoopbackHost(hostname: string) {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "0.0.0.0" ||
+    normalized === "::1" ||
+    normalized === "[::1]" ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalized)
+  );
 }

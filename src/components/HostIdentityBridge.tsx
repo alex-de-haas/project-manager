@@ -1,40 +1,157 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+type AppCodeExchangeResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
+const appCodeExchangeRequests = new Map<string, Promise<AppCodeExchangeResult>>();
 
 export function HostIdentityBridge() {
+  const [pendingCode, setPendingCode] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+
   useEffect(() => {
     const url = new URL(window.location.href);
-    const code = url.searchParams.get("code");
+    const code = url.searchParams.get("code")?.trim();
     if (!code) {
       return undefined;
     }
-
-    url.searchParams.delete("code");
-    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    const authorizationCode = code;
 
     let cancelled = false;
 
-    async function exchangeCode() {
-      const response = await fetch("/api/auth/app-code", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ code }),
-      });
+    async function exchangeInitialCode() {
+      setPendingCode(authorizationCode);
+      setErrorMessage(null);
+      const result = await exchangeCode(authorizationCode);
+      if (cancelled) {
+        return;
+      }
 
-      if (response.ok && !cancelled) {
+      if (result.ok) {
+        removeCodeFromUrl();
         window.location.reload();
+      } else {
+        setErrorMessage(result.message);
       }
     }
 
-    void exchangeCode();
+    void exchangeInitialCode();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  return null;
+  async function retryExchange() {
+    if (!pendingCode || isRetrying) {
+      return;
+    }
+
+    setIsRetrying(true);
+    setErrorMessage(null);
+    const result = await exchangeCode(pendingCode);
+    setIsRetrying(false);
+
+    if (result.ok) {
+      removeCodeFromUrl();
+      window.location.reload();
+    } else {
+      setErrorMessage(result.message);
+    }
+  }
+
+  if (!pendingCode || !errorMessage) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 px-6">
+      <div className="w-full max-w-md rounded-lg border bg-card p-6 text-card-foreground shadow-lg">
+        <h2 className="text-base font-semibold">Hosty authorization failed</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{errorMessage}</p>
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={() => void retryExchange()}
+            disabled={isRetrying}
+            className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+          >
+            {isRetrying ? "Retrying..." : "Retry"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function exchangeCode(code: string): Promise<AppCodeExchangeResult> {
+  const pending = appCodeExchangeRequests.get(code);
+  if (pending) {
+    return pending;
+  }
+
+  const request = exchangeCodeWithServer(code);
+  appCodeExchangeRequests.set(code, request);
+
+  try {
+    return await request;
+  } finally {
+    appCodeExchangeRequests.delete(code);
+  }
+}
+
+async function exchangeCodeWithServer(code: string): Promise<AppCodeExchangeResult> {
+  try {
+    const response = await fetch("/api/auth/app-code", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ code }),
+    });
+
+    if (response.ok) {
+      return { ok: true };
+    }
+
+    return {
+      ok: false,
+      message: await readAppAuthError(response),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? `Could not exchange Hosty authorization code: ${error.message}`
+          : "Could not exchange Hosty authorization code.",
+    };
+  }
+}
+
+async function readAppAuthError(response: Response) {
+  const fallback = `Hosty authorization code exchange failed with HTTP ${response.status}.`;
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!payload || typeof payload !== "object") {
+    return fallback;
+  }
+
+  const error = (payload as Record<string, unknown>).error;
+  if (error && typeof error === "object") {
+    const message = (error as Record<string, unknown>).message;
+    return typeof message === "string" && message.trim() ? message.trim() : fallback;
+  }
+
+  const message = (payload as Record<string, unknown>).message;
+  return typeof message === "string" && message.trim() ? message.trim() : fallback;
+}
+
+function removeCodeFromUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("code");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }

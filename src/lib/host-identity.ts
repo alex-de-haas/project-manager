@@ -26,6 +26,16 @@ export interface TrustedHostIdentity {
 type HeaderReader = Pick<Headers, "get">;
 
 const CORE_AUTH_TIMEOUT_MS = 1500;
+const TOKEN_REVALIDATION_CACHE_TTL_MS = 15_000;
+const MAX_TOKEN_REVALIDATION_CACHE_ENTRIES = 256;
+
+type TokenRevalidationCacheEntry = {
+  claims: HostIdentityClaims | null;
+  cachedAt: number;
+};
+
+const tokenRevalidationCache = new Map<string, TokenRevalidationCacheEntry>();
+const pendingTokenRevalidations = new Map<string, Promise<HostIdentityClaims | null>>();
 
 const sanitizeHeaderValue = (value: string | null | undefined) =>
   value?.replace(/[\r\n]/g, " ").trim() ?? "";
@@ -58,9 +68,34 @@ export const revalidateHostyAppIdentityToken = async (
   const accessToken = token?.trim();
   if (!accessToken) return null;
 
+  const now = Date.now();
+  const cached = readCachedTokenRevalidation(accessToken, now);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const pending = pendingTokenRevalidations.get(accessToken);
+  if (pending) {
+    return pending;
+  }
+
   const endpoint = buildCoreEndpoint("/api/auth/apps/revalidate");
   if (!endpoint) return null;
 
+  const revalidation = revalidateTokenWithCore(accessToken, endpoint);
+  pendingTokenRevalidations.set(accessToken, revalidation);
+
+  try {
+    return await revalidation;
+  } finally {
+    pendingTokenRevalidations.delete(accessToken);
+  }
+};
+
+const revalidateTokenWithCore = async (
+  accessToken: string,
+  endpoint: string
+): Promise<HostIdentityClaims | null> => {
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -71,19 +106,26 @@ export const revalidateHostyAppIdentityToken = async (
       cache: "no-store",
       signal: AbortSignal.timeout(CORE_AUTH_TIMEOUT_MS),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      writeCachedTokenRevalidation(accessToken, null);
+      return null;
+    }
 
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!payload || payload.active !== true) return null;
+    if (!payload || payload.active !== true) {
+      writeCachedTokenRevalidation(accessToken, null);
+      return null;
+    }
 
     const appId = readString(payload.appId);
     const userId = readString(payload.userId);
     const expiresAtMs = readExpiresAtMs(payload.expiresAt);
     if (!appId || appId !== getAppId() || !userId || !expiresAtMs || expiresAtMs <= Date.now()) {
+      writeCachedTokenRevalidation(accessToken, null);
       return null;
     }
 
-    return {
+    const claims = {
       sub: userId,
       aud: appId,
       exp: Math.floor(expiresAtMs / 1000),
@@ -91,8 +133,56 @@ export const revalidateHostyAppIdentityToken = async (
       name: readString(payload.displayName) ?? undefined,
       hostRole: readString(payload.hostRole) ?? undefined,
     };
+    writeCachedTokenRevalidation(accessToken, claims);
+    return claims;
   } catch {
     return null;
+  }
+};
+
+const readCachedTokenRevalidation = (accessToken: string, now: number) => {
+  const cached = tokenRevalidationCache.get(accessToken);
+  if (!cached) {
+    return undefined;
+  }
+
+  const tokenStillValid = !cached.claims || cached.claims.exp * 1000 > now;
+  if (tokenStillValid && now - cached.cachedAt < TOKEN_REVALIDATION_CACHE_TTL_MS) {
+    return cached.claims;
+  }
+
+  tokenRevalidationCache.delete(accessToken);
+  return undefined;
+};
+
+const writeCachedTokenRevalidation = (
+  accessToken: string,
+  claims: HostIdentityClaims | null
+) => {
+  const now = Date.now();
+  pruneTokenRevalidationCache(now);
+  tokenRevalidationCache.set(accessToken, { claims, cachedAt: now });
+};
+
+const pruneTokenRevalidationCache = (now: number) => {
+  if (tokenRevalidationCache.size < MAX_TOKEN_REVALIDATION_CACHE_ENTRIES) {
+    return;
+  }
+
+  for (const [accessToken, cached] of tokenRevalidationCache) {
+    const tokenExpired = cached.claims && cached.claims.exp * 1000 <= now;
+    const cacheExpired = now - cached.cachedAt >= TOKEN_REVALIDATION_CACHE_TTL_MS;
+    if (tokenExpired || cacheExpired) {
+      tokenRevalidationCache.delete(accessToken);
+    }
+  }
+
+  while (tokenRevalidationCache.size >= MAX_TOKEN_REVALIDATION_CACHE_ENTRIES) {
+    const oldestAccessToken = tokenRevalidationCache.keys().next().value;
+    if (!oldestAccessToken) {
+      return;
+    }
+    tokenRevalidationCache.delete(oldestAccessToken);
   }
 };
 

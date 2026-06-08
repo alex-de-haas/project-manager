@@ -84,7 +84,9 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 - `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to read the scoped directory for users assigned to this app.
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
-- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. It uses `SameSite=None` and `Secure` so the token is available when Project Manager is embedded by Hosty Shell as an app iframe.
+- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS and local loopback origins so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In insecure non-loopback HTTP development contexts, it falls back to `SameSite=Lax` without `Secure`; embedded iframe sessions in that mode are not supported until HTTPS is used.
+- App identity revalidation calls to Core are cached in memory for a short TTL and concurrent revalidations for the same token are coalesced. This reduces repeated Core authorization calls during page loads while still bounding stale authorization state.
+- The app-code bridge keeps the authorization code retryable until exchange succeeds. If Core exchange fails, Project Manager shows a retryable Hosty authorization error instead of silently leaving the user on the unauthenticated bootstrap state.
 
 ## Local Development
 
