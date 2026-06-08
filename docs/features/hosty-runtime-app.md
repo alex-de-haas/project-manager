@@ -118,7 +118,13 @@ The app UI uses a Hosty-friendly top navigation bar. The stable navigation paths
 
 Settings navigation is rendered for all assigned app users. Non-admin users see only Profile settings, while Host administrators also see project, release, backup, and AI provider settings. Project switching lives in the top bar as a compact selector.
 
-The app currently renders in the light theme by default. Future Hosty theme integration should replace the hardcoded light theme with a Hosty-provided theme signal.
+## Hosty Theme Integration
+
+Project Manager supports Hosty Shell theme propagation. Shell launch URLs may include `hosty_theme=light|dark` and `hosty_theme_preference=light|dark|system`. The root layout applies that resolved theme before hydration so the initial embedded render does not flash through the wrong palette.
+
+After launch, the app listens for Shell `postMessage` events with `type: "hosty:shell-theme"`, `theme`, and `preference`. Valid Shell updates apply the `.dark` class on the document root, update `color-scheme`, persist the resolved theme for the current embedded session, and keep `next-themes` in sync for app components such as notifications.
+
+When Hosty does not provide a theme signal, Project Manager falls back to the normal `next-themes` system preference behavior.
 
 ## Validation
 
