@@ -3,6 +3,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { HostIdentityBridge } from "@/components/HostIdentityBridge";
+import { HostThemeBridge } from "@/components/HostThemeBridge";
 
 export const metadata: Metadata = {
   title: "Project Manager",
@@ -12,6 +13,45 @@ export const metadata: Metadata = {
     shortcut: "/favicon.svg",
   },
 };
+
+const hostThemeBootstrapScript = `
+(() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const queryTheme = params.get("hosty_theme");
+    const readSessionStorage = (key) => {
+      try {
+        return window.sessionStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    };
+    const storedTheme = readSessionStorage("hosty.theme.resolved");
+    const theme = queryTheme === "dark" || queryTheme === "light"
+      ? queryTheme
+      : storedTheme === "dark" || storedTheme === "light"
+        ? storedTheme
+        : null;
+
+    if (!theme) {
+      return;
+    }
+
+    const queryPreference = params.get("hosty_theme_preference");
+    const storedPreference = readSessionStorage("hosty.theme.preference");
+    const preference = queryPreference === "light" || queryPreference === "dark" || queryPreference === "system"
+      ? queryPreference
+      : storedPreference === "light" || storedPreference === "dark" || storedPreference === "system"
+        ? storedPreference
+        : theme;
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark");
+    root.style.colorScheme = theme;
+    root.dataset.hostyTheme = theme;
+    root.dataset.hostyThemePreference = preference;
+  } catch {}
+})();
+`;
 
 export default function RootLayout({
   children,
@@ -23,11 +63,13 @@ export default function RootLayout({
       <body className="bg-background text-foreground">
         <ThemeProvider
           attribute="class"
-          defaultTheme="light"
-          forcedTheme="light"
-          enableSystem={false}
+          defaultTheme="system"
+          enableSystem
+          storageKey="project-manager-theme"
           disableTransitionOnChange
         >
+          <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
+          <HostThemeBridge />
           <HostIdentityBridge />
           {children}
           <Toaster />

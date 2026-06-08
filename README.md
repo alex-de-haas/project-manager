@@ -48,22 +48,16 @@ npm run dev
 Run the integrated Hosty developer loop from the repository root:
 
 ```bash
-hosty dev up
+hosty core start
+hosty apps install manifest.json --runtime dev
+hosty apps start com.haas.project-manager
 ```
 
-`metadata.dev.json` is the local process development manifest used by `hosty dev`. It intentionally remains on legacy schema `0.3` because the current developer harness expects process services in that format.
+The `dev` runtime in `manifest.json` runs `npm run dev` through Core's `localCommand` runtime. Hosty assigns an available local port and injects it as `PORT` and `HOSTY_PORT_HTTP`.
 
-If Hosty Core is already running on a specific local URL, pass it explicitly:
+The application is Hosty-only. In Hosty Shell, Core opens the app with a short-lived authorization code. The app exchanges that code at `/api/auth/app-code`, stores the returned app identity token in an HttpOnly app-origin cookie, and revalidates that token with Core for server-rendered pages and same-origin API calls.
 
-```bash
-hosty dev up --host-url http://localhost:<host-port>
-```
-
-The Hosty developer command starts the Next.js app on port `3100`.
-
-The application is Hosty-only. In Hosty Shell, browser UI runs from the app's direct origin and receives a signed Hosty identity token through the Shell `postMessage` bridge. The app exchanges that token at `/api/auth/bootstrap` for a short-lived HttpOnly cookie used by server-rendered pages and same-origin API calls. Gateway and service/API traffic can still use the signed legacy `X-Docker-Host-Identity` header while the compatibility contract is in place.
-
-Direct API requests without Hosty app identity return `401`, except for `/api/health` and `/api/auth/bootstrap`. Direct browser requests without identity render only the identity bootstrap state.
+Direct API requests without Hosty app identity return `401`, except for `/api/health` and `/api/auth/app-code`. Direct browser requests without identity render only the identity bootstrap state.
 
 ## Scripts
 
@@ -90,7 +84,7 @@ Build the app image:
 docker build -t project-manager .
 ```
 
-The source app manifest is available in `manifest.json` using schema `app.0.1` with one Docker runtime profile and one `app` service. Local process development metadata is available in `metadata.dev.json`. CI renders an installable manifest that points at the immutable `sha-<commit>` image tag pushed to GHCR, then publishes that file as the `manifest.json` asset on the `latest` GitHub release. The stable Hosty manifest URL is:
+The source app manifest is available in `manifest.json` using schema `app.0.1` with Docker and `localCommand` runtime profiles for the `app` service. CI renders an installable manifest that points at the immutable `sha-<commit>` image tag pushed to GHCR, then publishes that file as the `manifest.json` asset on the `latest` GitHub release. The stable Hosty manifest URL is:
 
 ```text
 https://github.com/alex-de-haas/project-manager/releases/download/latest/manifest.json

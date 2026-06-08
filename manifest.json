@@ -6,15 +6,21 @@
   "version": "1.0.0",
   "source": {
     "type": "git",
-    "repository": "https://github.com/alex-de-haas/project-manager"
+    "repository": "https://github.com/alex-de-haas/project-manager.git",
+    "branch": "main"
   },
   "runtimeProfiles": [
     {
       "key": "docker",
       "type": "docker",
       "default": true
+    },
+    {
+      "key": "dev",
+      "type": "localCommand"
     }
   ],
+  "defaultRuntime": "docker",
   "services": [
     {
       "key": "app",
@@ -45,6 +51,19 @@
             "timeoutSeconds": 2,
             "successStatus": [200]
           }
+        },
+        "dev": {
+          "type": "localCommand",
+          "workingDirectory": ".",
+          "command": "npm run dev",
+          "ports": [
+            {
+              "key": "http",
+              "containerPort": 3000,
+              "protocol": "http",
+              "public": true
+            }
+          ]
         }
       }
     }
@@ -89,8 +108,14 @@
       {
         "runtime": "docker",
         "service": "app",
-        "containerPath": "/app/data"
+        "containerPath": "/app/data",
+        "environment": "HOSTY_APP_DATA_DIR"
+      },
+      {
+        "runtime": "dev",
+        "environment": "HOSTY_APP_DATA_DIR"
       }
     ]
-  }
+  },
+  "capabilities": ["open", "update", "restart", "stop", "remove", "backup", "restore", "logs"]
 }

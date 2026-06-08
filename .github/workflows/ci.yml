@@ -10,7 +10,6 @@ on:
       - "scripts/**"
       - "Dockerfile"
       - "manifest.json"
-      - "metadata.dev.json"
       - "next.config.js"
       - "package.json"
       - "package-lock.json"
