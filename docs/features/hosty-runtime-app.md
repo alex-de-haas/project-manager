@@ -20,7 +20,7 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 
 - Requests must include a valid signed Hosty app identity token issued by Hosty Core.
 - Shell opens the app origin with a Core-issued app authorization code.
-- Project Manager exchanges the code at `/api/auth/app-code` through Core `/api/auth/apps/token`, then stores the app identity token in an HttpOnly app-origin cookie.
+- Project Manager exchanges the launch code at `/api/auth/app-code` through Core `/api/auth/apps/token`, then stores the app identity token in an HttpOnly app-origin cookie. The root client bridge follows the Hosty Demo App pattern: remove the code from the visible URL, exchange it, then reload after success.
 - Server-rendered pages and same-origin APIs revalidate that token through Core `/api/auth/apps/revalidate`.
 - Direct probes can pass the same app identity token through `Authorization: Bearer`.
 - Host administrators receive administrative access in Project Manager automatically.
@@ -84,9 +84,10 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 - `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to read the scoped directory for users assigned to this app.
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
-- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS and local loopback origins so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In insecure non-loopback HTTP development contexts, it falls back to `SameSite=Lax` without `Secure`; embedded iframe sessions in that mode are not supported until HTTPS is used.
+- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In local HTTP development contexts, it uses `SameSite=Lax` without `Secure`; Shell and runtime apps on `localhost` with different ports are same-site for this purpose, and Safari does not reliably accept `Secure` cookies over plain HTTP localhost.
+- On browser navigation with a Hosty launch `code`, the client bridge posts the code to `/api/auth/app-code`, removes `code` from the visible URL, and reloads after successful exchange so the protected layout can read the app identity cookie.
 - App identity revalidation calls to Core are cached in memory for a short TTL and concurrent revalidations for the same token are coalesced. This reduces repeated Core authorization calls during page loads while still bounding stale authorization state.
-- The app-code bridge keeps the authorization code retryable until exchange succeeds. If Core exchange fails, Project Manager shows a retryable Hosty authorization error instead of silently leaving the user on the unauthenticated bootstrap state.
+- The app-code bridge keeps the authorization code retryable when exchange cannot complete. If Core exchange fails, Project Manager shows a retryable Hosty authorization error instead of silently leaving the user on the unauthenticated bootstrap state.
 
 ## Local Development
 

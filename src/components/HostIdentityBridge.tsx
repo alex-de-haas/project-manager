@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  describeOpaqueValue,
+  describeUrlForAuth,
+  HOST_AUTH_LOG_PREFIX,
+} from "@/lib/host-auth-debug";
 
 type AppCodeExchangeResult =
   | { ok: true }
@@ -16,14 +21,23 @@ export function HostIdentityBridge() {
   useEffect(() => {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code")?.trim();
+    console.info(`${HOST_AUTH_LOG_PREFIX} bridge mounted`, {
+      location: describeUrlForAuth(url),
+      code: describeOpaqueValue(code),
+    });
+
     if (!code) {
       return undefined;
     }
     const authorizationCode = code;
+    removeCodeFromUrl();
 
     let cancelled = false;
 
     async function exchangeInitialCode() {
+      console.info(`${HOST_AUTH_LOG_PREFIX} bridge starting initial exchange`, {
+        code: describeOpaqueValue(authorizationCode),
+      });
       setPendingCode(authorizationCode);
       setErrorMessage(null);
       const result = await exchangeCode(authorizationCode);
@@ -32,9 +46,13 @@ export function HostIdentityBridge() {
       }
 
       if (result.ok) {
+        console.info(`${HOST_AUTH_LOG_PREFIX} bridge exchange succeeded; reloading`);
         removeCodeFromUrl();
         window.location.reload();
       } else {
+        console.warn(`${HOST_AUTH_LOG_PREFIX} bridge exchange failed`, {
+          message: result.message,
+        });
         setErrorMessage(result.message);
       }
     }
@@ -53,13 +71,20 @@ export function HostIdentityBridge() {
 
     setIsRetrying(true);
     setErrorMessage(null);
+    console.info(`${HOST_AUTH_LOG_PREFIX} bridge retrying exchange`, {
+      code: describeOpaqueValue(pendingCode),
+    });
     const result = await exchangeCode(pendingCode);
     setIsRetrying(false);
 
     if (result.ok) {
+      console.info(`${HOST_AUTH_LOG_PREFIX} bridge retry succeeded; reloading`);
       removeCodeFromUrl();
       window.location.reload();
     } else {
+      console.warn(`${HOST_AUTH_LOG_PREFIX} bridge retry failed`, {
+        message: result.message,
+      });
       setErrorMessage(result.message);
     }
   }
@@ -106,12 +131,20 @@ async function exchangeCode(code: string): Promise<AppCodeExchangeResult> {
 
 async function exchangeCodeWithServer(code: string): Promise<AppCodeExchangeResult> {
   try {
+    console.info(`${HOST_AUTH_LOG_PREFIX} bridge posting app code`, {
+      code: describeOpaqueValue(code),
+    });
     const response = await fetch("/api/auth/app-code", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ code }),
+    });
+
+    console.info(`${HOST_AUTH_LOG_PREFIX} bridge app-code response`, {
+      status: response.status,
+      ok: response.ok,
     });
 
     if (response.ok) {
@@ -123,6 +156,13 @@ async function exchangeCodeWithServer(code: string): Promise<AppCodeExchangeResu
       message: await readAppAuthError(response),
     };
   } catch (error) {
+    console.warn(`${HOST_AUTH_LOG_PREFIX} bridge app-code request failed`, {
+      errorName: error instanceof Error ? error.name : typeof error,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not exchange Hosty authorization code.",
+    });
     return {
       ok: false,
       message:

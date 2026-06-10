@@ -1,12 +1,12 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { GeneralSettingsForm } from "@/features/settings/components/GeneralSettingsForm";
 import { headers } from "next/headers";
-import { readTrustedHostIdentity } from "@/lib/host-identity";
+import { resolveTrustedHostIdentity } from "@/lib/host-identity";
 import { ensureHostUser } from "@/lib/host-users";
 
 export default async function SettingsPage() {
   const headerStore = await headers();
-  const identity = readTrustedHostIdentity(headerStore);
+  const identity = await resolveTrustedHostIdentity(headerStore);
   const currentUser = identity ? ensureHostUser(identity) : null;
 
   return (

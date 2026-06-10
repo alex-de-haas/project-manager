@@ -55,7 +55,7 @@ hosty apps start com.haas.project-manager
 
 The `dev` runtime in `manifest.json` runs `npm run dev` through Core's `localCommand` runtime. Hosty assigns an available local port and injects it as `PORT` and `HOSTY_PORT_HTTP`.
 
-The application is Hosty-only. In Hosty Shell, Core opens the app with a short-lived authorization code. The app exchanges that code at `/api/auth/app-code`, stores the returned app identity token in an HttpOnly app-origin cookie, and revalidates that token with Core for server-rendered pages and same-origin API calls.
+The application is Hosty-only. In Hosty Shell, Core opens the app with a short-lived authorization code. The app client bridge exchanges that launch code at `/api/auth/app-code`, stores the returned app identity token in an HttpOnly app-origin cookie, and revalidates that token with Core for server-rendered pages and same-origin API calls.
 
 Direct API requests without Hosty app identity return `401`, except for `/api/health` and `/api/auth/app-code`. Direct browser requests without identity render only the identity bootstrap state.
 

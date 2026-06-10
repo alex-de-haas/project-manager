@@ -61,6 +61,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="bg-background text-foreground">
+        <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
+        <HostThemeBridge />
+        <HostIdentityBridge />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -68,9 +71,6 @@ export default function RootLayout({
           storageKey="project-manager-theme"
           disableTransitionOnChange
         >
-          <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
-          <HostThemeBridge />
-          <HostIdentityBridge />
           {children}
           <Toaster />
         </ThemeProvider>

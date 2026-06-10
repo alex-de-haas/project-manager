@@ -5,6 +5,11 @@ import {
   revalidateHostyAppIdentityToken,
   requestHeadersWithTrustedHostIdentity,
 } from "@/lib/host-identity";
+import {
+  describeOpaqueValue,
+  describeUrlForAuth,
+  HOST_AUTH_LOG_PREFIX,
+} from "@/lib/host-auth-debug";
 
 const PUBLIC_PATHS = [
   "/api/auth/app-code",
@@ -32,6 +37,14 @@ export async function proxy(request: NextRequest) {
 
   if (isPublicPath(pathname)) {
     return NextResponse.next();
+  }
+
+  const hasLaunchCode = isHostyLaunchCodeRequest(request, pathname);
+  if (hasLaunchCode) {
+    console.info(`${HOST_AUTH_LOG_PREFIX} proxy detected launch code; leaving exchange to app-code bootstrap`, {
+      request: describeUrlForAuth(request.nextUrl),
+      code: describeOpaqueValue(request.nextUrl.searchParams.get("code")),
+    });
   }
 
   const authorization = request.headers.get("authorization")?.trim();
@@ -62,6 +75,13 @@ export async function proxy(request: NextRequest) {
     });
   }
 
+  console.warn(`${HOST_AUTH_LOG_PREFIX} proxy continuing without trusted identity`, {
+    request: describeUrlForAuth(request.nextUrl),
+    method: request.method,
+    cookieToken: describeOpaqueValue(cookieToken),
+    headerToken: describeOpaqueValue(headerToken),
+  });
+
   if (pathname.startsWith("/api/") || !["GET", "HEAD"].includes(request.method)) {
     return NextResponse.json(
       { error: "Hosty app identity is required" },
@@ -71,6 +91,11 @@ export async function proxy(request: NextRequest) {
 
   return NextResponse.next();
 }
+
+const isHostyLaunchCodeRequest = (request: NextRequest, pathname: string) =>
+  request.method === "GET" &&
+  !pathname.startsWith("/api/") &&
+  Boolean(request.nextUrl.searchParams.get("code")?.trim());
 
 export const config = {
   matcher: ["/((?!.*\\..*).*)"],
