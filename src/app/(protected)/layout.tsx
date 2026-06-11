@@ -18,7 +18,7 @@ export default async function ProtectedLayout({
 
   if (!hostIdentity) {
     const tokenInput = readAppIdentityToken(headerStore);
-    console.warn(`${HOST_AUTH_LOG_PREFIX} protected layout missing trusted identity`, {
+    console.info(`${HOST_AUTH_LOG_PREFIX} protected layout missing trusted identity`, {
       tokenSource: tokenInput.source,
       token: describeOpaqueValue(tokenInput.token),
     });

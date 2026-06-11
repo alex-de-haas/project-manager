@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   HOSTY_APP_IDENTITY_HEADER,
   HOSTY_APP_IDENTITY_COOKIE,
+  INTERNAL_HOST_ROLE_HEADER,
+  INTERNAL_HOST_USER_EMAIL_HEADER,
+  INTERNAL_HOST_USER_ID_HEADER,
+  INTERNAL_HOST_USER_NAME_HEADER,
   revalidateHostyAppIdentityToken,
   requestHeadersWithTrustedHostIdentity,
 } from "@/lib/host-identity";
@@ -36,7 +40,11 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) {
-    return NextResponse.next();
+    return NextResponse.next({
+      request: {
+        headers: stripInternalHeaders(request.headers),
+      },
+    });
   }
 
   const hasLaunchCode = isHostyLaunchCodeRequest(request, pathname);
@@ -75,27 +83,53 @@ export async function proxy(request: NextRequest) {
     });
   }
 
-  console.warn(`${HOST_AUTH_LOG_PREFIX} proxy continuing without trusted identity`, {
-    request: describeUrlForAuth(request.nextUrl),
-    method: request.method,
-    cookieToken: describeOpaqueValue(cookieToken),
-    headerToken: describeOpaqueValue(headerToken),
-  });
-
   if (pathname.startsWith("/api/") || !["GET", "HEAD"].includes(request.method)) {
+    console.warn(`${HOST_AUTH_LOG_PREFIX} proxy rejecting request without trusted identity`, {
+      request: describeUrlForAuth(request.nextUrl),
+      method: request.method,
+      cookieToken: describeOpaqueValue(cookieToken),
+      headerToken: describeOpaqueValue(headerToken),
+    });
     return NextResponse.json(
       { error: "Hosty app identity is required" },
       { status: 401 }
     );
   }
 
-  return NextResponse.next();
+  console.info(`${HOST_AUTH_LOG_PREFIX} proxy allowing unauthenticated bootstrap navigation`, {
+    request: describeUrlForAuth(request.nextUrl),
+    method: request.method,
+    cookieToken: describeOpaqueValue(cookieToken),
+    headerToken: describeOpaqueValue(headerToken),
+  });
+
+  return NextResponse.next({
+    request: {
+      headers: stripInternalHeaders(request.headers),
+    },
+  });
 }
 
 const isHostyLaunchCodeRequest = (request: NextRequest, pathname: string) =>
   request.method === "GET" &&
   !pathname.startsWith("/api/") &&
   Boolean(request.nextUrl.searchParams.get("code")?.trim());
+
+const stripInternalHeaders = (headers: Headers): Headers => {
+  const cleanHeaders = new Headers(headers);
+  cleanHeaders.delete("authorization");
+  cleanHeaders.delete("x-user-id");
+  for (const key of Array.from(cleanHeaders.keys())) {
+    if (key.toLowerCase().startsWith("x-docker-host-")) {
+      cleanHeaders.delete(key);
+    }
+  }
+  cleanHeaders.delete(INTERNAL_HOST_USER_ID_HEADER);
+  cleanHeaders.delete(INTERNAL_HOST_USER_EMAIL_HEADER);
+  cleanHeaders.delete(INTERNAL_HOST_USER_NAME_HEADER);
+  cleanHeaders.delete(INTERNAL_HOST_ROLE_HEADER);
+  return cleanHeaders;
+};
 
 export const config = {
   matcher: ["/((?!.*\\..*).*)"],

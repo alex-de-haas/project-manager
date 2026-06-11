@@ -6,8 +6,7 @@ export function describeOpaqueValue(value: string | null | undefined) {
     return "missing";
   }
 
-  const suffix = trimmed.length > 8 ? trimmed.slice(-8) : trimmed;
-  return `present length=${trimmed.length} suffix=${suffix}`;
+  return `present length=${trimmed.length}`;
 }
 
 export function describeUrlForAuth(value: string | URL) {
