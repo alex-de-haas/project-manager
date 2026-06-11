@@ -1,11 +1,12 @@
 import { cookies } from "next/headers";
 import TopNavigation from "@/components/TopNavigation";
 import { headers } from "next/headers";
-import { readTrustedHostIdentity } from "@/lib/host-identity";
+import { readAppIdentityToken, resolveTrustedHostIdentity } from "@/lib/host-identity";
 import { ensureHostUser } from "@/lib/host-users";
 import { PROJECT_COOKIE_NAME, PROJECT_USER_COOKIE_NAME } from "@/lib/user-context";
 import { getProjectsForUser } from "@/lib/projects";
 import { getDefaultProjectIdForUser } from "@/lib/default-project";
+import { describeOpaqueValue, logHostAuthDebug } from "@/lib/host-auth-debug";
 
 export default async function ProtectedLayout({
   children,
@@ -13,9 +14,14 @@ export default async function ProtectedLayout({
   children: React.ReactNode;
 }) {
   const headerStore = await headers();
-  const hostIdentity = readTrustedHostIdentity(headerStore);
+  const hostIdentity = await resolveTrustedHostIdentity(headerStore);
 
   if (!hostIdentity) {
+    const tokenInput = readAppIdentityToken(headerStore);
+    logHostAuthDebug("protected layout missing trusted identity", {
+      tokenSource: tokenInput.source,
+      token: describeOpaqueValue(tokenInput.token),
+    });
     return (
       <div
         data-project-manager-host-identity="missing"

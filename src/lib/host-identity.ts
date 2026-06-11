@@ -24,6 +24,7 @@ export interface TrustedHostIdentity {
 }
 
 type HeaderReader = Pick<Headers, "get">;
+type AppIdentityTokenSource = "cookie" | "authorization-header" | "identity-header";
 
 const CORE_AUTH_TIMEOUT_MS = 1500;
 const TOKEN_REVALIDATION_CACHE_TTL_MS = 15_000;
@@ -227,4 +228,72 @@ export const readTrustedHostIdentity = (headers: HeaderReader): TrustedHostIdent
     name: headers.get(INTERNAL_HOST_USER_NAME_HEADER)?.trim() || null,
     hostRole: headers.get(INTERNAL_HOST_ROLE_HEADER)?.trim() || null,
   };
+};
+
+export const resolveTrustedHostIdentity = async (
+  headers: HeaderReader
+): Promise<TrustedHostIdentity | null> => {
+  const trustedIdentity = readTrustedHostIdentity(headers);
+  if (trustedIdentity) {
+    return trustedIdentity;
+  }
+
+  const tokenInput = readAppIdentityToken(headers);
+  const claims = await revalidateHostyAppIdentityToken(tokenInput.token);
+  if (!claims) {
+    return null;
+  }
+
+  return trustedIdentityFromClaims(claims);
+};
+
+export const readAppIdentityToken = (
+  headers: HeaderReader
+): {
+  token: string | null;
+  source: AppIdentityTokenSource | null;
+} => {
+  const cookieToken = readCookie(headers.get("cookie"), HOSTY_APP_IDENTITY_COOKIE);
+  if (cookieToken) {
+    return { token: cookieToken, source: "cookie" };
+  }
+
+  const authorization = headers.get("authorization")?.trim();
+  if (authorization?.toLowerCase().startsWith("bearer ")) {
+    return { token: authorization.slice("Bearer ".length).trim(), source: "authorization-header" };
+  }
+
+  const identityHeader = headers.get(HOSTY_APP_IDENTITY_HEADER)?.trim();
+  if (identityHeader) {
+    return { token: identityHeader, source: "identity-header" };
+  }
+
+  return { token: null, source: null };
+};
+
+const trustedIdentityFromClaims = (claims: HostIdentityClaims): TrustedHostIdentity => ({
+  id: claims.sub,
+  email: claims.email ?? null,
+  name: claims.name ?? null,
+  hostRole: claims.hostRole ?? null,
+});
+
+const readCookie = (cookieHeader: string | null, name: string) => {
+  if (!cookieHeader) {
+    return null;
+  }
+
+  const cookie = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+  if (!cookie) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(cookie.slice(name.length + 1));
+  } catch {
+    return null;
+  }
 };
