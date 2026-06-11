@@ -9,6 +9,7 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 - Hosty users are the only supported users.
 - Host-issued app identity tokens are revalidated with Core before Project Manager trusts the request.
 - Project Manager maps the Core app session `userId` to `users.host_user_id` and uses the local integer user id only for internal joins.
+- When Hosty regenerates user IDs but preserves user email addresses, Project Manager can relink a new Hosty user ID to the existing local user by trusted email so the local integer user id remains stable.
 - Host administrator status is derived from Core's `host.admin` role and cached on the local user record.
 - Local login, invitation, password change, logout, and local role-management flows are not part of the runtime.
 - Project Manager creates a fresh SQLite database from the current schema when app storage is empty.
@@ -27,6 +28,7 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 - Settings are visible to all assigned app users; administrative settings are visible only to Host administrators.
 - Project Manager does not have separate application administrator role management. Non-admin project access is configured per project.
 - Project assignment uses the Hosty scoped app directory. Host administrators can synchronize assigned Hosty users into local records and assign non-admin users to projects.
+- Login-time user resolution and scoped directory synchronization both reuse an existing local user when no local row matches the incoming Hosty ID and exactly one local row matches the trusted normalized email.
 - Host administrators automatically have access to all projects and are not explicitly assigned as project members.
 
 ## App Packaging
@@ -56,7 +58,7 @@ A one-time JSON import is available in Profile settings for migration data. It i
 
 The main data groups are:
 
-- Host user mappings and cached Host administrator flags.
+- Host user mappings, trusted-email relinking state through `users.host_user_id`, and cached Host administrator flags.
 - Projects, project membership, and project settings.
 - App-level settings, including AI provider base URL and selected model.
 - Project-scoped per-user external account credentials such as Azure DevOps Personal Access Tokens.
@@ -142,6 +144,7 @@ Use these checks when changing the app contract or preparing a release:
 - Verify app-code exchange with a real Core-issued app authorization code.
 - Verify direct-origin API probes with a real Core-issued app identity token.
 - Verify assigned Hosty users can access the app through Hosty Shell.
+- Verify regenerated Hosty user IDs relink to existing local users when trusted email is unchanged and unique.
 - Verify non-admin users cannot access administrative Settings APIs or administrative Settings UI.
 - Verify Host administrators can manage projects, project settings, releases, backups, and AI provider settings.
 - Verify JSON import with a supported legacy export file when migration behavior changes.

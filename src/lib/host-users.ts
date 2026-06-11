@@ -10,6 +10,58 @@ type HostUserIdentityInput = Pick<TrustedHostIdentity, "id" | "email" | "name">;
 const HOST_BACKED_USER_COLUMNS =
   "id, name, app_display_name, email, is_admin, host_user_id, created_at";
 
+const selectUserByLowerNameStmt = db.prepare("SELECT id FROM users WHERE LOWER(name) = LOWER(?)");
+const selectHostBackedUserByIdStmt = db.prepare(
+  `SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE id = ?`
+);
+const selectHostBackedUserByHostIdStmt = db.prepare(
+  `SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE host_user_id = ?`
+);
+const selectUniqueHostBackedUserByEmailStmt = db.prepare(
+  `
+    SELECT ${HOST_BACKED_USER_COLUMNS}
+    FROM users
+    WHERE lower(trim(email)) = ?
+    ORDER BY id ASC
+    LIMIT 2
+  `
+);
+const updateHostBackedUserByHostIdStmt = db.prepare(
+  `
+    UPDATE users
+    SET name = ?,
+        app_display_name = COALESCE(app_display_name, ?),
+        email = ?,
+        is_admin = ?
+    WHERE host_user_id = ?
+  `
+);
+const updateHostBackedUserByIdStmt = db.prepare(
+  `
+    UPDATE users
+    SET name = ?,
+        app_display_name = COALESCE(app_display_name, ?),
+        email = ?,
+        is_admin = ?
+    WHERE id = ?
+  `
+);
+const relinkUserByEmailStmt = db.prepare(
+  `
+    UPDATE users
+    SET host_user_id = ?,
+        name = ?,
+        app_display_name = COALESCE(app_display_name, ?),
+        email = ?,
+        is_admin = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `
+);
+const insertHostBackedUserStmt = db.prepare(
+  "INSERT INTO users (name, app_display_name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?, ?)"
+);
+
 const normalizeDisplayName = (identity: HostUserIdentityInput) => {
   const fromName = identity.name?.trim();
   if (fromName) return fromName;
@@ -20,12 +72,14 @@ const normalizeDisplayName = (identity: HostUserIdentityInput) => {
   return identity.id;
 };
 
+const normalizeEmail = (email: string | null | undefined) =>
+  email?.trim().toLowerCase() || null;
+
 const buildUniqueName = (name: string, currentUserId?: number) => {
   const baseName = name.slice(0, 120) || "Hosty User";
-  const existing = db.prepare("SELECT id FROM users WHERE LOWER(name) = LOWER(?)");
 
   const isAvailable = (candidate: string) => {
-    const row = existing.get(candidate) as { id: number } | undefined;
+    const row = selectUserByLowerNameStmt.get(candidate) as { id: number } | undefined;
     return !row || row.id === currentUserId;
   };
 
@@ -40,9 +94,18 @@ const buildUniqueName = (name: string, currentUserId?: number) => {
 };
 
 const selectHostBackedUserById = (userId: number) =>
-  db
-    .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE id = ?`)
-    .get(userId) as HostBackedUser | undefined;
+  selectHostBackedUserByIdStmt.get(userId) as HostBackedUser | undefined;
+
+const selectUniqueHostBackedUserByEmail = (email: string | null) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  const matches = selectUniqueHostBackedUserByEmailStmt.all(
+    normalizedEmail
+  ) as HostBackedUser[];
+
+  return matches.length === 1 ? matches[0] : null;
+};
 
 const isHostAdminRole = (hostRole: string | null | undefined) => hostRole === "host.admin";
 
@@ -69,36 +132,34 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
 
   const syncUsers = db.transaction((users: HostDirectoryUser[]) =>
     users.map((user) => {
-      const existing = db
-        .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE host_user_id = ?`)
-        .get(user.id) as HostBackedUser | undefined;
-      const nextName = buildUniqueName(
-        normalizeDisplayName({
-          id: user.id,
-          email: user.email ?? existing?.email ?? null,
-          name: user.displayName ?? existing?.name ?? null,
-        }),
-        existing?.id
-      );
+      const existing = selectHostBackedUserByHostIdStmt.get(user.id) as
+        | HostBackedUser
+        | undefined;
       const nextEmail = user.email ?? existing?.email ?? null;
       const nextIsAdmin = isHostAdminRole(user.hostRole) ? 1 : 0;
 
       if (existing) {
+        const nextName = buildUniqueName(
+          normalizeDisplayName({
+            id: user.id,
+            email: user.email ?? existing.email ?? null,
+            name: user.displayName ?? existing.name ?? null,
+          }),
+          existing.id
+        );
+
         if (
           existing.name !== nextName ||
           existing.email !== nextEmail ||
           (existing.is_admin ?? 0) !== nextIsAdmin
         ) {
-          db.prepare(
-            `
-              UPDATE users
-              SET name = ?,
-                  app_display_name = COALESCE(app_display_name, ?),
-                  email = ?,
-                  is_admin = ?
-              WHERE host_user_id = ?
-            `
-          ).run(nextName, nextName, nextEmail, nextIsAdmin, user.id);
+          updateHostBackedUserByHostIdStmt.run(
+            nextName,
+            nextName,
+            nextEmail,
+            nextIsAdmin,
+            user.id
+          );
         }
 
         return {
@@ -109,11 +170,49 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
         };
       }
 
-      const created = db
-        .prepare(
-          "INSERT INTO users (name, app_display_name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?, ?)"
-        )
-        .run(nextName, nextName, nextEmail, nextIsAdmin, user.id);
+      const emailMatchedUser = selectUniqueHostBackedUserByEmail(user.email);
+      if (emailMatchedUser) {
+        const nextName = buildUniqueName(
+          normalizeDisplayName({
+            id: user.id,
+            email: user.email ?? emailMatchedUser.email ?? null,
+            name: user.displayName ?? emailMatchedUser.name ?? null,
+          }),
+          emailMatchedUser.id
+        );
+
+        relinkUserByEmailStmt.run(
+          user.id,
+          nextName,
+          nextName,
+          nextEmail,
+          nextIsAdmin,
+          emailMatchedUser.id
+        );
+
+        const row = selectHostBackedUserById(emailMatchedUser.id);
+        if (!row) {
+          throw new Error(
+            `Failed to relink Host directory user by email (host_user_id=${user.id}, local_user_id=${emailMatchedUser.id})`
+          );
+        }
+        return row;
+      }
+
+      const nextName = buildUniqueName(
+        normalizeDisplayName({
+          id: user.id,
+          email: user.email ?? null,
+          name: user.displayName ?? null,
+        })
+      );
+      const created = insertHostBackedUserStmt.run(
+        nextName,
+        nextName,
+        nextEmail,
+        nextIsAdmin,
+        user.id
+      );
       const userId = Number(created.lastInsertRowid);
       const row = selectHostBackedUserById(userId);
       if (!row) {
@@ -127,9 +226,9 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
 };
 
 export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser => {
-  const existing = db
-    .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE host_user_id = ?`)
-    .get(identity.id) as HostBackedUser | undefined;
+  const existing = selectHostBackedUserByHostIdStmt.get(identity.id) as
+    | HostBackedUser
+    | undefined;
 
   const shouldBeAdmin = isHostAdminRole(identity.hostRole);
 
@@ -143,16 +242,7 @@ export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser =>
       existing.email !== nextEmail ||
       (existing.is_admin ?? 0) !== nextIsAdmin
     ) {
-      db.prepare(
-        `
-          UPDATE users
-          SET name = ?,
-              app_display_name = COALESCE(app_display_name, ?),
-              email = ?,
-              is_admin = ?
-          WHERE id = ?
-        `
-      ).run(nextName, nextName, nextEmail, nextIsAdmin, existing.id);
+      updateHostBackedUserByIdStmt.run(nextName, nextName, nextEmail, nextIsAdmin, existing.id);
     }
 
     return {
@@ -163,18 +253,39 @@ export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser =>
     };
   }
 
+  const emailMatchedUser = selectUniqueHostBackedUserByEmail(identity.email ?? null);
+  if (emailMatchedUser) {
+    const nextName = buildUniqueName(normalizeDisplayName(identity), emailMatchedUser.id);
+    const nextEmail = identity.email ?? null;
+    const nextIsAdmin = shouldBeAdmin ? 1 : emailMatchedUser.is_admin ?? 0;
+    const updated = db.transaction(() => {
+      relinkUserByEmailStmt.run(
+        identity.id,
+        nextName,
+        nextName,
+        nextEmail,
+        nextIsAdmin,
+        emailMatchedUser.id
+      );
+
+      const row = selectHostBackedUserById(emailMatchedUser.id);
+      if (!row) {
+        throw new Error(
+          `Failed to relink Host user by email (host_user_id=${identity.id}, local_user_id=${emailMatchedUser.id})`
+        );
+      }
+      return row;
+    });
+
+    return updated();
+  }
+
   const name = buildUniqueName(normalizeDisplayName(identity));
   const email = identity.email ?? null;
   const created = db.transaction(() => {
-    const result = db
-      .prepare(
-        "INSERT INTO users (name, app_display_name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?, ?)"
-      )
-      .run(name, name, email, shouldBeAdmin ? 1 : 0, identity.id);
+    const result = insertHostBackedUserStmt.run(name, name, email, shouldBeAdmin ? 1 : 0, identity.id);
     const userId = Number(result.lastInsertRowid);
-    return db
-      .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE id = ?`)
-      .get(userId) as HostBackedUser;
+    return selectHostBackedUserById(userId) as HostBackedUser;
   });
 
   return created();

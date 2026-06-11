@@ -349,6 +349,7 @@ const initDb = () => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_users_host_user_id ON users(host_user_id);
+    CREATE INDEX IF NOT EXISTS idx_users_normalized_email ON users(lower(trim(email)));
     CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
     CREATE INDEX IF NOT EXISTS idx_projects_integration_provider ON projects(integration_provider);
     CREATE INDEX IF NOT EXISTS idx_project_members_project_id ON project_members(project_id);
