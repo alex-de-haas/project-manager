@@ -83,13 +83,17 @@ The existing `buildUniqueName()` logic should still prevent conflicts with the u
 
 ## Data Model / API Changes
 
-No schema changes are required.
+No table or public API changes are required.
 
 Affected table:
 
 - `users`: update an existing row's `host_user_id` when a unique email match is found.
 
-No public API contract changes are required. Existing APIs continue resolving the current user through the authenticated Hosty identity.
+Affected indexes:
+
+- `idx_users_normalized_email`: expression index on `lower(trim(email))` for the relink lookup used during login and Hosty directory synchronization.
+
+Existing APIs continue resolving the current user through the authenticated Hosty identity.
 
 ## Edge Cases
 
