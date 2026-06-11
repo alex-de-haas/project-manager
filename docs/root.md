@@ -7,6 +7,7 @@ Feature and operation documentation:
 - [Release planning](features/release-planning.md)
 - [Azure DevOps integration](azure-devops-integration.md)
 - [Blockers](blockers-feature.md)
+- [Host user email relinking](features/host-user-relinking.md)
 - [Hosty runtime app](features/hosty-runtime-app.md)
 - [Settings](settings-feature.md)
 - [Toast notifications](sonner-usage.md)

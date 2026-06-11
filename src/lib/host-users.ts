@@ -20,6 +20,9 @@ const normalizeDisplayName = (identity: HostUserIdentityInput) => {
   return identity.id;
 };
 
+const normalizeEmail = (email: string | null | undefined) =>
+  email?.trim().toLowerCase() || null;
+
 const buildUniqueName = (name: string, currentUserId?: number) => {
   const baseName = name.slice(0, 120) || "Hosty User";
   const existing = db.prepare("SELECT id FROM users WHERE LOWER(name) = LOWER(?)");
@@ -43,6 +46,25 @@ const selectHostBackedUserById = (userId: number) =>
   db
     .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE id = ?`)
     .get(userId) as HostBackedUser | undefined;
+
+const selectUniqueHostBackedUserByEmail = (email: string | null) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  const matches = db
+    .prepare(
+      `
+        SELECT ${HOST_BACKED_USER_COLUMNS}
+        FROM users
+        WHERE lower(trim(email)) = ?
+        ORDER BY id ASC
+        LIMIT 2
+      `
+    )
+    .all(normalizedEmail) as HostBackedUser[];
+
+  return matches.length === 1 ? matches[0] : null;
+};
 
 const isHostAdminRole = (hostRole: string | null | undefined) => hostRole === "host.admin";
 
@@ -72,18 +94,19 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
       const existing = db
         .prepare(`SELECT ${HOST_BACKED_USER_COLUMNS} FROM users WHERE host_user_id = ?`)
         .get(user.id) as HostBackedUser | undefined;
-      const nextName = buildUniqueName(
-        normalizeDisplayName({
-          id: user.id,
-          email: user.email ?? existing?.email ?? null,
-          name: user.displayName ?? existing?.name ?? null,
-        }),
-        existing?.id
-      );
       const nextEmail = user.email ?? existing?.email ?? null;
       const nextIsAdmin = isHostAdminRole(user.hostRole) ? 1 : 0;
 
       if (existing) {
+        const nextName = buildUniqueName(
+          normalizeDisplayName({
+            id: user.id,
+            email: user.email ?? existing.email ?? null,
+            name: user.displayName ?? existing.name ?? null,
+          }),
+          existing.id
+        );
+
         if (
           existing.name !== nextName ||
           existing.email !== nextEmail ||
@@ -109,6 +132,44 @@ export const upsertHostDirectoryUsers = (directoryUsers: HostDirectoryUser[]): H
         };
       }
 
+      const emailMatchedUser = selectUniqueHostBackedUserByEmail(user.email);
+      if (emailMatchedUser) {
+        const nextName = buildUniqueName(
+          normalizeDisplayName({
+            id: user.id,
+            email: user.email ?? emailMatchedUser.email ?? null,
+            name: user.displayName ?? emailMatchedUser.name ?? null,
+          }),
+          emailMatchedUser.id
+        );
+
+        db.prepare(
+          `
+            UPDATE users
+            SET host_user_id = ?,
+                name = ?,
+                app_display_name = COALESCE(app_display_name, ?),
+                email = ?,
+                is_admin = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `
+        ).run(user.id, nextName, nextName, nextEmail, nextIsAdmin, emailMatchedUser.id);
+
+        const row = selectHostBackedUserById(emailMatchedUser.id);
+        if (!row) {
+          throw new Error("Failed to relink Host directory user by email");
+        }
+        return row;
+      }
+
+      const nextName = buildUniqueName(
+        normalizeDisplayName({
+          id: user.id,
+          email: user.email ?? null,
+          name: user.displayName ?? null,
+        })
+      );
       const created = db
         .prepare(
           "INSERT INTO users (name, app_display_name, email, is_admin, host_user_id) VALUES (?, ?, ?, ?, ?)"
@@ -161,6 +222,35 @@ export const ensureHostUser = (identity: TrustedHostIdentity): HostBackedUser =>
       email: nextEmail,
       is_admin: nextIsAdmin,
     };
+  }
+
+  const emailMatchedUser = selectUniqueHostBackedUserByEmail(identity.email ?? null);
+  if (emailMatchedUser) {
+    const nextName = buildUniqueName(normalizeDisplayName(identity), emailMatchedUser.id);
+    const nextEmail = identity.email ?? null;
+    const nextIsAdmin = shouldBeAdmin ? 1 : emailMatchedUser.is_admin ?? 0;
+    const updated = db.transaction(() => {
+      db.prepare(
+        `
+          UPDATE users
+          SET host_user_id = ?,
+              name = ?,
+              app_display_name = COALESCE(app_display_name, ?),
+              email = ?,
+              is_admin = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `
+      ).run(identity.id, nextName, nextName, nextEmail, nextIsAdmin, emailMatchedUser.id);
+
+      const row = selectHostBackedUserById(emailMatchedUser.id);
+      if (!row) {
+        throw new Error("Failed to relink Host user by email");
+      }
+      return row;
+    });
+
+    return updated();
   }
 
   const name = buildUniqueName(normalizeDisplayName(identity));
