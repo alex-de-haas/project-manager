@@ -36,6 +36,11 @@ Notifications are used across workflows where immediate feedback matters:
 - Do not show both progress and success notifications for the same dialog action.
   Prefer inline progress such as a disabled button label, then show one final
   success or error notification.
+- Page-level and fast local-data loading states should not show skeletons,
+  spinners, or inline loading text. Render nothing until the local data is ready,
+  then show the final content or empty state.
+- Keep visible loading feedback for long-running user actions, imports, exports,
+  refreshes, and external provider lists such as Azure DevOps work items.
 - Dialogs should not wait for a notification before closing. After a successful
   action, close the dialog immediately and let the final notification appear
   independently.

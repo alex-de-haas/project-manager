@@ -21,7 +21,6 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { DayOff } from "@/types";
 
 const DayOffsModal = dynamic(
@@ -159,147 +158,147 @@ export default function DayOffsCalendarPage() {
           <CardHeader className="pb-3">
             <CardTitle>{format(currentMonth, "MMMM yyyy")}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-7 gap-2">
-              {WEEKDAY_LABELS.map((day, index) => {
-                const isWeekendLabel = index >= 5;
+          <CardContent>
+            <div className="overflow-x-auto pb-2">
+              <div className="min-w-[720px] space-y-3">
+                <div className="grid grid-cols-7 gap-2">
+                  {WEEKDAY_LABELS.map((day, index) => {
+                    const isWeekendLabel = index >= 5;
 
-                return (
-                  <div
-                    key={day}
-                    className={[
-                      "rounded-md border py-2 text-center text-xs font-medium uppercase tracking-wide",
-                      isWeekendLabel
-                        ? "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
-                        : "bg-muted/30 text-muted-foreground",
-                    ].join(" ")}
-                  >
-                    {day}
-                  </div>
-                );
-              })}
-            </div>
+                    return (
+                      <div
+                        key={day}
+                        className={[
+                          "rounded-md border py-2 text-center text-xs font-medium uppercase tracking-wide",
+                          isWeekendLabel
+                            ? "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
+                            : "bg-muted/30 text-muted-foreground",
+                        ].join(" ")}
+                      >
+                        {day}
+                      </div>
+                    );
+                  })}
+                </div>
 
-            {loading ? (
-              <div className="grid grid-cols-7 gap-2">
-                {Array.from({ length: calendarDays.length }).map((_, index) => (
-                  <Skeleton key={index} className="h-28 rounded-md" />
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-7 gap-2">
-                {calendarDays.map((day) => {
-                  const dateKey = format(day, "yyyy-MM-dd");
-                  const entries = dayOffsByDate.get(dateKey) ?? [];
-                  const inCurrentMonth = isSameMonth(day, currentMonth);
-                  const isCurrentDay = isToday(day);
-                  const isWeekend = isSaturday(day) || isSunday(day);
-                  const hasDayOffs = entries.length > 0;
+                {!loading && (
+                  <div className="grid grid-cols-7 gap-2">
+                    {calendarDays.map((day) => {
+                      const dateKey = format(day, "yyyy-MM-dd");
+                      const entries = dayOffsByDate.get(dateKey) ?? [];
+                      const inCurrentMonth = isSameMonth(day, currentMonth);
+                      const isCurrentDay = isToday(day);
+                      const isWeekend = isSaturday(day) || isSunday(day);
+                      const hasDayOffs = entries.length > 0;
 
-                  return (
-                    <div
-                      key={dateKey}
-                      className={[
-                        "min-h-28 rounded-md border p-2",
-                        inCurrentMonth ? "text-foreground" : "text-muted-foreground",
-                        isCurrentDay
-                          ? "bg-orange-100 dark:bg-orange-950/50 border-orange-300 dark:border-orange-800"
-                          : hasDayOffs
-                          ? "bg-purple-100 dark:bg-purple-950/50 border-purple-300 dark:border-purple-800"
-                          : isWeekend && inCurrentMonth
-                          ? "bg-slate-100 border-slate-300 dark:bg-slate-900/70 dark:border-slate-700"
-                          : isWeekend
-                          ? "bg-slate-50/70 border-slate-200 dark:bg-slate-900/40 dark:border-slate-800"
-                          : inCurrentMonth
-                          ? "bg-background border-border"
-                          : "bg-muted/25 border-border",
-                      ].join(" ")}
-                    >
-                      <div className="mb-2 flex items-center justify-between text-xs font-medium">
-                        <span
-                          className={
+                      return (
+                        <div
+                          key={dateKey}
+                          className={[
+                            "min-h-28 rounded-md border p-2",
+                            inCurrentMonth ? "text-foreground" : "text-muted-foreground",
                             isCurrentDay
-                              ? "text-orange-600 dark:text-orange-400"
+                              ? "bg-orange-100 dark:bg-orange-950/50 border-orange-300 dark:border-orange-800"
                               : hasDayOffs
-                              ? "text-purple-700 dark:text-purple-400"
+                              ? "bg-purple-100 dark:bg-purple-950/50 border-purple-300 dark:border-purple-800"
+                              : isWeekend && inCurrentMonth
+                              ? "bg-slate-100 border-slate-300 dark:bg-slate-900/70 dark:border-slate-700"
                               : isWeekend
-                              ? "text-slate-700 dark:text-slate-200"
-                              : undefined
-                          }
+                              ? "bg-slate-50/70 border-slate-200 dark:bg-slate-900/40 dark:border-slate-800"
+                              : inCurrentMonth
+                              ? "bg-background border-border"
+                              : "bg-muted/25 border-border",
+                          ].join(" ")}
                         >
-                          {format(day, "d")}
-                        </span>
-                        {isCurrentDay && (
-                          <Badge
-                            variant="outline"
-                            className="h-5 border-orange-300 bg-orange-50 px-1.5 text-[10px] text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300"
-                          >
-                            Today
-                          </Badge>
-                        )}
-                        {!isCurrentDay && isWeekend && (
-                          <Badge
-                            variant="outline"
-                            className="h-5 border-slate-300 bg-slate-50 px-1.5 text-[10px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                          >
-                            Weekend
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        {entries.map((entry) => (
-                          <div
-                            key={entry.id}
-                            className="rounded bg-purple-50 px-2 py-1 text-[11px] leading-tight dark:bg-purple-950/40"
-                          >
-                            <div className="font-medium text-purple-700 dark:text-purple-300">
-                              {entry.user_name ?? `User #${entry.user_id ?? "?"}`}
-                            </div>
-                            <div className="text-purple-600 dark:text-purple-400">
-                              {entry.is_half_day ? "Half day" : "Full day"}
-                              {entry.description ? ` • ${entry.description}` : ""}
-                            </div>
+                          <div className="mb-2 flex items-center justify-between text-xs font-medium">
+                            <span
+                              className={
+                                isCurrentDay
+                                  ? "text-orange-600 dark:text-orange-400"
+                                  : hasDayOffs
+                                  ? "text-purple-700 dark:text-purple-400"
+                                  : isWeekend
+                                  ? "text-slate-700 dark:text-slate-200"
+                                  : undefined
+                              }
+                            >
+                              {format(day, "d")}
+                            </span>
+                            {isCurrentDay && (
+                              <Badge
+                                variant="outline"
+                                className="h-5 border-orange-300 bg-orange-50 px-1.5 text-[10px] text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300"
+                              >
+                                Today
+                              </Badge>
+                            )}
+                            {!isCurrentDay && isWeekend && (
+                              <Badge
+                                variant="outline"
+                                className="h-5 border-slate-300 bg-slate-50 px-1.5 text-[10px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                              >
+                                Weekend
+                              </Badge>
+                            )}
                           </div>
-                        ))}
-                        {entries.length === 0 && inCurrentMonth && (
-                          <div className="text-[11px] text-muted-foreground">
-                            {isWeekend ? "Weekend" : "No day off"}
+                          <div className="space-y-1">
+                            {entries.map((entry) => (
+                              <div
+                                key={entry.id}
+                                className="rounded bg-purple-50 px-2 py-1 text-[11px] leading-tight dark:bg-purple-950/40"
+                              >
+                                <div className="font-medium text-purple-700 dark:text-purple-300">
+                                  {entry.user_name ?? `User #${entry.user_id ?? "?"}`}
+                                </div>
+                                <div className="text-purple-600 dark:text-purple-400">
+                                  {entry.is_half_day ? "Half day" : "Full day"}
+                                  {entry.description ? ` • ${entry.description}` : ""}
+                                </div>
+                              </div>
+                            ))}
+                            {entries.length === 0 && inCurrentMonth && (
+                              <div className="text-[11px] text-muted-foreground">
+                                {isWeekend ? "Weekend" : "No day off"}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </CardContent>
         </Card>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>Legend:</span>
-          <Badge
-            variant="outline"
-            className="border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300"
-          >
-            Today
-          </Badge>
-          <Badge
-            variant="outline"
-            className="border-purple-300 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
-          >
-            Day off
-          </Badge>
-          <Badge
-            variant="outline"
-            className="border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-          >
-            Weekend
-          </Badge>
-          <span className="ml-2">
-            Showing {dayOffs.length} {dayOffs.length === 1 ? "entry" : "entries"} in{" "}
-            {format(currentMonth, "MMMM yyyy")}
-          </span>
-        </div>
+        {!loading && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>Legend:</span>
+            <Badge
+              variant="outline"
+              className="border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300"
+            >
+              Today
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-purple-300 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
+            >
+              Day off
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            >
+              Weekend
+            </Badge>
+            <span className="ml-2">
+              Showing {dayOffs.length} {dayOffs.length === 1 ? "entry" : "entries"} in{" "}
+              {format(currentMonth, "MMMM yyyy")}
+            </span>
+          </div>
+        )}
       </div>
 
       {showDayOffsModal && (

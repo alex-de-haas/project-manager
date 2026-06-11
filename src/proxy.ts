@@ -3,6 +3,7 @@ import {
   HOSTY_APP_IDENTITY_HEADER,
   HOSTY_APP_IDENTITY_COOKIE,
   INTERNAL_HOST_ROLE_HEADER,
+  INTERNAL_HOST_LAUNCH_CODE_HEADER,
   INTERNAL_HOST_USER_EMAIL_HEADER,
   INTERNAL_HOST_USER_ID_HEADER,
   INTERNAL_HOST_USER_NAME_HEADER,
@@ -52,6 +53,11 @@ export async function proxy(request: NextRequest) {
     logHostAuthDebug("proxy detected launch code; leaving exchange to app-code bootstrap", {
       request: describeUrlForAuth(request.nextUrl),
       code: describeOpaqueValue(request.nextUrl.searchParams.get("code")),
+    });
+    return NextResponse.next({
+      request: {
+        headers: launchCodeBootstrapHeaders(request.headers),
+      },
     });
   }
 
@@ -115,6 +121,18 @@ const isHostyLaunchCodeRequest = (request: NextRequest, pathname: string) =>
   !pathname.startsWith("/api/") &&
   Boolean(request.nextUrl.searchParams.get("code")?.trim());
 
+const launchCodeBootstrapHeaders = (headers: Headers): Headers => {
+  const cleanHeaders = stripInternalHeaders(headers);
+  const remainingCookies = removeCookie(cleanHeaders.get("cookie"), HOSTY_APP_IDENTITY_COOKIE);
+  cleanHeaders.set(INTERNAL_HOST_LAUNCH_CODE_HEADER, "1");
+  if (remainingCookies) {
+    cleanHeaders.set("cookie", remainingCookies);
+  } else {
+    cleanHeaders.delete("cookie");
+  }
+  return cleanHeaders;
+};
+
 const stripInternalHeaders = (headers: Headers): Headers => {
   const cleanHeaders = new Headers(headers);
   cleanHeaders.delete("authorization");
@@ -128,7 +146,20 @@ const stripInternalHeaders = (headers: Headers): Headers => {
   cleanHeaders.delete(INTERNAL_HOST_USER_EMAIL_HEADER);
   cleanHeaders.delete(INTERNAL_HOST_USER_NAME_HEADER);
   cleanHeaders.delete(INTERNAL_HOST_ROLE_HEADER);
+  cleanHeaders.delete(INTERNAL_HOST_LAUNCH_CODE_HEADER);
   return cleanHeaders;
+};
+
+const removeCookie = (cookieHeader: string | null, name: string) => {
+  if (!cookieHeader) {
+    return "";
+  }
+
+  return cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part && !part.startsWith(`${name}=`))
+    .join("; ");
 };
 
 export const config = {

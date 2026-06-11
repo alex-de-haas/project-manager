@@ -1,7 +1,11 @@
 import { cookies } from "next/headers";
 import TopNavigation from "@/components/TopNavigation";
 import { headers } from "next/headers";
-import { readAppIdentityToken, resolveTrustedHostIdentity } from "@/lib/host-identity";
+import {
+  INTERNAL_HOST_LAUNCH_CODE_HEADER,
+  readAppIdentityToken,
+  resolveTrustedHostIdentity,
+} from "@/lib/host-identity";
 import { ensureHostUser } from "@/lib/host-users";
 import { PROJECT_COOKIE_NAME, PROJECT_USER_COOKIE_NAME } from "@/lib/user-context";
 import { getProjectsForUser } from "@/lib/projects";
@@ -15,8 +19,18 @@ export default async function ProtectedLayout({
 }) {
   const headerStore = await headers();
   const hostIdentity = await resolveTrustedHostIdentity(headerStore);
+  const isLaunchCodeBootstrap = headerStore.get(INTERNAL_HOST_LAUNCH_CODE_HEADER) === "1";
 
   if (!hostIdentity) {
+    if (isLaunchCodeBootstrap) {
+      return (
+        <div
+          data-project-manager-auth-bootstrap="launch-code"
+          className="min-h-dvh bg-muted/30"
+        />
+      );
+    }
+
     const tokenInput = readAppIdentityToken(headerStore);
     logHostAuthDebug("protected layout missing trusted identity", {
       tokenSource: tokenInput.source,
@@ -57,7 +71,7 @@ export default async function ProtectedLayout({
       data-host-user-email={hostIdentity.email ?? ""}
       data-host-user-name={hostIdentity.name ?? ""}
       data-host-role={hostIdentity.hostRole ?? ""}
-      className="flex h-dvh flex-col overflow-hidden"
+      className="flex h-dvh flex-col overflow-hidden bg-muted/30"
     >
       <TopNavigation
         initialUser={currentUser}

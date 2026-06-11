@@ -447,9 +447,7 @@ export default function ChecklistModal({
         {/* Checklist items */}
         <div className="flex-1 overflow-y-auto space-y-2 min-h-[200px]">
           {loading ? (
-            <div className="text-center text-muted-foreground py-8">
-              Loading...
-            </div>
+            null
           ) : items.length === 0 ? (
             <div className="text-center text-muted-foreground py-8">
               No checklist items yet. Add one above!

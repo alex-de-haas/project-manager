@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   HoverCard,
@@ -547,7 +546,6 @@ function SortableRow({
 export default function Home() {
   const [tasks, setTasks] = useState<TaskWithTimeEntries[]>([]);
   const [dayOffs, setDayOffs] = useState<DayOff[]>([]);
-  const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
   const [projectRequired, setProjectRequired] = useState(false);
   const [defaultDayLength, setDefaultDayLength] = useState<number | null>(null);
@@ -646,9 +644,8 @@ export default function Home() {
   }, [currentDate, viewMode]);
 
   const fetchTasks = useCallback(
-    async (showLoader = false) => {
+    async () => {
       try {
-        if (showLoader) setLoading(true);
         const params = new URLSearchParams({
           startDate: dateRange.startDate,
           endDate: dateRange.endDate,
@@ -671,7 +668,6 @@ export default function Home() {
         });
         console.error(err);
       } finally {
-        if (showLoader) setLoading(false);
         setInitialLoading(false);
       }
     },
@@ -777,7 +773,7 @@ export default function Home() {
   }, [isTaskDragActive, restoreLockedTrackerScrollLeft]);
 
   useEffect(() => {
-    fetchTasks(true);
+    fetchTasks();
   }, [fetchTasks]);
 
   useEffect(() => {
@@ -1331,7 +1327,7 @@ export default function Home() {
       toast.error("An error occurred while refreshing tasks");
     } finally {
       // Always fetch the current user's latest imported tasks from the database.
-      await fetchTasks(false);
+      await fetchTasks();
       setIsRefreshing(false);
     }
   };
@@ -1373,23 +1369,7 @@ export default function Home() {
   };
 
   if (initialLoading || defaultDayLengthLoading) {
-    return (
-      <div className="h-full overflow-auto p-6">
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-9 w-64" />
-            <Skeleton className="h-4 w-48" />
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <Skeleton className="h-9 w-full" />
-              <Skeleton className="h-9 w-full" />
-              <Skeleton className="h-32 w-full" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return null;
   }
 
   if (projectRequired) {
@@ -2239,7 +2219,7 @@ export default function Home() {
             </div>
             <div className="max-h-80 overflow-auto divide-y">
               {timeEntriesLoading ? (
-                <div className="px-3 py-4 text-sm text-muted-foreground">Loading tracked time…</div>
+                null
               ) : timeEntriesError ? (
                 <div className="px-3 py-4 text-sm text-red-600 dark:text-red-400">
                   {timeEntriesError}

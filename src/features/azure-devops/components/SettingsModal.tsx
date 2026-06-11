@@ -160,9 +160,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             Configure your Azure DevOps connection to import work items
           </DialogDescription>
         </DialogHeader>
-        {loading ? (
-          <div className="text-center py-8">Loading settings...</div>
-        ) : (
+        {loading ? null : (
           <form onSubmit={handleSave} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="azureProjectUrl">Project URL</Label>

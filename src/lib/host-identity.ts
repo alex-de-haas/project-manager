@@ -6,6 +6,7 @@ export const INTERNAL_HOST_USER_ID_HEADER = "x-project-manager-host-user-id";
 export const INTERNAL_HOST_USER_EMAIL_HEADER = "x-project-manager-host-user-email";
 export const INTERNAL_HOST_USER_NAME_HEADER = "x-project-manager-host-user-name";
 export const INTERNAL_HOST_ROLE_HEADER = "x-project-manager-host-role";
+export const INTERNAL_HOST_LAUNCH_CODE_HEADER = "x-project-manager-host-launch-code";
 
 export interface HostIdentityClaims {
   sub: string;

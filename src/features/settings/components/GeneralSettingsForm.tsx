@@ -1027,27 +1027,25 @@ export function GeneralSettingsForm({
     : null;
   const hasActiveProject = Boolean(activeProjectId);
   const projectScopedTabsDisabled = loadingProjects || !hasActiveProject;
-  const projectScopedDisabledMessage = loadingProjects
-    ? "Loading projects..."
-    : "Create or select a project before editing project-scoped profile settings.";
-  const releasesDisabledMessage = loadingProjects
-    ? "Loading projects..."
-    : "Create or select a project before managing releases.";
+  const projectScopedDisabledMessage =
+    "Create or select a project before editing project-scoped profile settings.";
+  const releasesDisabledMessage =
+    "Create or select a project before managing releases.";
 
-  return loading ? (
-    <div className="text-center py-8">Loading settings...</div>
-  ) : !isAdmin ? (
+  return loading ? null : !isAdmin ? (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-1">
+      <TabsList className="grid h-auto w-full grid-cols-1">
         <TabsTrigger value="profile" disabled={projectScopedTabsDisabled}>
           Profile
         </TabsTrigger>
       </TabsList>
       <TabsContent value="profile" className="mt-4">
-        <ProfileSettingsForm
-          disabled={projectScopedTabsDisabled}
-          disabledMessage={projectScopedDisabledMessage}
-        />
+        {loadingProjects ? null : (
+          <ProfileSettingsForm
+            disabled={!hasActiveProject}
+            disabledMessage={projectScopedDisabledMessage}
+          />
+        )}
       </TabsContent>
     </Tabs>
   ) : (
@@ -1066,10 +1064,12 @@ export function GeneralSettingsForm({
         </TabsList>
 
         <TabsContent value="profile" className="mt-4">
-          <ProfileSettingsForm
-            disabled={projectScopedTabsDisabled}
-            disabledMessage={projectScopedDisabledMessage}
-          />
+          {loadingProjects ? null : (
+            <ProfileSettingsForm
+              disabled={!hasActiveProject}
+              disabledMessage={projectScopedDisabledMessage}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="projects" className="space-y-4 mt-4">
@@ -1091,9 +1091,7 @@ export function GeneralSettingsForm({
           </div>
 
           <div className="space-y-2">
-            {loadingProjects ? (
-              <p className="rounded-md border p-3 text-sm text-muted-foreground">Loading projects...</p>
-            ) : projects.length === 0 ? (
+            {loadingProjects ? null : projects.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                 No projects yet. Create a project to enable project-scoped tasks, releases, and Azure DevOps integration.
               </div>
@@ -1300,9 +1298,7 @@ export function GeneralSettingsForm({
                       ))}
                     </div>
                   ) : null}
-                  {loadingUsers ? (
-                    <p className="text-sm text-muted-foreground">Loading users...</p>
-                  ) : assignableUsers.length === 0 ? (
+                  {loadingUsers ? null : assignableUsers.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       No non-admin users are available for explicit project access.
                     </p>
@@ -1413,7 +1409,7 @@ export function GeneralSettingsForm({
                 {releasesDisabledMessage}
               </div>
             ) : loadingReleases ? (
-              <p className="rounded-md border p-3 text-sm text-muted-foreground">Loading releases...</p>
+              null
             ) : sortedReleases.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                 No releases yet. Create a release to start planning work items.
@@ -1530,13 +1526,7 @@ export function GeneralSettingsForm({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loadingBackups ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-sm text-muted-foreground">
-                      Loading backups...
-                    </TableCell>
-                  </TableRow>
-                ) : backups.length === 0 ? (
+                {loadingBackups ? null : backups.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={4} className="text-sm text-muted-foreground">
                       No backup files found.

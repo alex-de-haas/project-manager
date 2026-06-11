@@ -270,7 +270,7 @@ export default function TopNavigation({
   };
 
   return (
-    <header className="shrink-0 bg-background">
+    <header className="shrink-0 bg-transparent">
       <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
         <div className="rounded-lg border bg-card p-1 shadow-sm">
           <div className="flex min-w-0 items-center gap-1">

@@ -1484,9 +1484,7 @@ export default function ReleaseTrackingPage() {
               Select or create a project before using Planning.
             </p>
           </div>
-        ) : loading ? (
-          <div className="text-sm text-muted-foreground">Loading releases...</div>
-        ) : sortedReleases.length === 0 ? (
+        ) : loading ? null : sortedReleases.length === 0 ? (
           <div className="space-y-1">
             <h1 className="text-2xl font-semibold">Release Planner</h1>
             <p className="text-sm text-muted-foreground">
@@ -1608,11 +1606,7 @@ export default function ReleaseTrackingPage() {
         ) : activeRelease && (
           <div className="overflow-auto h-full">
             <div className="p-6 space-y-3">
-              {workItemsLoading ? (
-                <div className="text-center text-sm text-muted-foreground py-8">
-                  Loading work items...
-                </div>
-              ) : workItems.length === 0 ? (
+              {workItemsLoading ? null : workItems.length === 0 ? (
                 <div className="text-center text-sm text-muted-foreground py-8">
                   No work items yet. Import user stories to start planning.
                 </div>
