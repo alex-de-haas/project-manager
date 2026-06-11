@@ -2,7 +2,7 @@ import { getHostyCoreOrigin } from "@/lib/module-runtime";
 import {
   describeEndpointOrigin,
   describeOpaqueValue,
-  HOST_AUTH_LOG_PREFIX,
+  logHostAuthDebug,
 } from "@/lib/host-auth-debug";
 
 const CORE_TOKEN_EXCHANGE_TIMEOUT_MS = 1500;
@@ -31,7 +31,7 @@ export async function exchangeHostyAppAuthorizationCode(
 ): Promise<HostyAppCodeExchangeResult> {
   const authorizationCode = code?.trim();
   if (!authorizationCode) {
-    console.warn(`${HOST_AUTH_LOG_PREFIX} exchange skipped: missing code`, { source });
+    logHostAuthDebug("exchange skipped: missing code", { source });
     return appAuthError(
       "app_auth_code_required",
       "A Hosty app authorization code is required.",
@@ -41,13 +41,13 @@ export async function exchangeHostyAppAuthorizationCode(
 
   const endpoint = buildTokenEndpoint();
   if (!endpoint) {
-    console.warn(`${HOST_AUTH_LOG_PREFIX} exchange skipped: Core origin is not configured`, {
+    logHostAuthDebug("exchange skipped: Core origin is not configured", {
       source,
     });
     return appAuthError("core_origin_invalid", "HOSTY_CORE_ORIGIN is not configured.", 503);
   }
 
-  console.info(`${HOST_AUTH_LOG_PREFIX} exchange started`, {
+  logHostAuthDebug("exchange started", {
     source,
     code: describeOpaqueValue(authorizationCode),
     coreOrigin: describeEndpointOrigin(endpoint),
@@ -65,7 +65,7 @@ export async function exchangeHostyAppAuthorizationCode(
       signal: AbortSignal.timeout(CORE_TOKEN_EXCHANGE_TIMEOUT_MS),
     });
   } catch (error) {
-    console.warn(`${HOST_AUTH_LOG_PREFIX} exchange request failed`, {
+    logHostAuthDebug("exchange request failed", {
       source,
       code: describeOpaqueValue(authorizationCode),
       coreOrigin: describeEndpointOrigin(endpoint),
@@ -80,14 +80,14 @@ export async function exchangeHostyAppAuthorizationCode(
   }
 
   const payload = (await response.json().catch(() => null)) as TokenExchangeResponse | null;
-  console.info(`${HOST_AUTH_LOG_PREFIX} exchange response received`, {
+  logHostAuthDebug("exchange response received", {
     source,
     status: response.status,
     ok: response.ok,
   });
 
   if (!response.ok) {
-    console.warn(`${HOST_AUTH_LOG_PREFIX} exchange rejected by Core`, {
+    logHostAuthDebug("exchange rejected by Core", {
       source,
       status: response.status,
       errorCode: readErrorCode(payload) || "app_auth_code_exchange_failed",
@@ -102,7 +102,7 @@ export async function exchangeHostyAppAuthorizationCode(
 
   const accessToken = typeof payload?.accessToken === "string" ? payload.accessToken.trim() : "";
   if (!accessToken) {
-    console.warn(`${HOST_AUTH_LOG_PREFIX} exchange response missing token`, { source });
+    logHostAuthDebug("exchange response missing token", { source });
     return appAuthError(
       "app_identity_token_missing",
       "Core token exchange did not return an app identity token.",
@@ -115,7 +115,7 @@ export async function exchangeHostyAppAuthorizationCode(
       ? Math.max(1, Math.floor(payload.expiresInSeconds))
       : 5 * 60;
 
-  console.info(`${HOST_AUTH_LOG_PREFIX} exchange succeeded`, {
+  logHostAuthDebug("exchange succeeded", {
     source,
     maxAge,
     token: describeOpaqueValue(accessToken),

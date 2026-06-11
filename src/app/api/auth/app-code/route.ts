@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { HOSTY_APP_IDENTITY_COOKIE } from "@/lib/host-identity";
 import { exchangeHostyAppAuthorizationCode } from "@/lib/host-app-code";
 import { hostyAppIdentityCookieOptions } from "@/lib/host-app-cookie";
-import { describeOpaqueValue, HOST_AUTH_LOG_PREFIX } from "@/lib/host-auth-debug";
+import { describeOpaqueValue, logHostAuthDebug } from "@/lib/host-auth-debug";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       ? (body as { code?: unknown }).code
       : null;
 
-  console.info(`${HOST_AUTH_LOG_PREFIX} app-code endpoint received request`, {
+  logHostAuthDebug("app-code endpoint received request", {
     code: describeOpaqueValue(typeof code === "string" ? code : null),
   });
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     "api-route"
   );
   if (!result.ok) {
-    console.warn(`${HOST_AUTH_LOG_PREFIX} app-code endpoint exchange failed`, {
+    logHostAuthDebug("app-code endpoint exchange failed", {
       errorCode: result.code,
       status: result.status,
       message: result.message,
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     result.accessToken,
     hostyAppIdentityCookieOptions(request, result.maxAge)
   );
-  console.info(`${HOST_AUTH_LOG_PREFIX} app-code endpoint set identity cookie`, {
+  logHostAuthDebug("app-code endpoint set identity cookie", {
     maxAge: result.maxAge,
   });
 

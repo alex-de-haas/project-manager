@@ -1,5 +1,21 @@
 export const HOST_AUTH_LOG_PREFIX = "[project-manager host-auth]";
 
+const HOST_AUTH_DEBUG_ENABLED =
+  process.env.NEXT_PUBLIC_HOST_AUTH_DEBUG === "true";
+
+export function logHostAuthDebug(message: string, details?: unknown) {
+  if (!HOST_AUTH_DEBUG_ENABLED) {
+    return;
+  }
+
+  if (details === undefined) {
+    console.debug(`${HOST_AUTH_LOG_PREFIX} ${message}`);
+    return;
+  }
+
+  console.debug(`${HOST_AUTH_LOG_PREFIX} ${message}`, details);
+}
+
 export function describeOpaqueValue(value: string | null | undefined) {
   const trimmed = value?.trim();
   if (!trimmed) {

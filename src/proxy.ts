@@ -12,7 +12,7 @@ import {
 import {
   describeOpaqueValue,
   describeUrlForAuth,
-  HOST_AUTH_LOG_PREFIX,
+  logHostAuthDebug,
 } from "@/lib/host-auth-debug";
 
 const PUBLIC_PATHS = [
@@ -49,7 +49,7 @@ export async function proxy(request: NextRequest) {
 
   const hasLaunchCode = isHostyLaunchCodeRequest(request, pathname);
   if (hasLaunchCode) {
-    console.info(`${HOST_AUTH_LOG_PREFIX} proxy detected launch code; leaving exchange to app-code bootstrap`, {
+    logHostAuthDebug("proxy detected launch code; leaving exchange to app-code bootstrap", {
       request: describeUrlForAuth(request.nextUrl),
       code: describeOpaqueValue(request.nextUrl.searchParams.get("code")),
     });
@@ -84,7 +84,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname.startsWith("/api/") || !["GET", "HEAD"].includes(request.method)) {
-    console.warn(`${HOST_AUTH_LOG_PREFIX} proxy rejecting request without trusted identity`, {
+    logHostAuthDebug("proxy rejecting request without trusted identity", {
       request: describeUrlForAuth(request.nextUrl),
       method: request.method,
       cookieToken: describeOpaqueValue(cookieToken),
@@ -96,7 +96,7 @@ export async function proxy(request: NextRequest) {
     );
   }
 
-  console.info(`${HOST_AUTH_LOG_PREFIX} proxy allowing unauthenticated bootstrap navigation`, {
+  logHostAuthDebug("proxy allowing unauthenticated bootstrap navigation", {
     request: describeUrlForAuth(request.nextUrl),
     method: request.method,
     cookieToken: describeOpaqueValue(cookieToken),

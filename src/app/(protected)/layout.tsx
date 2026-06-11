@@ -6,7 +6,7 @@ import { ensureHostUser } from "@/lib/host-users";
 import { PROJECT_COOKIE_NAME, PROJECT_USER_COOKIE_NAME } from "@/lib/user-context";
 import { getProjectsForUser } from "@/lib/projects";
 import { getDefaultProjectIdForUser } from "@/lib/default-project";
-import { describeOpaqueValue, HOST_AUTH_LOG_PREFIX } from "@/lib/host-auth-debug";
+import { describeOpaqueValue, logHostAuthDebug } from "@/lib/host-auth-debug";
 
 export default async function ProtectedLayout({
   children,
@@ -18,7 +18,7 @@ export default async function ProtectedLayout({
 
   if (!hostIdentity) {
     const tokenInput = readAppIdentityToken(headerStore);
-    console.info(`${HOST_AUTH_LOG_PREFIX} protected layout missing trusted identity`, {
+    logHostAuthDebug("protected layout missing trusted identity", {
       tokenSource: tokenInput.source,
       token: describeOpaqueValue(tokenInput.token),
     });
