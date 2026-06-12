@@ -1,5 +1,8 @@
 # Release Planning
 
+Created: 2026-05-30
+Updated: 2026-06-12
+
 ## Overview
 
 Release Planning organizes project work into releases. Releases primarily contain user stories, and user stories can have child tasks or bugs that become trackable work for project members.

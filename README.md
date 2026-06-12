@@ -94,17 +94,7 @@ Persistent state is stored under `/app/data` and is intended to be mounted from 
 
 ## Documentation
 
-Feature documentation lives in the `docs` folder:
-
-- `docs/root.md`
-- `docs/features/time-tracking.md`
-- `docs/features/hosty-runtime-app.md`
-- `docs/azure-devops-integration.md`
-- `docs/blockers-feature.md`
-- `docs/settings-feature.md`
-- `docs/sonner-usage.md`
-
-Documentation in `docs` should describe user-facing feature behavior and avoid detailed implementation notes.
+Documentation index: [docs/root.md](docs/root.md).
 
 ## Task Tracking
 

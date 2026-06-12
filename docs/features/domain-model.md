@@ -1,5 +1,8 @@
 # Domain Model
 
+Created: 2026-05-30
+Updated: 2026-06-12
+
 ## Overview
 
 Project Manager uses its own domain model for work planning and time tracking. External systems such as Azure DevOps are optional integrations, not the source of truth for core Project Manager behavior.

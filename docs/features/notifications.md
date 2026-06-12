@@ -1,4 +1,7 @@
-# Notifications Feature
+# Notifications
+
+Created: 2026-05-23
+Updated: 2026-06-12
 
 ## Overview
 

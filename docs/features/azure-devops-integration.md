@@ -1,5 +1,8 @@
 # Azure DevOps Integration
 
+Created: 2026-05-23
+Updated: 2026-06-12
+
 ## Overview
 
 The Azure DevOps integration connects Project Manager work items with Azure DevOps work items. The integration is optional. Teams can run Project Manager with local work only, or connect a project to Azure DevOps when provider synchronization is needed.

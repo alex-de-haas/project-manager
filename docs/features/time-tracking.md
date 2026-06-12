@@ -1,5 +1,8 @@
 # Time Tracking
 
+Created: 2026-05-26
+Updated: 2026-06-12
+
 ## Overview
 
 Time Management shows weekly and monthly trackable work items that the user has explicitly added to Time Management for the active project. Users can enter time inline, review totals, filter by status, manage blockers and checklists, refresh linked provider items, and export monthly time to Excel.
