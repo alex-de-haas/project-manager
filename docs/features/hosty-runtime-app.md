@@ -1,7 +1,7 @@
 # Hosty Runtime App
 
 Created: 2026-06-02
-Updated: 2026-06-12
+Updated: 2026-06-13
 
 Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 
@@ -25,7 +25,7 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 - Requests must include a valid signed Hosty app identity token issued by Hosty Core.
 - Shell opens the app origin with a Core-issued app authorization code.
 - Project Manager exchanges the launch code at `/api/auth/app-code` through Core `/api/auth/apps/token`, then stores the app identity token in an HttpOnly app-origin cookie. The root client bridge follows the Hosty Demo App pattern: remove the code from the visible URL, exchange it, then reload after success.
-- Server-rendered pages and same-origin APIs revalidate that token through Core `/api/auth/apps/revalidate`.
+- Server-rendered pages and same-origin APIs revalidate that token through Core `/api/auth/apps/revalidate` using the app service token.
 - Direct probes can pass the same app identity token through `Authorization: Bearer`.
 - Host administrators receive administrative access in Project Manager automatically.
 - Settings are visible to all assigned app users; administrative settings are visible only to Host administrators.
@@ -86,7 +86,7 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 
 - `HOSTY_APP_ID` is the app audience id used by Core app identity.
 - `HOSTY_CORE_ORIGIN` is the Core origin used for app code exchange, token revalidation, and scoped directory access.
-- `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to read the scoped directory for users assigned to this app.
+- `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to revalidate app identity tokens with Core and read the scoped directory for users assigned to this app.
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
 - The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In local HTTP development contexts, it uses `SameSite=Lax` without `Secure`; Shell and runtime apps on `localhost` with different ports are same-site for this purpose, and Safari does not reliably accept `Secure` cookies over plain HTTP localhost.

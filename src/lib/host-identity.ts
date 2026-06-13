@@ -64,6 +64,9 @@ const buildCoreEndpoint = (path: string) => {
   }
 };
 
+const getHostyAppServiceToken = () =>
+  process.env.HOSTY_APP_SERVICE_TOKEN?.trim() || null;
+
 export const revalidateHostyAppIdentityToken = async (
   token: string | null | undefined
 ): Promise<HostIdentityClaims | null> => {
@@ -83,8 +86,10 @@ export const revalidateHostyAppIdentityToken = async (
 
   const endpoint = buildCoreEndpoint("/api/auth/apps/revalidate");
   if (!endpoint) return null;
+  const serviceToken = getHostyAppServiceToken();
+  if (!serviceToken) return null;
 
-  const revalidation = revalidateTokenWithCore(accessToken, endpoint);
+  const revalidation = revalidateTokenWithCore(accessToken, endpoint, serviceToken);
   pendingTokenRevalidations.set(accessToken, revalidation);
 
   try {
@@ -96,13 +101,15 @@ export const revalidateHostyAppIdentityToken = async (
 
 const revalidateTokenWithCore = async (
   accessToken: string,
-  endpoint: string
+  endpoint: string,
+  serviceToken: string
 ): Promise<HostIdentityClaims | null> => {
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceToken}`,
       },
       body: JSON.stringify({ accessToken }),
       cache: "no-store",
