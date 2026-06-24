@@ -35,11 +35,6 @@ type DayOffWithUser = DayOff & {
   user_name?: string;
 };
 
-type ProjectMember = {
-  id: number;
-  name: string;
-};
-
 const WEEK_STARTS_ON_MONDAY = { weekStartsOn: 1 as const };
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -68,21 +63,15 @@ export default function DayOffsCalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [dayOffs, setDayOffs] = useState<DayOffWithUser[]>([]);
   const [currentUserDayOffs, setCurrentUserDayOffs] = useState<DayOff[]>([]);
-  const [members, setMembers] = useState<ProjectMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDayOffsModal, setShowDayOffsModal] = useState(false);
 
-  // Stable color per user, assigned by the member's position in the project
-  // member list so a user keeps the same color across months. Day offs from
-  // users no longer in the project fall back to a deterministic id-based color.
-  const colorForUser = useCallback(
-    (userId?: number | null) => {
-      if (userId == null) return USER_COLORS[0];
-      const memberIndex = members.findIndex((member) => member.id === userId);
-      return colorForIndex(memberIndex >= 0 ? memberIndex : userId);
-    },
-    [members]
-  );
+  // Stable color per user, derived directly from the (sequential) user id so it
+  // stays the same across months and views with no extra fetch or color flash.
+  const colorForUser = useCallback((userId?: number | null) => {
+    if (userId == null) return USER_COLORS[0];
+    return colorForIndex(userId);
+  }, []);
 
   const monthRange = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
@@ -153,34 +142,6 @@ export default function DayOffsCalendarPage() {
   useEffect(() => {
     fetchDayOffs();
   }, [fetchDayOffs]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchMembers = async () => {
-      try {
-        const response = await fetch("/api/project-members");
-        if (!response.ok) {
-          throw new Error("Failed to load project members");
-        }
-        const data = (await response.json()) as ProjectMember[];
-        if (!cancelled) {
-          setMembers(data);
-        }
-      } catch (error) {
-        console.error(error);
-        if (!cancelled) {
-          setMembers([]);
-        }
-      }
-    };
-
-    fetchMembers();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const usersInMonth = useMemo(() => {
     const byUser = new Map<number, string>();
