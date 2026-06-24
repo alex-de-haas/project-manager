@@ -3,7 +3,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import type { DayOff } from '@/types';
-import { getRequestUserId } from '@/lib/user-context';
+import {
+  getOptionalRequestProjectId,
+  getRequestUserId,
+  projectContextErrorResponse,
+} from '@/lib/user-context';
 
 // GET - Fetch all days off or filter by date range
 export async function GET(request: NextRequest) {
@@ -14,23 +18,45 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate');
     const allUsers = searchParams.get('allUsers') === 'true';
 
-    let query = allUsers
-      ? 'SELECT day_offs.*, COALESCE(users.app_display_name, users.name) AS user_name FROM day_offs JOIN users ON users.id = day_offs.user_id WHERE 1 = 1'
-      : 'SELECT * FROM day_offs WHERE user_id = ?';
-    const params: Array<string | number> = allUsers ? [] : [userId];
+    let query: string;
+    const params: Array<string | number> = [];
+
+    if (allUsers) {
+      // Scope team-wide day offs to members of the active project (admins are
+      // treated as members of every project, mirroring getProjectMembers).
+      const projectId = getOptionalRequestProjectId(request, userId);
+      query =
+        'SELECT day_offs.*, COALESCE(users.app_display_name, users.name) AS user_name' +
+        ' FROM day_offs JOIN users ON users.id = day_offs.user_id WHERE 1 = 1';
+
+      if (projectId) {
+        query +=
+          ' AND (users.is_admin = 1 OR EXISTS (' +
+          'SELECT 1 FROM project_members pm WHERE pm.project_id = ? AND pm.user_id = users.id))';
+        params.push(projectId);
+      }
+    } else {
+      query = 'SELECT * FROM day_offs WHERE user_id = ?';
+      params.push(userId);
+    }
 
     if (startDate && endDate) {
       query += ' AND date BETWEEN ? AND ?';
       params.push(startDate, endDate);
     }
 
-    query += allUsers ? ' ORDER BY date ASC, COALESCE(users.app_display_name, users.name) ASC' : ' ORDER BY date ASC';
+    query += allUsers
+      ? ' ORDER BY date ASC, COALESCE(users.app_display_name, users.name) ASC'
+      : ' ORDER BY date ASC';
 
     const stmt = db.prepare(query);
     const dayOffs = params.length > 0 ? stmt.all(...params) : stmt.all();
 
     return NextResponse.json(dayOffs);
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
+
     console.error('Error fetching days off:', error);
     return NextResponse.json(
       { error: 'Failed to fetch days off' },

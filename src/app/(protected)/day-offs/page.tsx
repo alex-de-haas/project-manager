@@ -38,12 +38,40 @@ type DayOffWithUser = DayOff & {
 const WEEK_STARTS_ON_MONDAY = { weekStartsOn: 1 as const };
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+// Distinct, theme-friendly hues assigned per user. Solid hex is used for the
+// dot/border; the same hex with an alpha suffix tints the chip background so it
+// stays readable in both light and dark mode.
+const USER_COLORS = [
+  "#2563eb",
+  "#16a34a",
+  "#db2777",
+  "#f59e0b",
+  "#7c3aed",
+  "#0891b2",
+  "#dc2626",
+  "#65a30d",
+  "#c026d3",
+  "#0d9488",
+  "#ea580c",
+  "#4f46e5",
+] as const;
+
+const colorForIndex = (index: number) =>
+  USER_COLORS[((index % USER_COLORS.length) + USER_COLORS.length) % USER_COLORS.length];
+
 export default function DayOffsCalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [dayOffs, setDayOffs] = useState<DayOffWithUser[]>([]);
   const [currentUserDayOffs, setCurrentUserDayOffs] = useState<DayOff[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDayOffsModal, setShowDayOffsModal] = useState(false);
+
+  // Stable color per user, derived directly from the (sequential) user id so it
+  // stays the same across months and views with no extra fetch or color flash.
+  const colorForUser = useCallback((userId?: number | null) => {
+    if (userId == null) return USER_COLORS[0];
+    return colorForIndex(userId);
+  }, []);
 
   const monthRange = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
@@ -114,6 +142,22 @@ export default function DayOffsCalendarPage() {
   useEffect(() => {
     fetchDayOffs();
   }, [fetchDayOffs]);
+
+  const usersInMonth = useMemo(() => {
+    const byUser = new Map<number, string>();
+    for (const dayOff of dayOffs) {
+      if (dayOff.user_id == null) continue;
+      if (!byUser.has(dayOff.user_id)) {
+        byUser.set(
+          dayOff.user_id,
+          dayOff.user_name ?? `User #${dayOff.user_id}`
+        );
+      }
+    }
+    return Array.from(byUser.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [dayOffs]);
 
   return (
     <div className="h-full overflow-auto p-6">
@@ -189,7 +233,6 @@ export default function DayOffsCalendarPage() {
                       const inCurrentMonth = isSameMonth(day, currentMonth);
                       const isCurrentDay = isToday(day);
                       const isWeekend = isSaturday(day) || isSunday(day);
-                      const hasDayOffs = entries.length > 0;
 
                       return (
                         <div
@@ -199,8 +242,6 @@ export default function DayOffsCalendarPage() {
                             inCurrentMonth ? "text-foreground" : "text-muted-foreground",
                             isCurrentDay
                               ? "bg-orange-100 dark:bg-orange-950/50 border-orange-300 dark:border-orange-800"
-                              : hasDayOffs
-                              ? "bg-purple-100 dark:bg-purple-950/50 border-purple-300 dark:border-purple-800"
                               : isWeekend && inCurrentMonth
                               ? "bg-slate-100 border-slate-300 dark:bg-slate-900/70 dark:border-slate-700"
                               : isWeekend
@@ -215,8 +256,6 @@ export default function DayOffsCalendarPage() {
                               className={
                                 isCurrentDay
                                   ? "text-orange-600 dark:text-orange-400"
-                                  : hasDayOffs
-                                  ? "text-purple-700 dark:text-purple-400"
                                   : isWeekend
                                   ? "text-slate-700 dark:text-slate-200"
                                   : undefined
@@ -242,20 +281,34 @@ export default function DayOffsCalendarPage() {
                             )}
                           </div>
                           <div className="space-y-1">
-                            {entries.map((entry) => (
-                              <div
-                                key={entry.id}
-                                className="rounded bg-purple-50 px-2 py-1 text-[11px] leading-tight dark:bg-purple-950/40"
-                              >
-                                <div className="font-medium text-purple-700 dark:text-purple-300">
-                                  {entry.user_name ?? `User #${entry.user_id ?? "?"}`}
+                            {entries.map((entry) => {
+                              const color = colorForUser(entry.user_id);
+
+                              return (
+                                <div
+                                  key={entry.id}
+                                  className="rounded px-2 py-1 text-[11px] leading-tight"
+                                  style={{
+                                    backgroundColor: `${color}1f`,
+                                    borderLeft: `3px solid ${color}`,
+                                  }}
+                                >
+                                  <div className="flex items-center gap-1.5 font-medium text-foreground">
+                                    <span
+                                      className="inline-block h-2 w-2 shrink-0 rounded-full"
+                                      style={{ backgroundColor: color }}
+                                    />
+                                    <span className="truncate">
+                                      {entry.user_name ?? `User #${entry.user_id ?? "?"}`}
+                                    </span>
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    {entry.is_half_day ? "Half day" : "Full day"}
+                                    {entry.description ? ` • ${entry.description}` : ""}
+                                  </div>
                                 </div>
-                                <div className="text-purple-600 dark:text-purple-400">
-                                  {entry.is_half_day ? "Half day" : "Full day"}
-                                  {entry.description ? ` • ${entry.description}` : ""}
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                             {entries.length === 0 && inCurrentMonth && (
                               <div className="text-[11px] text-muted-foreground">
                                 {isWeekend ? "Weekend" : "No day off"}
@@ -273,30 +326,44 @@ export default function DayOffsCalendarPage() {
         </Card>
 
         {!loading && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>Legend:</span>
-            <Badge
-              variant="outline"
-              className="border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300"
-            >
-              Today
-            </Badge>
-            <Badge
-              variant="outline"
-              className="border-purple-300 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
-            >
-              Day off
-            </Badge>
-            <Badge
-              variant="outline"
-              className="border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-            >
-              Weekend
-            </Badge>
-            <span className="ml-2">
-              Showing {dayOffs.length} {dayOffs.length === 1 ? "entry" : "entries"} in{" "}
-              {format(currentMonth, "MMMM yyyy")}
-            </span>
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Legend:</span>
+              <Badge
+                variant="outline"
+                className="border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-300"
+              >
+                Today
+              </Badge>
+              <Badge
+                variant="outline"
+                className="border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                Weekend
+              </Badge>
+              <span className="ml-2">
+                Showing {dayOffs.length} {dayOffs.length === 1 ? "entry" : "entries"} in{" "}
+                {format(currentMonth, "MMMM yyyy")}
+              </span>
+            </div>
+            {usersInMonth.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+                <span>Users:</span>
+                {usersInMonth.map((user) => {
+                  const color = colorForUser(user.id);
+
+                  return (
+                    <span key={user.id} className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="text-foreground">{user.name}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
