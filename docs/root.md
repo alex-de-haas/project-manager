@@ -4,7 +4,7 @@ This index separates exploratory ideas, ready implementation plans, and feature 
 
 ## Ideas
 
-No active idea documents.
+- [Azure DevOps PAT retirement — investigation & deferred plan](ideas/azure-devops-pat-retirement.md)
 
 ## Planning
 
