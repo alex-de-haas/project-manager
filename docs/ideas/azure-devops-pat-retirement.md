@@ -46,9 +46,12 @@ Source: <https://devblogs.microsoft.com/devops/retirement-of-global-personal-acc
   `getPersonalAccessTokenHandler(pat)` — `src/lib/azure-devops/settings.ts:456`
   (`createAzureDevOpsConnectionContext`) and the inline connection in
   `src/app/api/azure-devops/test/route.ts:40`.
-- Per-user identity is core: the app resolves `@Me`, the linked user, and performs
-  assignments **as the user** (`getAzureDevOpsAuthenticatedUser`,
-  `src/app/api/azure-devops/work-items/route.ts:73`).
+- Per-user identity is core: queries use the `@Me` WIQL macro, resolved by Azure DevOps
+  from the PAT-authenticated request identity
+  (`src/app/api/azure-devops/work-items/route.ts:78`). The linked Azure DevOps identity is
+  resolved and stored via `getAzureDevOpsAuthenticatedUser`
+  (`src/lib/azure-devops/settings.ts:427`, called from
+  `src/app/api/azure-devops/test/route.ts:46`).
 
 ### Code facts that make migration cheap (verified 2026-06-25)
 
@@ -90,7 +93,9 @@ nearly free on top of it.
    Entra application (public client, device-code enabled). Azure DevOps scope:
    `499b84ac-1321-427f-aa17-267ca6975798/.default`.
 2. **Credential storage:** keep `azure_devops_pat`; add `azure_devops_oauth` holding the
-   refresh token plus cached access token and its expiry.
+   refresh token plus cached access token and its expiry. The MSAL token cache must be
+   **database-backed** (custom cache serializer), not in-memory — otherwise tokens are lost
+   on container restart and not shared across multi-instance deployments.
 3. **Credential resolver:** new `getAzureDevOpsUserCredential()` returning
    `{ type: 'pat' } | { type: 'oauth' } | null` (whichever is configured).
 4. **Connection builder:** in `createAzureDevOpsConnectionContext`, branch on credential
@@ -118,6 +123,5 @@ the resolver and not deleting the existing PAT UI.
 
 - Single shared multi-tenant app registration vs. per-deployment registration, and whether
   admin consent is required in target tenants.
-- Where to persist the MSAL token cache (DB vs. in-memory) given the multi-user model.
 - Migration/coexistence window: do we ever auto-migrate existing PAT users, or only offer
   the new method going forward?
