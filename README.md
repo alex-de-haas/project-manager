@@ -106,8 +106,8 @@ The app exports OpenTelemetry traces and metrics via `@vercel/otel` and bridges 
 logs (`src/instrumentation.ts`, `src/otel-logs.ts`), all over OTLP/HTTP. Export is **driven by the
 `OTEL_*` environment Hosty Core injects** — when the operator has enabled observability and the
 collector is running it flows; otherwise (the `dev` runtime, or observability off) the endpoint is
-absent and nothing is emitted. Opt-in is the `telemetry` block in `manifest.json`. See the platform's
-`docs/features/observability.md`.
+absent and nothing is emitted. Opt-in is the `telemetry` block in `manifest.json`. See
+`docs/features/observability.md` in the Hosty Core platform repo (not this one).
 
 ## License
 
