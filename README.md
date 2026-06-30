@@ -100,6 +100,15 @@ Documentation index: [docs/root.md](docs/root.md).
 
 Project work is tracked in the Notion page **Project Manager Tasks**.
 
+## Telemetry
+
+The app exports OpenTelemetry traces and metrics via `@vercel/otel` and bridges `console.*` into OTLP
+logs (`src/instrumentation.ts`, `src/otel-logs.ts`), all over OTLP/HTTP. Export is **driven by the
+`OTEL_*` environment Hosty Core injects** — when the operator has enabled observability and the
+collector is running it flows; otherwise (the `dev` runtime, or observability off) the endpoint is
+absent and nothing is emitted. Opt-in is the `telemetry` block in `manifest.json`. See the platform's
+`docs/features/observability.md`.
+
 ## License
 
 MIT

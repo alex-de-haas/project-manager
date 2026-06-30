@@ -3,7 +3,7 @@
   "id": "com.haas.project-manager",
   "name": "Project Manager",
   "description": "Project planning, time tracking, release planning, and Azure DevOps coordination for Hosty users.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "source": {
     "type": "git",
     "repository": "https://github.com/alex-de-haas/project-manager.git",
@@ -117,5 +117,6 @@
       }
     ]
   },
+  "telemetry": { "enabled": true, "sampleRatio": 0.1 },
   "capabilities": ["open", "update", "restart", "stop", "remove", "backup", "restore", "logs"]
 }
