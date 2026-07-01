@@ -618,11 +618,6 @@ export default function Home() {
   const statusFilterLabel = isStatusFilterActive
     ? "Filter status active"
     : "Filter status";
-  const monthParam = useMemo(
-    () => format(currentDate, "yyyy-MM"),
-    [currentDate]
-  );
-
   const dateRange = useMemo(() => {
     if (viewMode === "week") {
       return {
@@ -1334,8 +1329,13 @@ export default function Home() {
 
   const handleExportToExcel = async () => {
     try {
-      const response = await fetch(`/api/export?month=${monthParam}`);
-      
+      const params = new URLSearchParams({
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        mode: viewMode,
+      });
+      const response = await fetch(`/api/export?${params.toString()}`);
+
       if (!response.ok) {
         throw new Error('Failed to export');
       }
@@ -1344,10 +1344,10 @@ export default function Home() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      
+
       // Extract filename from Content-Disposition header or use default
       const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = `work-items-${monthParam}.xlsx`;
+      let filename = `work-items-${dateRange.startDate}.xlsx`;
       if (contentDisposition) {
         const match = contentDisposition.match(/filename="(.+)"/);
         if (match) {
