@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   try {
     const user = getAuthenticatedUser(request);
     if (!user) {
-      throw new Error('Hosty app identity is required');
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const userId = user.id;
     const projectId = getRequestProjectId(request, userId);
@@ -28,16 +28,17 @@ export async function GET(request: NextRequest) {
     let startDate = searchParams.get('startDate');
     let endDate = searchParams.get('endDate');
 
-    // Backward-compatible fallback: derive the range from a YYYY-MM month.
-    if ((!startDate || !endDate) && month) {
+    // Backward-compatible fallback (month view only): derive the range from a YYYY-MM month.
+    if ((!startDate || !endDate) && mode === 'month' && month && /^\d{4}-\d{2}$/.test(month)) {
       const [year, monthNum] = month.split('-');
       startDate = `${year}-${monthNum}-01`;
       endDate = `${year}-${monthNum}-31`;
     }
 
-    if (!startDate || !endDate) {
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!startDate || !endDate || !dateRegex.test(startDate) || !dateRegex.test(endDate)) {
       return NextResponse.json(
-        { error: 'startDate and endDate parameters are required' },
+        { error: 'Valid startDate and endDate parameters in YYYY-MM-DD format are required' },
         { status: 400 }
       );
     }
@@ -198,9 +199,14 @@ export async function GET(request: NextRequest) {
     if (mode === 'week') {
       period = `${startDate}_${endDate}`;
     } else {
-      const monthDate = new Date(`${startDate}T00:00:00`);
-      const monthName = monthDate.toLocaleString('en-US', { month: 'long' });
-      period = `${monthName}-${monthDate.getFullYear()}`;
+      // startDate is validated as YYYY-MM-DD, so split it to avoid timezone shifts.
+      const [year, monthNum] = startDate.split('-');
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December',
+      ];
+      const monthName = monthNames[parseInt(monthNum, 10) - 1] || 'Unknown';
+      period = `${monthName}-${year}`;
     }
 
     const filename = `${safeName}-${period}.xlsx`;
