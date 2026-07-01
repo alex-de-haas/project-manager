@@ -4,9 +4,9 @@ import db from '@/lib/db';
 import type { Task } from '@/types';
 import {
   getRequestProjectId,
-  getRequestUserId,
   projectContextErrorResponse,
 } from '@/lib/user-context';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { getAzureDevOpsProjectSettings } from '@/lib/azure-devops/settings';
 import { displayWorkItemStatus } from '@/lib/work-items';
 
@@ -15,18 +15,32 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = getRequestUserId(request);
+    const user = getAuthenticatedUser(request);
+    if (!user) {
+      throw new Error('Hosty app identity is required');
+    }
+    const userId = user.id;
     const projectId = getRequestProjectId(request, userId);
     const searchParams = request.nextUrl.searchParams;
-    const month = searchParams.get('month'); // Format: YYYY-MM
+    const mode = searchParams.get('mode') === 'week' ? 'week' : 'month';
+    const month = searchParams.get('month'); // Legacy format: YYYY-MM
 
-    if (!month) {
-      return NextResponse.json({ error: 'Month parameter is required' }, { status: 400 });
+    let startDate = searchParams.get('startDate');
+    let endDate = searchParams.get('endDate');
+
+    // Backward-compatible fallback: derive the range from a YYYY-MM month.
+    if ((!startDate || !endDate) && month) {
+      const [year, monthNum] = month.split('-');
+      startDate = `${year}-${monthNum}-01`;
+      endDate = `${year}-${monthNum}-31`;
     }
 
-    const [year, monthNum] = month.split('-');
-    const startDate = `${year}-${monthNum}-01`;
-    const endDate = `${year}-${monthNum}-31`;
+    if (!startDate || !endDate) {
+      return NextResponse.json(
+        { error: 'startDate and endDate parameters are required' },
+        { status: 400 }
+      );
+    }
 
     // Fetch Azure DevOps settings for building links
     const azureSettings = getAzureDevOpsProjectSettings(projectId);
@@ -176,8 +190,20 @@ export async function GET(request: NextRequest) {
     const buffer = await workbook.xlsx.writeBuffer();
 
     // Create response with Excel file
-    const monthName = new Date(`${year}-${monthNum}-01`).toLocaleString('default', { month: 'long' });
-    const filename = `work-items-${monthName}-${year}.xlsx`;
+    const rawName = user.app_display_name || user.name || user.email || 'user';
+    const safeName =
+      rawName.trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-') || 'user';
+
+    let period: string;
+    if (mode === 'week') {
+      period = `${startDate}_${endDate}`;
+    } else {
+      const monthDate = new Date(`${startDate}T00:00:00`);
+      const monthName = monthDate.toLocaleString('en-US', { month: 'long' });
+      period = `${monthName}-${monthDate.getFullYear()}`;
+    }
+
+    const filename = `${safeName}-${period}.xlsx`;
 
     return new NextResponse(buffer, {
       headers: {
