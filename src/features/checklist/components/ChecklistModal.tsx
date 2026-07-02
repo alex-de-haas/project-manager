@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ChecklistItem } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Trash2, GripVertical, Plus, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, Pencil, GripVertical, Plus, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -29,6 +29,32 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+
+// Multiline textarea that grows with its content instead of scrolling.
+function AutoGrowTextarea({
+  className,
+  value,
+  ...props
+}: React.ComponentProps<typeof Textarea>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <Textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      className={`resize-none overflow-hidden ${className ?? ""}`}
+      {...props}
+    />
+  );
+}
 
 interface ChecklistModalProps {
   taskId: number;
@@ -73,7 +99,8 @@ function SortableItem({ item, onToggle, onDelete, onEdit }: SortableItemProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       handleSaveEdit();
     } else if (e.key === "Escape") {
       setEditTitle(item.title);
@@ -105,17 +132,17 @@ function SortableItem({ item, onToggle, onDelete, onEdit }: SortableItemProps) {
       />
       
       {isEditing ? (
-        <Input
+        <AutoGrowTextarea
           value={editTitle}
           onChange={(e) => setEditTitle(e.target.value)}
           onBlur={handleSaveEdit}
           onKeyDown={handleKeyDown}
           autoFocus
-          className="flex-1 h-8"
+          className="flex-1 min-h-[32px] py-1"
         />
       ) : (
         <span
-          className={`flex-1 cursor-pointer ${
+          className={`flex-1 cursor-pointer whitespace-pre-wrap break-words ${
             item.is_completed ? "line-through text-muted-foreground" : ""
           }`}
           onClick={() => setIsEditing(true)}
@@ -125,11 +152,25 @@ function SortableItem({ item, onToggle, onDelete, onEdit }: SortableItemProps) {
         </span>
       )}
       
+      {!isEditing && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto text-muted-foreground hover:text-primary"
+          onClick={() => setIsEditing(true)}
+          aria-label="Edit item"
+          title="Edit item"
+        >
+          <Pencil className="w-4 h-4" />
+        </Button>
+      )}
+
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+        className="h-8 w-8 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto text-muted-foreground hover:text-destructive"
         onClick={() => onDelete(item.id)}
+        aria-label="Delete item"
         title="Delete item"
       >
         <Trash2 className="w-4 h-4" />
@@ -207,7 +248,7 @@ export default function ChecklistModal({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleAddItem();
     }
@@ -338,7 +379,7 @@ export default function ChecklistModal({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-[760px] max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span>Checklist</span>
@@ -368,13 +409,13 @@ export default function ChecklistModal({
         )}
 
         {/* Add new item */}
-        <div className="flex gap-2">
-          <Input
+        <div className="flex gap-2 items-start">
+          <AutoGrowTextarea
             value={newItemTitle}
             onChange={(e) => setNewItemTitle(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Add new item..."
-            className="flex-1"
+            placeholder="Add new item... (Shift+Enter for a new line)"
+            className="flex-1 min-h-[36px]"
           />
           <Button onClick={handleAddItem} disabled={!newItemTitle.trim()}>
             <Plus className="w-4 h-4 mr-1" />
@@ -445,7 +486,7 @@ export default function ChecklistModal({
         )}
 
         {/* Checklist items */}
-        <div className="flex-1 overflow-y-auto space-y-2 min-h-[200px]">
+        <div className="flex-1 overflow-y-auto space-y-2 min-h-[150px] md:min-h-[360px]">
           {loading ? (
             null
           ) : items.length === 0 ? (
