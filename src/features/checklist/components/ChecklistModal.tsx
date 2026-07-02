@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Trash2, GripVertical, Plus, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, Pencil, GripVertical, Plus, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -125,6 +125,18 @@ function SortableItem({ item, onToggle, onDelete, onEdit }: SortableItemProps) {
         </span>
       )}
       
+      {!isEditing && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+          onClick={() => setIsEditing(true)}
+          title="Edit item"
+        >
+          <Pencil className="w-4 h-4" />
+        </Button>
+      )}
+
       <Button
         variant="ghost"
         size="icon"
@@ -338,7 +350,7 @@ export default function ChecklistModal({
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-[760px] max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span>Checklist</span>
@@ -445,7 +457,7 @@ export default function ChecklistModal({
         )}
 
         {/* Checklist items */}
-        <div className="flex-1 overflow-y-auto space-y-2 min-h-[200px]">
+        <div className="flex-1 overflow-y-auto space-y-2 min-h-[360px]">
           {loading ? (
             null
           ) : items.length === 0 ? (
