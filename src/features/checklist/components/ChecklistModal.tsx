@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ChecklistItem } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -29,6 +29,32 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+
+// Multiline textarea that grows with its content instead of scrolling.
+function AutoGrowTextarea({
+  className,
+  value,
+  ...props
+}: React.ComponentProps<typeof Textarea>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <Textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      className={`resize-none overflow-hidden ${className ?? ""}`}
+      {...props}
+    />
+  );
+}
 
 interface ChecklistModalProps {
   taskId: number;
@@ -73,7 +99,8 @@ function SortableItem({ item, onToggle, onDelete, onEdit }: SortableItemProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       handleSaveEdit();
     } else if (e.key === "Escape") {
       setEditTitle(item.title);
@@ -105,17 +132,17 @@ function SortableItem({ item, onToggle, onDelete, onEdit }: SortableItemProps) {
       />
       
       {isEditing ? (
-        <Input
+        <AutoGrowTextarea
           value={editTitle}
           onChange={(e) => setEditTitle(e.target.value)}
           onBlur={handleSaveEdit}
           onKeyDown={handleKeyDown}
           autoFocus
-          className="flex-1 h-8"
+          className="flex-1 min-h-[32px] py-1"
         />
       ) : (
         <span
-          className={`flex-1 cursor-pointer ${
+          className={`flex-1 cursor-pointer whitespace-pre-wrap break-words ${
             item.is_completed ? "line-through text-muted-foreground" : ""
           }`}
           onClick={() => setIsEditing(true)}
@@ -221,7 +248,7 @@ export default function ChecklistModal({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleAddItem();
     }
@@ -382,13 +409,13 @@ export default function ChecklistModal({
         )}
 
         {/* Add new item */}
-        <div className="flex gap-2">
-          <Input
+        <div className="flex gap-2 items-start">
+          <AutoGrowTextarea
             value={newItemTitle}
             onChange={(e) => setNewItemTitle(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Add new item..."
-            className="flex-1"
+            placeholder="Add new item... (Shift+Enter for a new line)"
+            className="flex-1 min-h-[36px]"
           />
           <Button onClick={handleAddItem} disabled={!newItemTitle.trim()}>
             <Plus className="w-4 h-4 mr-1" />
