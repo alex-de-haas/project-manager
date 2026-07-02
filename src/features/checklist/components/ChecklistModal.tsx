@@ -129,8 +129,9 @@ function SortableItem({ item, onToggle, onDelete, onEdit }: SortableItemProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+          className="h-8 w-8 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto text-muted-foreground hover:text-primary"
           onClick={() => setIsEditing(true)}
+          aria-label="Edit item"
           title="Edit item"
         >
           <Pencil className="w-4 h-4" />
@@ -140,8 +141,9 @@ function SortableItem({ item, onToggle, onDelete, onEdit }: SortableItemProps) {
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+        className="h-8 w-8 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto text-muted-foreground hover:text-destructive"
         onClick={() => onDelete(item.id)}
+        aria-label="Delete item"
         title="Delete item"
       >
         <Trash2 className="w-4 h-4" />
@@ -457,7 +459,7 @@ export default function ChecklistModal({
         )}
 
         {/* Checklist items */}
-        <div className="flex-1 overflow-y-auto space-y-2 min-h-[360px]">
+        <div className="flex-1 overflow-y-auto space-y-2 min-h-[150px] md:min-h-[360px]">
           {loading ? (
             null
           ) : items.length === 0 ? (
