@@ -3,7 +3,7 @@
   "id": "com.haas.project-manager",
   "name": "Project Manager",
   "description": "Project planning, time tracking, release planning, and Azure DevOps coordination for Hosty users.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "source": {
     "type": "git",
     "repository": "https://github.com/alex-de-haas/project-manager.git",
@@ -44,12 +44,13 @@
             "cpus": 1,
             "memory": "1g"
           },
-          "healthCheck": {
-            "type": "http",
-            "path": "/api/health",
+          "healthcheck": {
+            "type": "exec",
+            "command": "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
             "intervalSeconds": 10,
             "timeoutSeconds": 2,
-            "successStatus": [200]
+            "retries": 3,
+            "gracePeriodSeconds": 10
           }
         },
         "dev": {
