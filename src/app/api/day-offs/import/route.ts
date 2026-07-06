@@ -32,7 +32,12 @@ const readBodyWithCap = async (
 
   const body = response.body;
   if (!body) {
-    return response.text();
+    // No stream to meter — still enforce the cap on the buffered text.
+    const text = await response.text();
+    if (Buffer.byteLength(text) > maxBytes) {
+      throw new DayOffImportError("ICS file is too large", 413);
+    }
+    return text;
   }
 
   const reader = body.getReader();

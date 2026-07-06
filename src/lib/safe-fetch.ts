@@ -207,6 +207,23 @@ export const validateHttpUrlForServerFetch = async (
   return url;
 };
 
+// Cache one validating dispatcher per policy. The connect-time lookup makes reuse safe — every
+// new connection is re-validated, so a rebinding attempt can't ride a pooled socket — while
+// reusing agents avoids leaking sockets/file descriptors: a fresh Agent per request would keep
+// keep-alive sockets open and (on the success path) never be closed. Only a handful of option
+// combinations exist, so this stays tiny and process-lived, like the global fetch dispatcher.
+const dispatcherCache = new Map<string, Agent>();
+
+const getValidatingDispatcher = (options: SafeFetchOptions): Agent => {
+  const key = `${options.allowLoopbackOnly ? 1 : 0}:${options.allowPrivateNetwork ? 1 : 0}`;
+  let dispatcher = dispatcherCache.get(key);
+  if (!dispatcher) {
+    dispatcher = new Agent({ connect: { lookup: createValidatingLookup(options) } });
+    dispatcherCache.set(key, dispatcher);
+  }
+  return dispatcher;
+};
+
 export const safeServerFetch = async (
   rawUrl: string,
   init: RequestInit = {},
@@ -217,44 +234,34 @@ export const safeServerFetch = async (
   let currentUrl = await validateHttpUrlForServerFetch(rawUrl, options);
 
   // Pin the connection to a connect-time validated address so the SSRF guard cannot be bypassed
-  // by DNS rebinding between validation and connection. One dispatcher is reused across redirect
-  // hops; its validating lookup re-checks each hop. Left for GC once the response body is
-  // consumed (matching how the global fetch dispatcher is managed).
-  const dispatcher = new Agent({
-    connect: {
-      lookup: createValidatingLookup(options),
-    },
-  });
+  // by DNS rebinding between validation and connection. The (cached) dispatcher's validating
+  // lookup re-checks every hop.
+  const dispatcher = getValidatingDispatcher(options);
 
-  try {
-    for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
-      const response = await undiciFetch(currentUrl.toString(), {
-        ...(init as unknown as UndiciRequestInit),
-        redirect: "manual",
-        dispatcher,
-      });
+  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    const response = await undiciFetch(currentUrl.toString(), {
+      ...(init as unknown as UndiciRequestInit),
+      redirect: "manual",
+      dispatcher,
+    });
 
-      if (!REDIRECT_STATUSES.has(response.status)) {
-        return response as unknown as Response;
-      }
-
-      const location = response.headers.get("location");
-      // Free the redirect response's socket before following the next hop.
-      await response.body?.cancel().catch(() => undefined);
-      if (!location) return response as unknown as Response;
-      if (redirectCount === maxRedirects) {
-        throw new Error("Too many redirects");
-      }
-
-      currentUrl = await validateHttpUrlForServerFetch(
-        new URL(location, currentUrl).toString(),
-        options
-      );
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      return response as unknown as Response;
     }
 
-    throw new Error("Too many redirects");
-  } catch (error) {
-    await dispatcher.close().catch(() => undefined);
-    throw error;
+    const location = response.headers.get("location");
+    // Free the redirect response's socket before following the next hop.
+    await response.body?.cancel().catch(() => undefined);
+    if (!location) return response as unknown as Response;
+    if (redirectCount === maxRedirects) {
+      throw new Error("Too many redirects");
+    }
+
+    currentUrl = await validateHttpUrlForServerFetch(
+      new URL(location, currentUrl).toString(),
+      options
+    );
   }
+
+  throw new Error("Too many redirects");
 };
