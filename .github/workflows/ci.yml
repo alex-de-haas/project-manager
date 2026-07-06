@@ -14,6 +14,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "tsconfig.json"
+      - "vitest.config.ts"
       - ".github/workflows/ci.yml"
       - ".github/workflows/docker-publish.yml"
 
@@ -25,8 +26,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -40,6 +41,15 @@ jobs:
 
       - name: Install Node dependencies
         run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
 
       - name: Build
         run: npm run build

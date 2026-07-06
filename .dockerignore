@@ -14,3 +14,6 @@ coverage
 *.tsbuildinfo
 time_tracker.db
 *.db
+.env
+.env.*
+!.env.example

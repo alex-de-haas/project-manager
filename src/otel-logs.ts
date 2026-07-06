@@ -10,6 +10,32 @@ type ConsoleMethod = "log" | "info" | "warn" | "error" | "debug";
 
 let configured = false;
 
+// Best-effort scrubbing of high-confidence secrets before a record leaves the process. The bridge
+// ships whatever `console.*` was handed (often `console.error('...:', err)` whose stack/message can
+// embed tokens or connection strings), so redaction here is a safety net — call sites should still
+// avoid logging raw credentials/parameters. Kept conservative to preserve debuggability.
+const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
+  // Bearer tokens in Authorization headers or free text.
+  [/\bbearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [REDACTED]"],
+  // key/value secrets: token=..., password: "...", api_key=..., client_secret=..., pat=...
+  [
+    /\b(pat|tokens?|secrets?|passwords?|passwd|pwd|api[_-]?keys?|access[_-]?tokens?|refresh[_-]?tokens?|client[_-]?secrets?|authorization)(["']?\s*[:=]\s*["']?)[^\s"',;]+/gi,
+    "$1$2[REDACTED]",
+  ],
+];
+
+const redact = (message: string): string =>
+  REDACTIONS.reduce((acc, [pattern, replacement]) => acc.replace(pattern, replacement), message);
+
+// Rate limit how many records the bridge ships to OTLP so an error storm cannot flood the
+// collector with unbounded structured logs. Records beyond the budget are still printed to
+// stdout/stderr (via the original console); only the OTLP copy is dropped, with one notice per
+// window so the gap is visible downstream.
+const LOG_RATE_WINDOW_MS = 10_000;
+const LOG_RATE_MAX = 200;
+let rateWindowStart = 0;
+let rateWindowCount = 0;
+
 // Set while the exporter is shipping a batch, so any console output the exporter or the network stack
 // emits during the (async) export is NOT re-ingested — prevents an export-failure → log → export
 // cascade that the synchronous `emitting` flag below cannot catch.
@@ -56,6 +82,35 @@ export function setupOtlpLogs(): void {
     ["debug", SeverityNumber.DEBUG, "DEBUG"],
   ];
 
+  // Ship a redacted record to OTLP unless the per-window budget is exhausted. Returns silently
+  // when rate-limited (the record was already printed to the console by the caller).
+  const emitRecord = (
+    severityNumber: SeverityNumber,
+    severityText: string,
+    rawBody: string
+  ): void => {
+    const now = Date.now();
+    if (now - rateWindowStart >= LOG_RATE_WINDOW_MS) {
+      rateWindowStart = now;
+      rateWindowCount = 0;
+    }
+    rateWindowCount += 1;
+
+    if (rateWindowCount > LOG_RATE_MAX) {
+      // Emit exactly one boundary notice so the dropped tail is visible in OTLP.
+      if (rateWindowCount === LOG_RATE_MAX + 1) {
+        logger.emit({
+          severityNumber: SeverityNumber.WARN,
+          severityText: "WARN",
+          body: `console→OTLP log rate limit reached (${LOG_RATE_MAX} records / ${LOG_RATE_WINDOW_MS}ms); further records this window are dropped from OTLP (still on stdout/stderr).`,
+        });
+      }
+      return;
+    }
+
+    logger.emit({ severityNumber, severityText, body: redact(rawBody) });
+  };
+
   const target = console as unknown as Record<ConsoleMethod, (...args: unknown[]) => void>;
   let emitting = false;
   for (const [method, severityNumber, severityText] of levels) {
@@ -67,7 +122,7 @@ export function setupOtlpLogs(): void {
       if (emitting || exportSuppression.getStore()) return;
       emitting = true;
       try {
-        logger.emit({ severityNumber, severityText, body: format(...args) });
+        emitRecord(severityNumber, severityText, format(...args));
       } catch {
         // Telemetry must never break the app.
       } finally {

@@ -17,6 +17,53 @@ class DayOffImportError extends Error {
   }
 }
 
+// Read a fetch Response body with a hard byte cap so a malicious/misbehaving calendar host
+// cannot stream gigabytes into memory and OOM the (single) Node process. We honor a declared
+// Content-Length up front and, since it can be absent or lie, also abort mid-stream the moment
+// the received bytes exceed the limit.
+const readBodyWithCap = async (
+  response: Response,
+  maxBytes: number
+): Promise<string> => {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new DayOffImportError("ICS file is too large", 413);
+  }
+
+  const body = response.body;
+  if (!body) {
+    // No stream to meter — still enforce the cap on the buffered text.
+    const text = await response.text();
+    if (Buffer.byteLength(text) > maxBytes) {
+      throw new DayOffImportError("ICS file is too large", 413);
+    }
+    return text;
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      received += value.byteLength;
+      if (received > maxBytes) {
+        throw new DayOffImportError("ICS file is too large", 413);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    // Aborts the underlying connection when we bail early; a no-op once fully read.
+    await reader.cancel().catch(() => undefined);
+  }
+
+  return Buffer.concat(chunks).toString("utf-8");
+};
+
 const loadCalendarContent = async (url: string) => {
   try {
     await validateHttpUrlForServerFetch(url);
@@ -43,7 +90,7 @@ const loadCalendarContent = async (url: string) => {
     );
   }
 
-  return response.text();
+  return readBodyWithCap(response, MAX_ICS_CONTENT_LENGTH);
 };
 
 export async function POST(request: NextRequest) {

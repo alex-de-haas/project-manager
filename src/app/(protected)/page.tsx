@@ -639,13 +639,13 @@ export default function Home() {
   }, [currentDate, viewMode]);
 
   const fetchTasks = useCallback(
-    async () => {
+    async (signal?: AbortSignal) => {
       try {
         const params = new URLSearchParams({
           startDate: dateRange.startDate,
           endDate: dateRange.endDate,
         });
-        const response = await fetch(`/api/tasks?${params.toString()}`);
+        const response = await fetch(`/api/tasks?${params.toString()}`, { signal });
         if (!response.ok) {
           if (response.status === 400 || response.status === 403 || response.status === 404) {
             setProjectRequired(true);
@@ -658,26 +658,37 @@ export default function Home() {
         const data = await response.json();
         setTasks(data);
       } catch (err) {
+        // A superseded request (rapid week/month navigation) was aborted — ignore it so a
+        // stale response can't overwrite the newest range or surface a spurious error toast.
+        if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+          return;
+        }
         toast.error("Failed to load tasks", {
           description: "Please check your database connection."
         });
         console.error(err);
       } finally {
-        setInitialLoading(false);
+        if (!signal?.aborted) {
+          setInitialLoading(false);
+        }
       }
     },
     [dateRange]
   );
 
-  const fetchDayOffs = useCallback(async () => {
+  const fetchDayOffs = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await fetch(
-        `/api/day-offs?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`
+        `/api/day-offs?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`,
+        { signal }
       );
       if (!response.ok) throw new Error("Failed to fetch days off");
       const data = await response.json();
       setDayOffs(data);
     } catch (err) {
+      if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+        return;
+      }
       console.error("Failed to load days off:", err);
     }
   }, [dateRange]);
@@ -721,33 +732,46 @@ export default function Home() {
 
     const { active, over } = event;
 
-    if (over && active.id !== over.id) {
-      setTasks((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over.id);
-
-        const newItems = arrayMove(items, oldIndex, newIndex);
-
-        // Update display_order in database
-        const taskOrders = newItems.map((item, index) => ({
-          id: item.id,
-          order: index,
-        }));
-
-        fetch("/api/tasks/reorder", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ taskOrders }),
-        }).catch((err) => {
-          console.error("Failed to update task order:", err);
-          // Revert on error by fetching fresh data
-          fetchTasks();
-        });
-
-        return newItems;
-      });
+    if (!over || active.id === over.id) {
+      return;
     }
-  }, [fetchTasks, restoreLockedTrackerScrollLeft]);
+
+    const oldIndex = tasks.findIndex((item) => item.id === active.id);
+    const newIndex = tasks.findIndex((item) => item.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) {
+      return;
+    }
+
+    const newItems = arrayMove(tasks, oldIndex, newIndex);
+    // Apply the new order optimistically for a responsive drag.
+    setTasks(newItems);
+
+    const taskOrders = newItems.map((item, index) => ({
+      id: item.id,
+      order: index,
+    }));
+
+    // The network call lives outside the state updater: an updater must be pure (it double-runs
+    // under StrictMode, which would fire duplicate POSTs) and `fetch` only rejects on network
+    // errors, so a 4xx/5xx would otherwise be silently ignored and leave the UI diverged from
+    // the DB. Check response.ok and roll back by refetching authoritative data on any failure.
+    try {
+      const response = await fetch("/api/tasks/reorder", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskOrders }),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to update task order (${response.status})`);
+      }
+    } catch (err) {
+      console.error("Failed to update task order:", err);
+      toast.error("Failed to save the new order", {
+        description: "Reverting to the last saved order.",
+      });
+      fetchTasks();
+    }
+  }, [tasks, fetchTasks, restoreLockedTrackerScrollLeft]);
 
   useEffect(() => {
     if (!isTaskDragActive) {
@@ -768,11 +792,15 @@ export default function Home() {
   }, [isTaskDragActive, restoreLockedTrackerScrollLeft]);
 
   useEffect(() => {
-    fetchTasks();
+    const controller = new AbortController();
+    fetchTasks(controller.signal);
+    return () => controller.abort();
   }, [fetchTasks]);
 
   useEffect(() => {
-    fetchDayOffs();
+    const controller = new AbortController();
+    fetchDayOffs(controller.signal);
+    return () => controller.abort();
   }, [fetchDayOffs]);
 
   // Fetch the current user's work-day length for the active project.
