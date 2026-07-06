@@ -45,6 +45,32 @@ const db: any = (() => {
   }
 })();
 
+// Copy the current database file to the backup dir before applying a schema migration, so a
+// bad/incompatible migration (or an older build meeting a newer DB) is always recoverable.
+// Uses a synchronous file copy: `initDb` runs at module load on a freshly opened connection
+// with no transaction in flight, so the file is consistent at rest.
+const createPreMigrationBackup = (fromVersion: string | null) => {
+  try {
+    if (!fs.existsSync(backupDirPath)) {
+      fs.mkdirSync(backupDirPath, { recursive: true });
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const safeFrom = (fromVersion ?? "unknown").replace(/[^a-zA-Z0-9._-]+/g, "-");
+    const backupName = `${backupFilePrefix}_pre-migration_${safeFrom}_${stamp}.db`;
+    const backupPath = path.join(backupDirPath, backupName);
+    if (!fs.existsSync(backupPath)) {
+      fs.copyFileSync(dbPath, backupPath);
+    }
+    console.warn(
+      `Schema version change detected (${fromVersion ?? "unknown"} -> ${schemaVersion}); ` +
+        `created safety backup "${backupName}" before applying migrations.`
+    );
+  } catch (error) {
+    // A failed backup must not block startup, but it should be loud.
+    console.error("Failed to create pre-migration safety backup:", error);
+  }
+};
+
 const initDb = () => {
   db.pragma("foreign_keys = ON");
 
@@ -64,28 +90,13 @@ const initDb = () => {
     )
     .get() as { count: number }).count;
 
+  // A schema-version change must NEVER destructively drop tables (that would wipe every
+  // project, task, time entry, etc. on the next boot). Instead we take a safety backup and
+  // let the idempotent `CREATE TABLE IF NOT EXISTS` statements plus the additive, guarded
+  // `ALTER TABLE` migrations below bring the on-disk schema forward in place. Any future
+  // breaking change should be expressed as another explicit, additive migration step here.
   if (tableCount > 0 && currentSchemaVersion !== schemaVersion) {
-    db.pragma("foreign_keys = OFF");
-    db.exec(`
-      DROP TABLE IF EXISTS checklist_items;
-      DROP TABLE IF EXISTS blockers;
-      DROP TABLE IF EXISTS time_tracking_items;
-      DROP TABLE IF EXISTS time_entries;
-      DROP TABLE IF EXISTS release_items;
-      DROP TABLE IF EXISTS releases;
-      DROP TABLE IF EXISTS work_item_external_links;
-      DROP TABLE IF EXISTS provider_user_identities;
-      DROP TABLE IF EXISTS work_items;
-      DROP TABLE IF EXISTS day_offs;
-      DROP TABLE IF EXISTS settings;
-      DROP TABLE IF EXISTS project_settings;
-      DROP TABLE IF EXISTS project_members;
-      DROP TABLE IF EXISTS projects;
-      DROP TABLE IF EXISTS user_credentials;
-      DROP TABLE IF EXISTS users;
-      DROP TABLE IF EXISTS module_settings;
-    `);
-    db.pragma("foreign_keys = ON");
+    createPreMigrationBackup(currentSchemaVersion);
   }
 
   db.exec(`

@@ -27,6 +27,17 @@ if (!tag || !outputPath) {
 const manifestPath = path.join(process.cwd(), "manifest.json");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 
+// Single-source the app version from package.json so the published manifest can never advertise
+// a version the artifact doesn't carry (the "footer shows wrong version" drift class).
+const packageJsonPath = path.join(process.cwd(), "package.json");
+const { version: packageVersion } = JSON.parse(
+  fs.readFileSync(packageJsonPath, "utf8")
+);
+if (!packageVersion) {
+  throw new Error("package.json is missing a version to stamp into the manifest");
+}
+manifest.version = packageVersion;
+
 const updateImage = (runtime) => {
   if (!runtime || typeof runtime !== "object" || !("image" in runtime)) {
     return;
