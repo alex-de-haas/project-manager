@@ -96,10 +96,6 @@ Persistent state is stored under `/app/data` and is intended to be mounted from 
 
 Documentation index: [docs/root.md](docs/root.md).
 
-## Task Tracking
-
-Project work is tracked in the Notion page **Project Manager Tasks**.
-
 ## Telemetry
 
 The app exports OpenTelemetry traces and metrics via `@vercel/otel` and bridges `console.*` into OTLP
