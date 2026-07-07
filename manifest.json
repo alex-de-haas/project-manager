@@ -56,6 +56,7 @@
         "dev": {
           "type": "localCommand",
           "workingDirectory": ".",
+          "setup": "npm install",
           "command": "npm run dev",
           "ports": [
             {
