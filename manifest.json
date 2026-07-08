@@ -120,5 +120,22 @@
     ]
   },
   "telemetry": { "enabled": true, "sampleRatio": 0.1 },
-  "capabilities": ["open", "update", "restart", "stop", "remove", "backup", "restore", "logs"]
+  "capabilities": ["open", "update", "restart", "stop", "remove", "backup", "restore", "logs"],
+  "catalogMetadata": {
+    "publisher": {
+      "name": "Haas",
+      "url": "https://github.com/alex-de-haas",
+      "email": "a.zayats@outlook.com"
+    },
+    "category": "Productivity",
+    "tags": ["projects", "planning", "time-tracking", "azure-devops"],
+    "icon": "assets/icon.svg",
+    "license": "AGPL-3.0-only",
+    "links": {
+      "website": "https://github.com/alex-de-haas/project-manager",
+      "docs": "https://github.com/alex-de-haas/project-manager/blob/main/docs/root.md"
+    },
+    "summary": "Project planning, time tracking, and release planning with optional Azure DevOps sync.",
+    "descriptionFile": "docs/store.md"
+  }
 }

@@ -1,0 +1,11 @@
+{
+  "versions": [
+    {
+      "version": "0.5.0",
+      "manifestRef": "https://raw.githubusercontent.com/alex-de-haas/project-manager/6e70930e57090680a489ead3b844a8f64a7c3d0b/manifest.json"
+    }
+  ],
+  "tags": {
+    "stable": "0.5.0"
+  }
+}
