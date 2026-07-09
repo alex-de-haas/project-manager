@@ -8,6 +8,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_HOST_MODULE_ID=com.haas.project-manager
 
 FROM base AS deps
+# better-sqlite3 ships no prebuilt binary for this image, so npm falls back to
+# compiling it from source via node-gyp — which needs Python and a C++ toolchain.
+# These stay in the deps/prod-deps layers; the final runner image only copies
+# the built node_modules, so it isn't bloated by them.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --prefer-offline
 
