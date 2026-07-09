@@ -88,19 +88,23 @@
     "navigation": [
       {
         "label": "Time Management",
-        "path": "/"
+        "path": "/",
+        "iconAsset": "assets/nav/time-management.svg"
       },
       {
         "label": "Planning",
-        "path": "/release-planner"
+        "path": "/release-planner",
+        "iconAsset": "assets/nav/planning.svg"
       },
       {
         "label": "Calendar",
-        "path": "/day-offs"
+        "path": "/day-offs",
+        "iconAsset": "assets/nav/calendar.svg"
       },
       {
         "label": "Settings",
-        "path": "/settings"
+        "path": "/settings",
+        "iconAsset": "assets/nav/settings.svg"
       }
     ]
   },
