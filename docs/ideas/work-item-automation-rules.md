@@ -501,6 +501,10 @@ Recommended default semantics:
   errors require user intervention.
 - Automation failure is stored separately from provider synchronization state, although a
   failed provider mutation may also mark the provider link as `sync_failed`.
+- When the primary provider status synchronization in step 3 fails, rule matching and
+  local-only actions still run, but provider-mutating actions on the same linked work item
+  must not execute against the stale provider state. They fail preflight with an explicit
+  provider-not-synchronized reason and follow the normal retry path.
 - Provider field changes for one work item should be coalesced into one provider update when
   the adapter supports it. Comments remain separate operations.
 
@@ -553,6 +557,12 @@ Candidate records are:
 Configuration may use versioned JSON inside these typed records for extensibility, but every
 shape must be validated by the application. Persisted action runs must not contain raw
 provider credentials or other secrets.
+
+User foreign keys in `automation_rule_actions` should use `ON DELETE RESTRICT`. Removing a
+member from a project does not delete the user row, so the common departure case is handled
+by rule validation, which already marks the rule invalid. Deleting a user account entirely
+should require explicitly disabling or reconfiguring the rules that reference it, rather
+than nulling the target and losing the diagnostic context.
 
 The canonical work item also needs a monotonic revision, or an equivalent compare-and-swap
 mechanism, so concurrent status requests cannot create two events from stale state.
@@ -612,6 +622,8 @@ instead of duplicated.
   be resolved by guessing.
 - Time entries may be changed after the status transition, leaving a snapshot comment stale.
 - A work item may contain time from multiple users or multiple months.
+- A resolved work item may never have had an assignee, leaving `previous_assignee` time
+  scopes empty.
 - Month boundaries depend on timezone; artifact keys must use a stable project timezone.
 - Zero tracked hours need explicit behavior.
 - Reassignment may remove the developer's ability to edit the work item, while historical
@@ -679,6 +691,9 @@ instead of duplicated.
     ambiguous.
   - **Recommendation:** Use the immutable previous assignee by default for a handoff rule.
     Allow triggering actor, selected user, and all-user aggregation as explicit alternatives.
+    When the work item had no previous assignee, skip the action with an explicit skip
+    reason instead of silently falling back to another scope; a configurable fallback scope
+    can be considered later.
 
 - **Question:** Which period should be summarized?
   - **Current answer:** The example asks for month and year but does not define whether all
