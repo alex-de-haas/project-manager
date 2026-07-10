@@ -5,6 +5,7 @@ This index separates exploratory ideas, ready implementation plans, and feature 
 ## Ideas
 
 - [Azure DevOps PAT retirement — investigation & deferred plan](ideas/azure-devops-pat-retirement.md)
+- [Work item automation rules](ideas/work-item-automation-rules.md)
 
 ## Planning
 
