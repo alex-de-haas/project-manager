@@ -388,6 +388,7 @@ actions:
   - key: monthly-time-comment
     order: 30
     type: work_item.comment.upsert
+    criticality: best_effort
     timeScope: event_assignee
     period: event_month
     artifactScope: work_item_period
@@ -395,7 +396,10 @@ actions:
 ```
 
 The exact serialized format is an implementation detail. The API should expose typed
-structures rather than accept arbitrary JSON with unvalidated fields.
+structures rather than accept arbitrary JSON with unvalidated fields. In this example `key` is
+the editable human-readable label; the stored rule assigns every action the immutable
+identifier described in Rule Structure, and cross-action references such as `actionKey` resolve
+to that immutable identifier so renaming a key never breaks a reference.
 
 ## Trigger Model
 
@@ -528,6 +532,10 @@ capability exists.
 Templates must use a small allowlisted syntax and must never evaluate JavaScript or arbitrary
 expressions.
 
+Template variables are a separate namespace from condition fields. Where they name the same
+concept the mapping is intentional — for example the condition field `actor.user_id` and the
+template variable `actor.id` both refer to the event actor.
+
 Candidate variables include:
 
 - `project.id`
@@ -635,8 +643,10 @@ Recommended execution flow:
 5. Execute all ordered actions inside one matching rule in one SQLite transaction. On
    success, persist the native managed artifacts, action results, resulting domain events,
    projection requests, and `succeeded` rule status in that same transaction.
-6. If an action fails, roll back the action transaction and use a separate transaction to
-   mark the durable rule run `failed` with `rolled_back` action diagnostics.
+6. If a critical action fails, roll back the action transaction and use a separate transaction
+   to mark the durable rule run `failed` with `rolled_back` action diagnostics. A best-effort
+   action failure is recorded on that action without rolling back the transaction or failing
+   the rule run.
 7. Repeat for the remaining matching rules in deterministic order.
 8. Let zero or more integration adapters independently synchronize the latest committed
    canonical state and comments.
@@ -962,7 +972,7 @@ Integrations consume canonical Project Manager changes; automation does not call
   - **Recommendation:** Define this as a project integration policy that applies consistently
     to human and automation comments. Do not add per-rule provider destinations or sync flags.
 
-- **Question:** Can the previous assignee correct time after the automated QA handoff?
+- **Question:** Can the event assignee correct time after the automated QA handoff?
   - **Current answer:** Current time-entry writes require the work item to remain assigned to
     the user, so the developer loses edit access after reassignment even though historical
     rows remain visible for periods containing their time.
