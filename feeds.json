@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "app-feeds.0.1",
+  "appId": "com.haas.project-manager",
+  "feeds": [
+    {
+      "id": "main",
+      "manifestRef": "https://raw.githubusercontent.com/alex-de-haas/project-manager/main/manifest.json",
+      "default": true
+    }
+  ]
+}
