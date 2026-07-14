@@ -233,6 +233,10 @@ export default function DayOffsCalendarPage() {
                       const inCurrentMonth = isSameMonth(day, currentMonth);
                       const isCurrentDay = isToday(day);
                       const isWeekend = isSaturday(day) || isSunday(day);
+                      // Weekends are already non-working days, so day-off chips on
+                      // them are redundant noise — keep the cell showing just the
+                      // "Weekend" label.
+                      const visibleEntries = isWeekend ? [] : entries;
 
                       return (
                         <div
@@ -281,7 +285,7 @@ export default function DayOffsCalendarPage() {
                             )}
                           </div>
                           <div className="space-y-1">
-                            {entries.map((entry) => {
+                            {visibleEntries.map((entry) => {
                               const color = colorForUser(entry.user_id);
 
                               return (
@@ -309,7 +313,7 @@ export default function DayOffsCalendarPage() {
                                 </div>
                               );
                             })}
-                            {entries.length === 0 && inCurrentMonth && (
+                            {visibleEntries.length === 0 && inCurrentMonth && (
                               <div className="text-[11px] text-muted-foreground">
                                 {isWeekend ? "Weekend" : "No day off"}
                               </div>
