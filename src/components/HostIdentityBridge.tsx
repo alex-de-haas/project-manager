@@ -81,21 +81,28 @@ export function HostIdentityBridge({
     };
 
     async function probeAndRecover() {
+      // Dedicated controller + setTimeout instead of AbortSignal.any/timeout, which are
+      // not available in every browser (a synchronous throw here would stop the bridge
+      // from ever rendering). Aborts on effect teardown or when the probe times out.
+      const probeController = new AbortController();
+      const abortProbe = () => probeController.abort();
+      controller.signal.addEventListener("abort", abortProbe, { once: true });
+      const probeTimeout = window.setTimeout(abortProbe, IDENTITY_PROBE_TIMEOUT_MS);
       let status: AppSessionStatus | null;
       try {
         const response = await fetch("/api/auth/identity", {
           headers: { Accept: "application/json" },
           cache: "no-store",
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(IDENTITY_PROBE_TIMEOUT_MS),
-          ]),
+          signal: probeController.signal,
         });
         status = readIdentityStatus(await response.json().catch(() => null));
       } catch {
         // A failed or timed-out probe (Core unreachable) is treated like "unavailable":
         // keep the cookie, offer retry.
         status = null;
+      } finally {
+        window.clearTimeout(probeTimeout);
+        controller.signal.removeEventListener("abort", abortProbe);
       }
       if (cancelled) return;
 
@@ -216,7 +223,7 @@ export function HostIdentityBridge({
           <span className="font-medium">Your Hosty session ended.</span>
           <a
             href={ui.openUrl}
-            {...(ui.embedded ? { target: "_blank", rel: "noreferrer" } : {})}
+            {...(ui.embedded ? { target: "_blank", rel: "noopener noreferrer" } : {})}
             className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Sign in via Hosty
