@@ -24,6 +24,21 @@ export interface TrustedHostIdentity {
   hostRole: string | null;
 }
 
+// Recovery classification of the app session, consumed by the client identity bridge:
+// - not-present: no token at all
+// - active: token revalidated OK
+// - expired: Core 401 (recoverable — re-authorize)
+// - forbidden: Core 403 or app mismatch (terminal — do not auto-redirect)
+// - unavailable: Core unreachable/timeout (transient — keep cookie, offer retry)
+// - error: misconfiguration or unexpected Core response
+export type AppSessionStatus =
+  | "not-present"
+  | "active"
+  | "expired"
+  | "forbidden"
+  | "unavailable"
+  | "error";
+
 type HeaderReader = Pick<Headers, "get">;
 type AppIdentityTokenSource = "cookie" | "authorization-header" | "identity-header";
 
@@ -146,6 +161,65 @@ const revalidateTokenWithCore = async (
     return claims;
   } catch {
     return null;
+  }
+};
+
+const isAbortError = (error: unknown) =>
+  error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
+
+// Revalidates a token and maps the outcome to a recovery status, honoring the Core
+// error contract: 401 → expired (recoverable), 403 / app mismatch → forbidden
+// (terminal), timeout → unavailable (transient), everything else → error.
+export const classifyAppSessionStatus = async (
+  token: string | null | undefined
+): Promise<AppSessionStatus> => {
+  const accessToken = token?.trim();
+  if (!accessToken) return "not-present";
+
+  const endpoint = buildCoreEndpoint("/api/auth/apps/revalidate");
+  if (!endpoint) return "error";
+  const serviceToken = getHostyAppServiceToken();
+  if (!serviceToken) return "error";
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceToken}`,
+      },
+      body: JSON.stringify({ accessToken }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(CORE_AUTH_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return response.status === 401
+        ? "expired"
+        : response.status === 403
+        ? "forbidden"
+        : "error";
+    }
+
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!payload || payload.active !== true) {
+      return "expired";
+    }
+
+    const appId = readString(payload.appId);
+    if (!appId || appId !== getAppId()) {
+      // Token issued for a different app — Core would report token_app_mismatch (terminal).
+      return "forbidden";
+    }
+
+    const expiresAtMs = readExpiresAtMs(payload.expiresAt);
+    if (!expiresAtMs || expiresAtMs <= Date.now()) {
+      return "expired";
+    }
+
+    return "active";
+  } catch (error) {
+    return isAbortError(error) ? "unavailable" : "error";
   }
 };
 

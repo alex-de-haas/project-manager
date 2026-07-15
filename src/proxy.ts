@@ -18,6 +18,7 @@ import {
 
 const PUBLIC_PATHS = [
   "/api/auth/app-code",
+  "/api/auth/identity",
   "/api/health",
 ];
 
