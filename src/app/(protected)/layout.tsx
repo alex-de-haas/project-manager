@@ -41,7 +41,7 @@ export default async function ProtectedLayout({
         data-project-manager-host-identity="missing"
         className="flex min-h-dvh items-center justify-center px-6 text-sm text-muted-foreground"
       >
-        Hosty app identity is required.
+        Restoring your Hosty session…
       </div>
     );
   }

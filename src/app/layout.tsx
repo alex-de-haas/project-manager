@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { HostIdentityBridge } from "@/components/HostIdentityBridge";
 import { HostThemeBridge } from "@/components/HostThemeBridge";
+import { getAppId, getHostyCorePublicOrigin } from "@/lib/module-runtime";
 
 export const metadata: Metadata = {
   title: "Project Manager",
@@ -58,11 +59,14 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const corePublicOrigin = getHostyCorePublicOrigin() ?? "";
+  const appId = getAppId();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="bg-background text-foreground">
         <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
-        <HostIdentityBridge />
+        <HostIdentityBridge corePublicOrigin={corePublicOrigin} appId={appId} />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
