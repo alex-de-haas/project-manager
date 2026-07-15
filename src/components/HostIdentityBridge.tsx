@@ -131,11 +131,15 @@ export function HostIdentityBridge({
         } catch {
           // Ignore; the timeout below still falls back to the manual sign-in card.
         }
-        window.setTimeout(() => {
+        const timeoutId = window.setTimeout(() => {
           if (!cancelled) {
             setUi({ kind: "signin", openUrl, embedded: true });
           }
         }, EMBEDDED_RECOVERY_TIMEOUT_MS);
+        // Clear the pending fallback timer if the effect is torn down before it fires.
+        controller.signal.addEventListener("abort", () => window.clearTimeout(timeoutId), {
+          once: true,
+        });
         return;
       }
 
