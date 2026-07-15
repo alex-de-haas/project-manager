@@ -6,6 +6,9 @@ import {
   describeUrlForAuth,
   logHostAuthDebug,
 } from "@/lib/host-auth-debug";
+// Type-only import: erased at compile time, so the server-only host-identity module is
+// never pulled into the client bundle. Single source of truth for the status contract.
+import type { AppSessionStatus } from "@/lib/host-identity";
 
 // Once-per-tab guard so a standalone app that returns from Core still unauthorized does not
 // bounce through /open forever. Cleared on a successful code exchange.
@@ -13,20 +16,15 @@ const RECOVERY_GUARD_KEY = "hosty.auth.recovery-attempted";
 // How long an embedded frame waits for Shell to reissue a launch code before showing the manual
 // sign-in fallback (i.e. it is embedded by something other than Hosty Shell).
 const EMBEDDED_RECOVERY_TIMEOUT_MS = 4_000;
+// Cap the status probe so a stalled request cannot leave the bridge stuck hidden — on
+// timeout it classifies as unavailable and the user gets a Retry affordance.
+const IDENTITY_PROBE_TIMEOUT_MS = 4_000;
 
 type RecoveryUi =
   | { kind: "hidden" }
   | { kind: "signin"; openUrl: string; embedded: boolean }
   | { kind: "denied" }
   | { kind: "unavailable" };
-
-type AppSessionStatus =
-  | "not-present"
-  | "active"
-  | "expired"
-  | "forbidden"
-  | "unavailable"
-  | "error";
 
 function readIdentityStatus(body: unknown): AppSessionStatus | null {
   if (!body || typeof body !== "object") return null;
@@ -88,11 +86,15 @@ export function HostIdentityBridge({
         const response = await fetch("/api/auth/identity", {
           headers: { Accept: "application/json" },
           cache: "no-store",
-          signal: controller.signal,
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(IDENTITY_PROBE_TIMEOUT_MS),
+          ]),
         });
         status = readIdentityStatus(await response.json().catch(() => null));
       } catch {
-        // A failed probe (Core unreachable) is treated like "unavailable": keep the cookie, offer retry.
+        // A failed or timed-out probe (Core unreachable) is treated like "unavailable":
+        // keep the cookie, offer retry.
         status = null;
       }
       if (cancelled) return;

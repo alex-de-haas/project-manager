@@ -212,6 +212,14 @@ export const classifyAppSessionStatus = async (
       return "forbidden";
     }
 
+    // An "active" grant with no subject is unusable — revalidateHostyAppIdentityToken
+    // rejects the same shape, so classify it as recoverable rather than "active" to keep
+    // the probe and the real auth path from disagreeing.
+    const userId = readString(payload.userId);
+    if (!userId) {
+      return "expired";
+    }
+
     const expiresAtMs = readExpiresAtMs(payload.expiresAt);
     if (!expiresAtMs || expiresAtMs <= Date.now()) {
       return "expired";

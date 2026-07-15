@@ -94,6 +94,15 @@ describe("classifyAppSessionStatus", () => {
     expect(await classifyAppSessionStatus("hostyg_token")).toBe("forbidden");
   });
 
+  it("does not classify an active grant with no userId as active", async () => {
+    // Matches revalidateHostyAppIdentityToken, which rejects the same shape; classifying
+    // this as "active" would hide the recovery UI while the protected layout dead-ends.
+    global.fetch = vi.fn().mockResolvedValue(
+      jsonResponse(200, { active: true, appId: APP_ID, expiresAt: futureIso() })
+    ) as unknown as typeof fetch;
+    expect(await classifyAppSessionStatus("hostyg_token")).toBe("expired");
+  });
+
   it("treats active:false as expired", async () => {
     global.fetch = vi.fn().mockResolvedValue(
       jsonResponse(200, { active: false, appId: APP_ID, expiresAt: futureIso() })
