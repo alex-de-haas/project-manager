@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
-import { HostIdentityBridge } from "@/components/HostIdentityBridge";
+import { AppIdentityBridge } from "@hosty-sdk/app/react";
 import { HostThemeBridge } from "@/components/HostThemeBridge";
-import { getAppId, getHostyCorePublicOrigin } from "@/lib/module-runtime";
 
 export const metadata: Metadata = {
   title: "Project Manager",
@@ -59,14 +58,12 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const corePublicOrigin = getHostyCorePublicOrigin() ?? "";
-  const appId = getAppId();
 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="bg-background text-foreground">
         <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
-        <HostIdentityBridge corePublicOrigin={corePublicOrigin} appId={appId} />
+        <AppIdentityBridge />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

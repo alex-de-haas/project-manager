@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   classifyAppSessionStatus,
+  readSessionRecoveryParams,
   HOSTY_APP_IDENTITY_COOKIE,
 } from "@/lib/host-identity";
 import { describeOpaqueValue, logHostAuthDebug } from "@/lib/host-auth-debug";
@@ -27,8 +28,10 @@ export async function GET(request: NextRequest) {
     token: describeOpaqueValue(cookieToken),
   });
 
+  // Recovery parameters ride in this force-dynamic response — not in a layout prop — so
+  // they are read from the environment of the machine running the app, never from a build.
   return NextResponse.json(
-    { appSession: { status } },
+    { appSession: { status }, recovery: readSessionRecoveryParams() },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

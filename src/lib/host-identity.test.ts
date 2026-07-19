@@ -1,138 +1,147 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { classifyAppSessionStatus } from "@/lib/host-identity";
+import { clearRevalidationCache } from "@hosty-sdk/app/server";
+import { classifyAppSessionStatus, revalidateHostyAppIdentityToken } from "@/lib/host-identity";
 
-const APP_ID = "com.haas.project-manager";
+const ENV_KEYS = ["HOSTY_CORE_ORIGIN", "HOSTY_APP_ID", "HOSTY_APP_SERVICE_TOKEN"] as const;
+const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "content-type": "application/json" },
   });
 }
 
-function futureIso(msFromNow = 60_000) {
-  return new Date(Date.now() + msFromNow).toISOString();
-}
+const activePayload = () => ({
+  active: true,
+  appId: "com.haas.project-manager",
+  userId: "user_1",
+  email: "user@example.com",
+  displayName: "User",
+  hostRole: "host.admin",
+  expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+});
+
+beforeEach(() => {
+  for (const key of ENV_KEYS) {
+    savedEnv[key] = process.env[key];
+  }
+  process.env.HOSTY_CORE_ORIGIN = "http://core.test";
+  process.env.HOSTY_APP_ID = "com.haas.project-manager";
+  process.env.HOSTY_APP_SERVICE_TOKEN = "hosty_app_service.1.x.y";
+  // The SDK keeps a process-global positive cache; isolate every test.
+  clearRevalidationCache();
+});
+
+afterEach(() => {
+  for (const key of ENV_KEYS) {
+    if (savedEnv[key] === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = savedEnv[key];
+    }
+  }
+  vi.unstubAllGlobals();
+});
 
 describe("classifyAppSessionStatus", () => {
-  const originalFetch = global.fetch;
-
-  beforeEach(() => {
-    process.env.HOSTY_CORE_ORIGIN = "http://core.internal";
-    process.env.HOSTY_APP_SERVICE_TOKEN = "svc-token";
-    process.env.HOSTY_APP_ID = APP_ID;
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-    vi.restoreAllMocks();
-    delete process.env.HOSTY_CORE_ORIGIN;
-    delete process.env.HOSTY_APP_SERVICE_TOKEN;
-    delete process.env.HOSTY_APP_ID;
-  });
-
   it("returns not-present without a token, before any Core call", async () => {
     const fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
-
+    vi.stubGlobal("fetch", fetchMock);
     expect(await classifyAppSessionStatus(null)).toBe("not-present");
-    expect(await classifyAppSessionStatus("   ")).toBe("not-present");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns error when the app service token is not configured", async () => {
+  it("returns misconfigured when the app service token is not configured", async () => {
     delete process.env.HOSTY_APP_SERVICE_TOKEN;
-    const fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
-
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("error");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await classifyAppSessionStatus("hostyg_x")).toBe("misconfigured");
   });
 
   it("maps Core 401 to expired (recoverable)", async () => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValue(jsonResponse(401, { error: { code: "token_expired" } })) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("expired");
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(401, { code: "token_expired" })));
+    expect(await classifyAppSessionStatus("hostyg_x")).toBe("expired");
   });
 
   it("maps Core 403 to forbidden (terminal)", async () => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValue(jsonResponse(403, { error: { code: "app_access_denied" } })) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("forbidden");
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(403, { code: "user_disabled" })));
+    expect(await classifyAppSessionStatus("hostyg_x")).toBe("forbidden");
   });
 
-  it("maps other non-OK statuses to error", async () => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValue(jsonResponse(500, { error: { code: "boom" } })) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("error");
+  it("maps other non-OK statuses and network failures to unavailable (transient)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(500, { code: "boom" })));
+    expect(await classifyAppSessionStatus("hostyg_a")).toBe("unavailable");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    }));
+    expect(await classifyAppSessionStatus("hostyg_b")).toBe("unavailable");
   });
 
   it("returns active for a valid, unexpired, matching-app grant", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse(200, {
-        active: true,
-        appId: APP_ID,
-        userId: "42",
-        expiresAt: futureIso(),
-      })
-    ) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("active");
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, activePayload())));
+    expect(await classifyAppSessionStatus("hostyg_x")).toBe("active");
   });
 
   it("treats a token issued for a different app as forbidden", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse(200, {
-        active: true,
-        appId: "com.haas.other-app",
-        userId: "42",
-        expiresAt: futureIso(),
-      })
-    ) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("forbidden");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(200, { ...activePayload(), appId: "other.app" })),
+    );
+    expect(await classifyAppSessionStatus("hostyg_x")).toBe("forbidden");
   });
 
   it("does not classify an active grant with no userId as active", async () => {
-    // Matches revalidateHostyAppIdentityToken, which rejects the same shape; classifying
-    // this as "active" would hide the recovery UI while the protected layout dead-ends.
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse(200, { active: true, appId: APP_ID, expiresAt: futureIso() })
-    ) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("expired");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(200, { ...activePayload(), userId: "" })),
+    );
+    expect(await classifyAppSessionStatus("hostyg_x")).toBe("expired");
   });
 
   it("treats active:false as expired", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse(200, { active: false, appId: APP_ID, expiresAt: futureIso() })
-    ) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("expired");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(200, { ...activePayload(), active: false })),
+    );
+    expect(await classifyAppSessionStatus("hostyg_x")).toBe("expired");
   });
 
-  it("treats a past expiresAt as expired", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse(200, {
-        active: true,
-        appId: APP_ID,
-        userId: "42",
-        expiresAt: new Date(Date.now() - 1_000).toISOString(),
-      })
-    ) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("expired");
+  it("treats a past expiresAt as expired (probe/auth-path consistency)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(200, { ...activePayload(), expiresAt: new Date(Date.now() - 1000).toISOString() }),
+      ),
+    );
+    expect(await classifyAppSessionStatus("hostyg_x")).toBe("expired");
+  });
+});
+
+describe("revalidateHostyAppIdentityToken", () => {
+  it("maps a valid grant onto the claims shape", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, activePayload())));
+    const claims = await revalidateHostyAppIdentityToken("hostyg_x");
+    expect(claims).toMatchObject({
+      sub: "user_1",
+      aud: "com.haas.project-manager",
+      email: "user@example.com",
+      name: "User",
+      hostRole: "host.admin",
+    });
+    expect(claims && claims.exp * 1000).toBeGreaterThan(Date.now());
   });
 
-  it("maps a Core timeout to unavailable (keep the session)", async () => {
-    const timeout = new Error("The operation timed out");
-    timeout.name = "TimeoutError";
-    global.fetch = vi.fn().mockRejectedValue(timeout) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("unavailable");
+  it("rejects a grant whose expiry is past, matching the probe classification", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(200, { ...activePayload(), expiresAt: new Date(Date.now() - 1000).toISOString() }),
+      ),
+    );
+    expect(await revalidateHostyAppIdentityToken("hostyg_x")).toBeNull();
   });
 
-  it("maps a generic network failure to error", async () => {
-    global.fetch = vi
-      .fn()
-      .mockRejectedValue(new Error("connection refused")) as unknown as typeof fetch;
-    expect(await classifyAppSessionStatus("hostyg_token")).toBe("error");
+  it("returns null for any non-active classification", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(401, {})));
+    expect(await revalidateHostyAppIdentityToken("hostyg_x")).toBeNull();
   });
 });

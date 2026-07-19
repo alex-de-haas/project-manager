@@ -1,12 +1,27 @@
-import { getAppId, getHostyCoreOrigin } from "@/lib/module-runtime";
+import {
+  getRecoveryParams,
+  resolveAppSession,
+  HOSTY_APP_IDENTITY_HEADER as SDK_IDENTITY_HEADER,
+  type HostyAppConfig,
+} from "@hosty-sdk/app/server";
+import type { AppSessionStatus } from "@hosty-sdk/app";
+import { PROJECT_MANAGER_APP_ID, getAppId } from "@/lib/module-runtime";
 
-export const HOSTY_APP_IDENTITY_HEADER = "x-docker-host-identity";
+export const HOSTY_APP_IDENTITY_HEADER = SDK_IDENTITY_HEADER;
 export const HOSTY_APP_IDENTITY_COOKIE = "project_manager_hosty_identity";
 export const INTERNAL_HOST_USER_ID_HEADER = "x-project-manager-host-user-id";
 export const INTERNAL_HOST_USER_EMAIL_HEADER = "x-project-manager-host-user-email";
 export const INTERNAL_HOST_USER_NAME_HEADER = "x-project-manager-host-user-name";
 export const INTERNAL_HOST_ROLE_HEADER = "x-project-manager-host-role";
 export const INTERNAL_HOST_LAUNCH_CODE_HEADER = "x-project-manager-host-launch-code";
+
+/** This app's SDK configuration: the cookie namespace stays app-owned, the host role passes
+ * through unmapped (Project Manager keeps the raw Host role). The legacy PROJECT_MANAGER_APP_ID
+ * env override predates HOSTY_APP_ID and is folded into the fallback. */
+export const hostyAppConfig: HostyAppConfig = {
+  appIdFallback: process.env.PROJECT_MANAGER_APP_ID?.trim() || PROJECT_MANAGER_APP_ID,
+  identityCookieName: HOSTY_APP_IDENTITY_COOKIE,
+};
 
 export interface HostIdentityClaims {
   sub: string;
@@ -24,258 +39,62 @@ export interface TrustedHostIdentity {
   hostRole: string | null;
 }
 
-// Recovery classification of the app session, consumed by the client identity bridge:
-// - not-present: no token at all
-// - active: token revalidated OK
-// - expired: Core 401 (recoverable — re-authorize)
-// - forbidden: Core 403 or app mismatch (terminal — do not auto-redirect)
-// - unavailable: Core unreachable/timeout (transient — keep cookie, offer retry)
-// - error: misconfiguration or unexpected Core response
-export type AppSessionStatus =
-  | "not-present"
-  | "active"
-  | "expired"
-  | "forbidden"
-  | "unavailable"
-  | "error";
+/** Recovery classification of the app session (the SDK taxonomy, consumed by the identity
+ * probe route and the client bridge): not-present/expired are recoverable, forbidden is
+ * terminal, unavailable is transient, misconfigured is an operator problem. */
+export type { AppSessionStatus };
 
 type HeaderReader = Pick<Headers, "get">;
 type AppIdentityTokenSource = "cookie" | "authorization-header" | "identity-header";
 
-const CORE_AUTH_TIMEOUT_MS = 1500;
-const TOKEN_REVALIDATION_CACHE_TTL_MS = 15_000;
-const MAX_TOKEN_REVALIDATION_CACHE_ENTRIES = 256;
-
-type TokenRevalidationCacheEntry = {
-  claims: HostIdentityClaims | null;
-  cachedAt: number;
-};
-
-const tokenRevalidationCache = new Map<string, TokenRevalidationCacheEntry>();
-const pendingTokenRevalidations = new Map<string, Promise<HostIdentityClaims | null>>();
-
 const sanitizeHeaderValue = (value: string | null | undefined) =>
   value?.replace(/[\r\n]/g, " ").trim() ?? "";
 
-const readString = (value: unknown) =>
-  typeof value === "string" && value.trim() ? value.trim() : null;
-
-const readExpiresAtMs = (value: unknown) => {
-  const expiresAt = readString(value);
-  if (!expiresAt) return null;
-
+const isExpiredByTimestamp = (expiresAt: string | null) => {
+  if (!expiresAt) return true;
   const parsed = Date.parse(expiresAt);
-  return Number.isFinite(parsed) ? parsed : null;
+  return !Number.isFinite(parsed) || parsed <= Date.now();
 };
 
-const buildCoreEndpoint = (path: string) => {
-  const coreOrigin = getHostyCoreOrigin();
-  if (!coreOrigin) return null;
-
-  try {
-    return new URL(path, coreOrigin).toString();
-  } catch {
-    return null;
-  }
-};
-
-const getHostyAppServiceToken = () =>
-  process.env.HOSTY_APP_SERVICE_TOKEN?.trim() || null;
-
+/**
+ * Revalidates a token against Core via the SDK (30s positive cache, negatives never cached,
+ * in-flight dedup) and maps the identity onto this app's claims shape. A grant Core reports
+ * active but whose expiry is unusable or past is rejected, keeping the probe and the real
+ * auth path in agreement about the same token.
+ */
 export const revalidateHostyAppIdentityToken = async (
   token: string | null | undefined
 ): Promise<HostIdentityClaims | null> => {
-  const accessToken = token?.trim();
-  if (!accessToken) return null;
-
-  const now = Date.now();
-  const cached = readCachedTokenRevalidation(accessToken, now);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const pending = pendingTokenRevalidations.get(accessToken);
-  if (pending) {
-    return pending;
-  }
-
-  const endpoint = buildCoreEndpoint("/api/auth/apps/revalidate");
-  if (!endpoint) return null;
-  const serviceToken = getHostyAppServiceToken();
-  if (!serviceToken) return null;
-
-  const revalidation = revalidateTokenWithCore(accessToken, endpoint, serviceToken);
-  pendingTokenRevalidations.set(accessToken, revalidation);
-
-  try {
-    return await revalidation;
-  } finally {
-    pendingTokenRevalidations.delete(accessToken);
-  }
-};
-
-const revalidateTokenWithCore = async (
-  accessToken: string,
-  endpoint: string,
-  serviceToken: string
-): Promise<HostIdentityClaims | null> => {
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceToken}`,
-      },
-      body: JSON.stringify({ accessToken }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(CORE_AUTH_TIMEOUT_MS),
-    });
-    if (!response.ok) {
-      writeCachedTokenRevalidation(accessToken, null);
-      return null;
-    }
-
-    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!payload || payload.active !== true) {
-      writeCachedTokenRevalidation(accessToken, null);
-      return null;
-    }
-
-    const appId = readString(payload.appId);
-    const userId = readString(payload.userId);
-    const expiresAtMs = readExpiresAtMs(payload.expiresAt);
-    if (!appId || appId !== getAppId() || !userId || !expiresAtMs || expiresAtMs <= Date.now()) {
-      writeCachedTokenRevalidation(accessToken, null);
-      return null;
-    }
-
-    const claims = {
-      sub: userId,
-      aud: appId,
-      exp: Math.floor(expiresAtMs / 1000),
-      email: readString(payload.email) ?? undefined,
-      name: readString(payload.displayName) ?? undefined,
-      hostRole: readString(payload.hostRole) ?? undefined,
-    };
-    writeCachedTokenRevalidation(accessToken, claims);
-    return claims;
-  } catch {
+  const resolution = await resolveAppSession(token?.trim() || null, hostyAppConfig);
+  if (resolution.status !== "active" || isExpiredByTimestamp(resolution.identity.expiresAt)) {
     return null;
   }
+
+  const { identity } = resolution;
+  return {
+    sub: identity.userId,
+    aud: getAppId(),
+    exp: Math.floor(Date.parse(identity.expiresAt as string) / 1000),
+    email: identity.email ?? undefined,
+    name: identity.displayName ?? undefined,
+    hostRole: identity.hostRole ?? undefined,
+  };
 };
 
-const isAbortError = (error: unknown) =>
-  error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
-
-// Revalidates a token and maps the outcome to a recovery status, honoring the Core
-// error contract: 401 → expired (recoverable), 403 / app mismatch → forbidden
-// (terminal), timeout → unavailable (transient), everything else → error.
+/** Classifies a session token for the recovery bridge, honoring the platform contract via the
+ * SDK; an active grant with an unusable or past expiry classifies as expired (recoverable). */
 export const classifyAppSessionStatus = async (
   token: string | null | undefined
 ): Promise<AppSessionStatus> => {
-  const accessToken = token?.trim();
-  if (!accessToken) return "not-present";
-
-  const endpoint = buildCoreEndpoint("/api/auth/apps/revalidate");
-  if (!endpoint) return "error";
-  const serviceToken = getHostyAppServiceToken();
-  if (!serviceToken) return "error";
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceToken}`,
-      },
-      body: JSON.stringify({ accessToken }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(CORE_AUTH_TIMEOUT_MS),
-    });
-
-    if (!response.ok) {
-      return response.status === 401
-        ? "expired"
-        : response.status === 403
-        ? "forbidden"
-        : "error";
-    }
-
-    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!payload || payload.active !== true) {
-      return "expired";
-    }
-
-    const appId = readString(payload.appId);
-    if (!appId || appId !== getAppId()) {
-      // Token issued for a different app — Core would report token_app_mismatch (terminal).
-      return "forbidden";
-    }
-
-    // An "active" grant with no subject is unusable — revalidateHostyAppIdentityToken
-    // rejects the same shape, so classify it as recoverable rather than "active" to keep
-    // the probe and the real auth path from disagreeing.
-    const userId = readString(payload.userId);
-    if (!userId) {
-      return "expired";
-    }
-
-    const expiresAtMs = readExpiresAtMs(payload.expiresAt);
-    if (!expiresAtMs || expiresAtMs <= Date.now()) {
-      return "expired";
-    }
-
-    return "active";
-  } catch (error) {
-    return isAbortError(error) ? "unavailable" : "error";
+  const resolution = await resolveAppSession(token?.trim() || null, hostyAppConfig);
+  if (resolution.status === "active" && isExpiredByTimestamp(resolution.identity.expiresAt)) {
+    return "expired";
   }
+  return resolution.status;
 };
 
-const readCachedTokenRevalidation = (accessToken: string, now: number) => {
-  const cached = tokenRevalidationCache.get(accessToken);
-  if (!cached) {
-    return undefined;
-  }
-
-  const tokenStillValid = !cached.claims || cached.claims.exp * 1000 > now;
-  if (tokenStillValid && now - cached.cachedAt < TOKEN_REVALIDATION_CACHE_TTL_MS) {
-    return cached.claims;
-  }
-
-  tokenRevalidationCache.delete(accessToken);
-  return undefined;
-};
-
-const writeCachedTokenRevalidation = (
-  accessToken: string,
-  claims: HostIdentityClaims | null
-) => {
-  const now = Date.now();
-  pruneTokenRevalidationCache(now);
-  tokenRevalidationCache.set(accessToken, { claims, cachedAt: now });
-};
-
-const pruneTokenRevalidationCache = (now: number) => {
-  if (tokenRevalidationCache.size < MAX_TOKEN_REVALIDATION_CACHE_ENTRIES) {
-    return;
-  }
-
-  for (const [accessToken, cached] of tokenRevalidationCache) {
-    const tokenExpired = cached.claims && cached.claims.exp * 1000 <= now;
-    const cacheExpired = now - cached.cachedAt >= TOKEN_REVALIDATION_CACHE_TTL_MS;
-    if (tokenExpired || cacheExpired) {
-      tokenRevalidationCache.delete(accessToken);
-    }
-  }
-
-  while (tokenRevalidationCache.size >= MAX_TOKEN_REVALIDATION_CACHE_ENTRIES) {
-    const oldestAccessToken = tokenRevalidationCache.keys().next().value;
-    if (!oldestAccessToken) {
-      return;
-    }
-    tokenRevalidationCache.delete(oldestAccessToken);
-  }
-};
+/** Recovery parameters for the identity probe response (request-time env, never baked). */
+export const readSessionRecoveryParams = () => getRecoveryParams(hostyAppConfig);
 
 export const requestHeadersWithTrustedHostIdentity = (
   sourceHeaders: Headers,
@@ -334,7 +153,12 @@ export const resolveTrustedHostIdentity = async (
     return null;
   }
 
-  return trustedIdentityFromClaims(claims);
+  return {
+    id: claims.sub,
+    email: claims.email ?? null,
+    name: claims.name ?? null,
+    hostRole: claims.hostRole ?? null,
+  };
 };
 
 export const readAppIdentityToken = (
@@ -360,13 +184,6 @@ export const readAppIdentityToken = (
 
   return { token: null, source: null };
 };
-
-const trustedIdentityFromClaims = (claims: HostIdentityClaims): TrustedHostIdentity => ({
-  id: claims.sub,
-  email: claims.email ?? null,
-  name: claims.name ?? null,
-  hostRole: claims.hostRole ?? null,
-});
 
 const readCookie = (cookieHeader: string | null, name: string) => {
   if (!cookieHeader) {
