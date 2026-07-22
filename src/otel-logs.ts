@@ -61,7 +61,7 @@ export function setupOtlpLogs(): void {
 
   const provider = new LoggerProvider({
     resource: detectResources({ detectors: [envDetector] }),
-    processors: [new BatchLogRecordProcessor(exporter)],
+    processors: [new BatchLogRecordProcessor({ exporter })],
   });
   logs.setGlobalLoggerProvider(provider);
 
