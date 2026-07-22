@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
 # Pinned by digest for reproducible builds. To update: re-pin with
-#   docker buildx imagetools inspect node:20-bookworm-slim --format '{{.Manifest.Digest}}'
-FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS base
+#   docker buildx imagetools inspect node:24-bookworm-slim --format '{{.Manifest.Digest}}'
+FROM node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_HOST_MODULE_ID=com.haas.project-manager
