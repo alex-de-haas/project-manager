@@ -20,3 +20,13 @@ Where the version lives:
   manifest *contract* format, not this app.
 
 Each runtime app versions independently from Hosty Core/CLI and from the other apps.
+
+## Pull Requests
+
+- **Do not squash-merge PRs.** Parallel PRs are common, and squash merges rewrite the
+  merged branch's history — the other in-flight branches can no longer rebase cleanly
+  onto main. Use a regular merge commit instead.
+- **One PR per feature, not per phase.** When a feature plan is split into phases,
+  implement all phases on one branch and open a single PR. Individual phases rarely
+  deliver complete functionality on their own, and under the versioning rules above
+  each per-phase PR would pointlessly bump the version.
