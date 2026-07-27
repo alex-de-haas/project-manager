@@ -69,6 +69,11 @@ npm run lint
 npm run app:manifest -- --tag sha-test --output /tmp/project-manager-manifest.json
 ```
 
+`npm run start` serves the production build through `next start` and prints a warning that it does
+not work with `output: "standalone"`. Locally this is expected and safe to ignore — `next start`
+serves the same `.next` build, and it keeps the data directory at `./data`. The container runs the
+standalone server instead (see below).
+
 ## Data
 
 - Main database: `data/project_manager.db`
@@ -83,6 +88,11 @@ Build the app image:
 ```bash
 docker build -t project-manager .
 ```
+
+The runner stage ships the Next standalone bundle (`.next/standalone`, plus `.next/static` and
+`public/`) and runs `node server.js` as the unprivileged `node` user. It carries no `node_modules`
+of its own: `output: "standalone"` traces only the packages the server actually requires, which
+leaves the build-only weight — the SWC binaries above all — out of the image.
 
 The source app manifest is available in `manifest.json` using schema `app.0.1` with Docker and `localCommand` runtime profiles for the `app` service. CI renders an installable manifest that points at the immutable `sha-<commit>` image tag pushed to GHCR, then publishes that file as the `manifest.json` asset on the `latest` GitHub release. The stable Hosty manifest URL is:
 
