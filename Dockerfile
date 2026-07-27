@@ -46,8 +46,12 @@ COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# The optimizer cache is mode 1777 because the entrypoint may run the server as the data mount's
+# owner rather than `node` (see docker-entrypoint.sh) — sticky like /tmp, and it holds only derived,
+# non-secret output.
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
-  && install -d -o node -g node /app/data /app/.next/cache
+  && install -d -o node -g node /app/data \
+  && install -d -o node -g node -m 1777 /app/.next/cache
 
 EXPOSE 3000
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

@@ -49,7 +49,9 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 
 - The image ships the Next standalone bundle: `.next/standalone` at `/app`, plus `.next/static` and `public/` copied alongside it. It carries no full `node_modules` — standalone output traces only the packages the server requires, leaving build-only weight such as the SWC binaries out of the image.
 - Standalone output is opt-in through `NEXT_OUTPUT_STANDALONE=1`, which the Dockerfile's builder stage sets. A plain `npm run build` outside Docker does not emit the bundle, so `npm run start` (`next start`) keeps working and keeps the data directory at `./data`.
-- The container starts `node server.js` through `docker-entrypoint.sh`. The entrypoint runs as root only to create and take ownership of the data directory — Hosty Core may provision that mount root-owned — then drops to the unprivileged `node` user with `gosu` before exec'ing the server.
+- The container starts `node server.js` through `docker-entrypoint.sh`, never as root. The entrypoint runs privileged only long enough to decide which uid to run as, then drops with `gosu`.
+- It **adopts the data mount's existing owner** rather than taking ownership of it. Hosty Core bind-mounts the directory from its own app tree, owned by the user running Core — normally not root. Chowning it to the image's uid would take it away from Core on any host whose Core uid differs, and Core's uninstall path swallows the resulting error, so removing the app with its data would report success while leaving the data on disk. Ownership is assigned only when the directory is root-owned, where nothing else holds a claim.
+- Because the server may therefore run as an arbitrary uid, the Next image-optimizer cache directory is mode `1777` — sticky like `/tmp`, holding only derived, non-secret output.
 - The base image is pinned by digest, and every `COPY` into the runner stage stamps `node:node` ownership directly rather than running a recursive `chown` afterwards.
 
 Stable install URL:
