@@ -10,18 +10,18 @@ ENV DOCKER_HOST_MODULE_ID=com.haas.project-manager
 FROM base AS deps
 # better-sqlite3 ships no prebuilt binary for this image, so npm falls back to
 # compiling it from source via node-gyp — which needs Python and a C++ toolchain.
-# These stay in the deps/prod-deps layers; the final runner image only copies
-# the built node_modules, so it isn't bloated by them.
+# These stay in the deps layer; the runner image receives only the traced standalone
+# bundle, so it isn't bloated by them.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --prefer-offline
 
-FROM deps AS prod-deps
-RUN npm prune --omit=dev
-
 FROM base AS builder
+# next.config.js opts into `output: "standalone"` on this flag alone, so the traced bundle is
+# produced for the image while a plain `npm run build` / `next start` elsewhere stays unaffected.
+ENV NEXT_OUTPUT_STANDALONE=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN mkdir -p public .next/cache
@@ -35,16 +35,24 @@ ENV PORT=3000
 RUN apt-get update \
   && apt-get install -y --no-install-recommends gosu \
   && rm -rf /var/lib/apt/lists/*
-COPY package*.json ./
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.js ./next.config.js
+# `output: "standalone"` (next.config.js) traces the runtime file set: server.js, the resolved
+# next.config, and only the node_modules the server actually requires. Static assets and public/
+# are not traced, so they are copied separately as the Next docs prescribe.
+#
+# --chown on each COPY stamps ownership while the layer is written. A `chown -R` afterwards would
+# instead rewrite every file's metadata, and overlayfs would copy the whole tree into an extra
+# layer — that alone cost 653 MB before this stage was reworked.
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# The optimizer cache is mode 1777 because the entrypoint may run the server as the data mount's
+# owner rather than `node` (see docker-entrypoint.sh) — sticky like /tmp, and it holds only derived,
+# non-secret output.
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
-  && mkdir -p /app/data \
-  && chown -R node:node /app
+  && install -d -o node -g node /app/data \
+  && install -d -o node -g node -m 1777 /app/.next/cache
 
 EXPOSE 3000
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]
