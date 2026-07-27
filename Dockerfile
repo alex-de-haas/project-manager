@@ -19,6 +19,9 @@ COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --prefer-offline
 
 FROM base AS builder
+# next.config.js opts into `output: "standalone"` on this flag alone, so the traced bundle is
+# produced for the image while a plain `npm run build` / `next start` elsewhere stays unaffected.
+ENV NEXT_OUTPUT_STANDALONE=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN mkdir -p public .next/cache
