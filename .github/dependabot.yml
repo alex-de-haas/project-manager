@@ -38,6 +38,32 @@ updates:
         patterns: ["*"]
         exclude-patterns: ["@hosty-sdk/*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # eslint 10 and typescript 7 majors are gated on the Next.js lint preset:
+      #   - eslint 10: eslint-config-next@16.2.x bundles eslint-plugin-react@7.37.5 (its
+      #     newest release), which peers eslint up to ^9.7 and still calls the removed
+      #     context.getFilename API, so it crashes under eslint 10.
+      #   - typescript 7: the 7.x line is the native Go compiler. It drops the classic
+      #     JS compiler API (the new one ships under "unstable/*" exports), the
+      #     @typescript-eslint stack pulled in transitively by the preset peers
+      #     "typescript <6.1.0" even at its newest 8.65, and Next 16.2 only detects
+      #     @typescript/native-preview while warning that build-time type checking
+      #     still needs the standard typescript package.
+      # Both Dependabot majors are therefore lockfile no-ops right now; block the weekly
+      # no-op majors until the preset catches up. Minor/patch (eslint 9.x, typescript
+      # 6.x) still flow via the group.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # Cap @types/node at the Active LTS line (24), matching the Node 24 runtime used in
+      # CI and the digest-pinned `node:24-bookworm-slim` base image. Node 26 is still
+      # "Current" (non-LTS until ~Nov 2026), so its type defs would describe a runtime we
+      # don't ship. A `versions` bound rather than a blanket major ignore on purpose: the
+      # package is still on the 20.x types, so the catch-up major to 24.x must stay
+      # reachable. Raise this bound in lockstep with the base-image pin once 26 is LTS.
+      - dependency-name: "@types/node"
+        versions: [">=25"]
 
   - package-ecosystem: docker
     directory: /
