@@ -14,11 +14,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_HOST_MODULE_ID=com.haas.project-manager
 
 FROM base AS deps
-# Which of better-sqlite3's two paths wins depends on whether npm runs its `node-gyp rebuild`
-# install script (npm's allow-scripts gate skips it on some setups, e.g. the CI runner, and runs
-# it on others). Keep the toolchain so the compile path works when it is taken; the trixie base
-# above covers the case where the bundled prebuild is loaded instead. These stay in the deps
-# layer; the runner image receives only the traced standalone bundle, so it isn't bloated by them.
+# better-sqlite3 resolves its native binding one of two ways, and which one wins depends on
+# whether npm executes the package's `install: node-gyp rebuild` lifecycle script. That is not
+# stable across environments: on the CI runner npm withholds the script until it is approved and
+# logs
+#   npm warn allow-scripts better-sqlite3@13.0.2 (install: node-gyp rebuild)
+# so the bundled prebuild is what gets loaded there, while a local `docker build` runs the script
+# and compiles from source instead. Keep the toolchain so the compile path works when it is taken;
+# the trixie base above covers the prebuild path. Both stay in the deps layer; the runner image
+# receives only the traced standalone bundle, so it isn't bloated by them.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
