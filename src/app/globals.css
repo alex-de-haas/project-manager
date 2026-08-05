@@ -120,3 +120,26 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Chrome a shell already renders. The selector is positive because an absent attribute means
+   standalone, where the app is the only thing rendering its own header; unlayered so it outranks
+   the display utilities on the elements it hides. */
+html[data-hosty-launch="embedded"] .hosty-shell-chrome,
+html[data-hosty-launch="native"] .hosty-shell-chrome {
+  display: none;
+}
+
+/* With the nav links gone under a shell, the header card collapses around the project
+   switcher — the one control that stays in every launch mode — and the divider that
+   separated it from the nav loses its purpose. */
+html[data-hosty-launch="embedded"] .pm-topnav-card,
+html[data-hosty-launch="native"] .pm-topnav-card {
+  width: fit-content;
+}
+
+html[data-hosty-launch="embedded"] .pm-project-switcher,
+html[data-hosty-launch="native"] .pm-project-switcher {
+  border-left: 0;
+  padding-left: 0;
+  justify-content: flex-start;
+}

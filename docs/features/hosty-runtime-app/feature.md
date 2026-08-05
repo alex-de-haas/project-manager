@@ -1,7 +1,7 @@
 # Hosty Runtime App
 
 Created: 2026-06-02
-Updated: 2026-07-27
+Updated: 2026-08-05
 
 Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 
@@ -136,6 +136,8 @@ The app UI uses a Hosty-friendly top navigation bar. The stable navigation paths
 
 Settings navigation is rendered for all assigned app users. Non-admin users see only Profile settings, while Host administrators also see project, release, backup, and AI provider settings. Project switching lives in the top bar as a compact selector.
 
+The navigation links render only in `standalone` launches; under a shell they are hidden as duplicated chrome (see Launch Mode Detection below) and the top bar reduces to the project switcher.
+
 ## Hosty Theme Integration
 
 Project Manager supports Hosty Shell theme propagation. Shell launch URLs may include `hosty_theme=light|dark` and `hosty_theme_preference=light|dark|system`. The root layout applies that resolved theme before hydration so the initial embedded render does not flash through the wrong palette.
@@ -143,6 +145,10 @@ Project Manager supports Hosty Shell theme propagation. Shell launch URLs may in
 After launch, the app listens for Shell `postMessage` events with `type: "hosty:shell-theme"`, `theme`, and `preference`. Valid Shell updates apply the `.dark` class on the document root, update `color-scheme`, persist the resolved theme for the current embedded session, and keep `next-themes` in sync for app components such as notifications.
 
 When Hosty does not provide a theme signal, Project Manager falls back to the normal `next-themes` system preference behavior.
+
+## Launch Mode Detection
+
+The root layout runs the app SDK's `launchModeBootstrapScript` in `<head>` and mounts `HostLaunchBridge`, which resolve the launch mode — a shell-declared `hosty_launch` query parameter (`embedded`, `native`, or `standalone`) first, then the value persisted for the tab, then the frame heuristic — and stamp it onto `<html>` as `data-hosty-launch`. The top navigation links (both the desktop bar and the mobile menu) duplicate the manifest `ui.navigation` a surrounding shell renders, so they carry the SDK's `hosty-shell-chrome` class and are hidden by an unlayered CSS rule whenever the mode is not `standalone`. The project switcher is contextual — no shell renders one — so it stays visible in every launch mode; under a shell the header card collapses around it.
 
 ## Testing Expectations
 
@@ -163,3 +169,4 @@ Use these checks when changing the app contract or preparing a release:
 - Verify Host administrators can manage projects, project settings, releases, backups, and AI provider settings.
 - Verify JSON import with a supported legacy export file when migration behavior changes.
 - Verify project-scoped per-user Azure DevOps link behavior after Azure DevOps-related changes.
+- After changes to the top navigation or the launch bridges, verify a plain tab shows the nav links while `?hosty_launch=embedded` hides them and keeps the project switcher, and that the parameter is cleaned from the URL.
