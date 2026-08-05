@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
-import { AppIdentityBridge } from "@hosty-sdk/app/react";
+import { launchModeBootstrapScript } from "@hosty-sdk/app";
+import { AppIdentityBridge, HostLaunchBridge } from "@hosty-sdk/app/react";
 import { HostThemeBridge } from "@/components/HostThemeBridge";
 
 export const metadata: Metadata = {
@@ -61,9 +62,14 @@ export default function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Ahead of any body markup, so chrome a shell already renders is never painted. */}
+        <script dangerouslySetInnerHTML={{ __html: launchModeBootstrapScript }} />
+      </head>
       <body className="bg-background text-foreground">
         <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
         <AppIdentityBridge />
+        <HostLaunchBridge />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

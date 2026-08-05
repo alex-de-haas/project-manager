@@ -14,6 +14,7 @@ import {
   Star,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { SHELL_DUPLICATED_CHROME_CLASS } from "@hosty-sdk/app";
 
 import { Button } from "@/components/ui/button";
 import { getUserAvatarColor } from "@/components/UserAvatar";
@@ -270,16 +271,23 @@ export default function TopNavigation({
   };
 
   return (
+    // The page links duplicate the manifest `ui.navigation` a surrounding shell renders, so both
+    // nav variants carry the duplicated-chrome class and are hidden by globals.css when a shell
+    // declares (or the frame heuristic detects) an embedding. The project switcher is contextual —
+    // no shell renders one — so it stays in every launch mode.
     <header className="shrink-0 bg-transparent">
       <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-        <div className="rounded-lg border bg-card p-1 shadow-sm">
+        <div className="pm-topnav-card rounded-lg border bg-card p-1 shadow-sm">
           <div className="flex min-w-0 items-center gap-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0 rounded-md text-foreground hover:bg-muted md:hidden"
+                  className={cn(
+                    "h-8 w-8 shrink-0 rounded-md text-foreground hover:bg-muted md:hidden",
+                    SHELL_DUPLICATED_CHROME_CLASS
+                  )}
                   aria-label="Open navigation"
                 >
                   <Menu className="h-4 w-4" />
@@ -294,12 +302,12 @@ export default function TopNavigation({
 
             <nav
               aria-label="Main navigation"
-              className="hidden min-w-0 flex-1 items-center gap-1 md:flex"
+              className={cn("hidden min-w-0 flex-1 items-center gap-1 md:flex", SHELL_DUPLICATED_CHROME_CLASS)}
             >
               {navItems.map((item) => renderNavLink(item))}
             </nav>
 
-            <div className="ml-auto flex min-w-0 flex-1 items-center justify-end border-l pl-1 md:flex-none md:shrink">
+            <div className="pm-project-switcher ml-auto flex min-w-0 flex-1 items-center justify-end border-l pl-1 md:flex-none md:shrink">
               {renderProjectSelector()}
             </div>
           </div>
