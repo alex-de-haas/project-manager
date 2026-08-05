@@ -57,7 +57,7 @@ updates:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
       # Cap @types/node at the Active LTS line (24), matching the Node 24 runtime used in
-      # CI and the digest-pinned `node:24-bookworm-slim` base image. Node 26 is still
+      # CI and the digest-pinned `node:24-trixie-slim` base image. Node 26 is still
       # "Current" (non-LTS until ~Nov 2026), so its type defs would describe a runtime we
       # don't ship. A `versions` bound rather than a blanket major ignore on purpose: the
       # package is still on the 20.x types, so the catch-up major to 24.x must stay

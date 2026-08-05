@@ -1,17 +1,24 @@
 # syntax=docker/dockerfile:1.7
 
+# Trixie (Debian 13, glibc 2.41) rather than bookworm (2.36): better-sqlite3 13 ships its own
+# `prebuilds/linux-{x64,arm64}.node`, and those are linked against GLIBC_2.38. Whenever that
+# prebuild is what ends up loaded, bookworm fails to dlopen it, which surfaces at `next build`
+# as "Failed to collect page data" — the build imports src/lib/db.ts, whose module-level
+# `new Database(...)` needs a loadable binding.
+#
 # Pinned by digest for reproducible builds. To update: re-pin with
-#   docker buildx imagetools inspect node:24-bookworm-slim --format '{{.Manifest.Digest}}'
-FROM node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS base
+#   docker buildx imagetools inspect node:24-trixie-slim --format '{{.Manifest.Digest}}'
+FROM node:24-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_HOST_MODULE_ID=com.haas.project-manager
 
 FROM base AS deps
-# better-sqlite3 ships no prebuilt binary for this image, so npm falls back to
-# compiling it from source via node-gyp — which needs Python and a C++ toolchain.
-# These stay in the deps layer; the runner image receives only the traced standalone
-# bundle, so it isn't bloated by them.
+# Which of better-sqlite3's two paths wins depends on whether npm runs its `node-gyp rebuild`
+# install script (npm's allow-scripts gate skips it on some setups, e.g. the CI runner, and runs
+# it on others). Keep the toolchain so the compile path works when it is taken; the trixie base
+# above covers the case where the bundled prebuild is loaded instead. These stay in the deps
+# layer; the runner image receives only the traced standalone bundle, so it isn't bloated by them.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
