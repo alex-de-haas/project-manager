@@ -59,9 +59,9 @@ updates:
       # Cap @types/node at the Active LTS line (24), matching the Node 24 runtime used in
       # CI and the digest-pinned `node:24-trixie-slim` base image. Node 26 is still
       # "Current" (non-LTS until ~Nov 2026), so its type defs would describe a runtime we
-      # don't ship. A `versions` bound rather than a blanket major ignore on purpose: the
-      # package is still on the 20.x types, so the catch-up major to 24.x must stay
-      # reachable. Raise this bound in lockstep with the base-image pin once 26 is LTS.
+      # don't ship. A `versions` bound rather than a blanket major ignore on purpose: it
+      # caps the line without blocking movement inside it. Raise this bound in lockstep
+      # with the base-image bound below once 26 is LTS, so types and runtime move together.
       - dependency-name: "@types/node"
         versions: [">=25"]
 
@@ -69,3 +69,19 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Hold the base image on the Active LTS line (24), the counterpart to the
+      # @types/node bound above — the two must describe the same runtime. Node 25 is a
+      # "Current" release and odd majors never become LTS at all; 26 goes LTS around
+      # Nov 2026. Moving a production image onto a non-LTS line should be a deliberate
+      # decision, not a weekly automatic one, and without this bound Dependabot keeps
+      # reproposing it (#32 for 26, #55 for 25).
+      # A `versions` bound rather than semver `update-types`, which is unreliable for
+      # Docker tags carrying a non-semver suffix (`-trixie-slim`). `node:24-trixie-slim`
+      # is a rolling tag, so this blocks only the major retag; digest refreshes of the
+      # pinned tag — the reason this ecosystem is configured at all — still flow.
+      # Whenever this bound is raised, the new base has to keep the glibc floor recorded
+      # in docs/features/hosty-runtime-app/feature.md: better-sqlite3 13's prebuilds are
+      # linked against GLIBC_2.38, so trixie or newer.
+      - dependency-name: "node"
+        versions: [">=25"]
