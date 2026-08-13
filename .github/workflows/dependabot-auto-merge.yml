@@ -17,6 +17,12 @@ name: Dependabot auto-merge
 #      Note CI here is path-filtered; an SDK bump touches package.json and
 #      package-lock.json, both of which are in that filter, so the check does run.
 #
+# The merge method is a merge commit on purpose: squash merging is disallowed in this
+# repository (AGENTS.md -- it rewrites history the in-flight branches rebase onto), and
+# the repository setting enforces it, so `--squash` here does not degrade gracefully --
+# it fails the step with "Merge method squash merging is not allowed on this repository"
+# and the SDK bump waits for a human instead of auto-merging.
+#
 # Security notes: this runs on `pull_request` (never `pull_request_target`) and never
 # checks out or executes the PR's code, so the elevated permissions below are not exposed
 # to anything the branch contains. Authorship is taken from the PR author, which a branch
@@ -43,7 +49,7 @@ jobs:
 
       - name: Enable auto-merge
         if: steps.metadata.outputs.dependency-group == 'hosty-sdk'
-        run: gh pr merge --auto --squash "$PR_URL"
+        run: gh pr merge --auto --merge "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
