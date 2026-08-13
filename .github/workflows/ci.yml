@@ -20,6 +20,7 @@ on:
       - "vitest.config.ts"
       - ".github/dependabot.yml"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/dependabot-auto-merge.yml"
       - ".github/workflows/docker-publish.yml"
 
 permissions:
