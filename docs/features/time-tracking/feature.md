@@ -45,7 +45,7 @@ The grid footer shows the tracked total for each day and, below it, the running 
 
 The balance is `tracked hours - expected hours` over every day from the user's first tracked day in the active project up to, but not including, the displayed period. Tracked hours count hours logged on any day, so work on a weekend or a day off becomes surplus. Expected hours count business days at the profile day length, minus full days off and half of each half day off; days off that fall on a weekend change nothing because the expectation there is already zero.
 
-Days in the future contribute nothing to the balance. A period that has not started yet therefore carries the balance as of today instead of a deficit for days nobody could have tracked, and the running figure stays hidden on future days, weekends and full days off.
+Days before the user's first tracked day in the project contribute nothing either, so a period that ends before any time was tracked shows no deficit, and the period holding the first tracked day starts counting from that day. Days in the future contribute nothing to the balance. A period that has not started yet therefore carries the balance as of today instead of a deficit for days nobody could have tracked, and the running figure stays hidden on future days, weekends and full days off.
 
 The balance is scoped to the active project, matching the grid above it. Days off are stored per user rather than per project, so a user who tracks time on two projects has the same absence deducted in both.
 

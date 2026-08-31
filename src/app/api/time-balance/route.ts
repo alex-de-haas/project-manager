@@ -61,20 +61,51 @@ export async function GET(request: NextRequest) {
     const today = isIsoDate(requestedToday)
       ? requestedToday
       : new Date().toISOString().slice(0, 10);
-    const cutoff = resolveCutoff(asOf, today);
 
-    // The baseline is the first tracked day, so "everything before the cutoff" already *is*
-    // the balance range — the sum and the baseline come from a single index range scan.
-    // The predicates mirror the time-entry query in /api/tasks so the balance and the grid
-    // can never disagree about which entries count. `hours > 0` matters for MIN rather than
-    // SUM: a zero-hour row would drag the baseline back and charge expected hours for days
-    // the user never tracked.
+    // The user's first tracked day. It bounds the balance on the left — nobody owes hours for the
+    // days before they started tracking — and the grid needs it for the same reason, so it is
+    // reported even when it falls after the requested period. `hours > 0` matters here rather
+    // than for the sum: a zero-hour row would drag the baseline back and charge expected hours
+    // for days that were never tracked. An index seek on (user_id, date), so effectively free.
+    const firstTracked = db
+      .prepare(
+        `
+          SELECT MIN(te.date) AS first_tracked_date
+          FROM time_entries te
+          INNER JOIN work_items wi ON wi.id = te.work_item_id
+          WHERE te.user_id = ?
+            AND wi.project_id = ?
+            AND wi.type IN ('task', 'bug')
+            AND te.hours > 0
+        `
+      )
+      .get(userId, projectId) as { first_tracked_date: string | null };
+
+    const firstTrackedDate = firstTracked.first_tracked_date;
+    const range = resolveBalanceRange(asOf, today, firstTrackedDate);
+    const dayLength = resolveDayLength(userId, projectId);
+
+    if (!range) {
+      const empty: TimeBalance = {
+        asOf,
+        baselineDate: null,
+        firstTrackedDate,
+        openingBalance: 0,
+        trackedHours: 0,
+        expectedHours: 0,
+        dayLength,
+      };
+      return NextResponse.json(empty);
+    }
+
+    // The baseline is the first tracked day, so "everything before the cutoff" already *is* the
+    // balance range: one index range scan, no rows crossing the wire. The predicates mirror the
+    // time-entry query in /api/tasks so the balance and the grid can never disagree about which
+    // entries count.
     const tracked = db
       .prepare(
         `
-          SELECT
-            COALESCE(SUM(te.hours), 0) AS tracked_hours,
-            MIN(te.date) AS baseline_date
+          SELECT COALESCE(SUM(te.hours), 0) AS tracked_hours
           FROM time_entries te
           INNER JOIN work_items wi ON wi.id = te.work_item_id
           WHERE te.user_id = ?
@@ -84,25 +115,7 @@ export async function GET(request: NextRequest) {
             AND te.date < ?
         `
       )
-      .get(userId, projectId, cutoff) as {
-      tracked_hours: number;
-      baseline_date: string | null;
-    };
-
-    const range = resolveBalanceRange(asOf, today, tracked.baseline_date);
-    const dayLength = resolveDayLength(userId, projectId);
-
-    if (!range) {
-      const empty: TimeBalance = {
-        asOf,
-        baselineDate: null,
-        openingBalance: 0,
-        trackedHours: 0,
-        expectedHours: 0,
-        dayLength,
-      };
-      return NextResponse.json(empty);
-    }
+      .get(userId, projectId, range.endExclusive) as { tracked_hours: number };
 
     // Day-offs that fall on a weekend are excluded here rather than in JS: the expectation for
     // those days is already zero, so subtracting them would invent a surplus.
@@ -134,6 +147,7 @@ export async function GET(request: NextRequest) {
     const balance: TimeBalance = {
       asOf,
       baselineDate: range.startInclusive,
+      firstTrackedDate,
       openingBalance: roundHours(tracked.tracked_hours - expectedHours),
       trackedHours: roundHours(tracked.tracked_hours),
       expectedHours: roundHours(expectedHours),

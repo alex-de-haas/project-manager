@@ -100,3 +100,60 @@ export const computeExpectedHours = ({
   const workedDays = businessDays - fullDayOffs - halfDayOffs * 0.5;
   return Math.max(workedDays, 0) * dayLength;
 };
+
+export interface OvertimeDay {
+  /** Calendar day as YYYY-MM-DD. */
+  key: string;
+  isWeekend: boolean;
+  isDayOff: boolean;
+  isHalfDay: boolean;
+  actualHours: number;
+}
+
+export interface AccumulateOvertimeInput {
+  days: OvertimeDay[];
+  /** Balance carried into the first day of the range. */
+  openingBalance: number;
+  /** The user's first tracked day; days before it are outside the balance entirely. */
+  firstTrackedDate: string | null;
+  todayKey: string;
+  dayLength: number;
+}
+
+/**
+ * Running balance for each day of a period, continuing from `openingBalance`.
+ *
+ * The three days that contribute nothing are the same three the server leaves out of the opening
+ * balance it hands back for the next period: days after today, days before the user ever tracked
+ * anything, and the expectation-free part of weekends and days off. Keeping the two in step is
+ * what makes the last figure of one period equal the balance the next period opens with.
+ */
+export const accumulateOvertime = ({
+  days,
+  openingBalance,
+  firstTrackedDate,
+  todayKey,
+  dayLength,
+}: AccumulateOvertimeInput): number[] => {
+  let cumulative = openingBalance;
+
+  return days.map((day) => {
+    if (day.key > todayKey) {
+      return cumulative;
+    }
+    if (!firstTrackedDate || day.key < firstTrackedDate) {
+      return cumulative;
+    }
+
+    const expectedHours = day.isWeekend
+      ? 0
+      : day.isDayOff
+      ? day.isHalfDay
+        ? dayLength / 2
+        : 0
+      : dayLength;
+
+    cumulative += day.actualHours - expectedHours;
+    return cumulative;
+  });
+};

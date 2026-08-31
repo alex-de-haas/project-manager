@@ -18,6 +18,14 @@ import {
   parseISO,
 } from "date-fns";
 import type { TaskWithTimeEntries, DayOff, Blocker, TimeBalance } from "@/types";
+import { accumulateOvertime } from "@/lib/time-balance";
+
+interface PeriodBalance {
+  openingBalance: number;
+  firstTrackedDate: string | null;
+}
+
+const EMPTY_PERIOD_BALANCE: PeriodBalance = { openingBalance: 0, firstTrackedDate: null };
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -550,9 +558,9 @@ export default function Home() {
   const [projectRequired, setProjectRequired] = useState(false);
   const [defaultDayLength, setDefaultDayLength] = useState<number | null>(null);
   const [defaultDayLengthLoading, setDefaultDayLengthLoading] = useState(true);
-  const [openingBalance, setOpeningBalance] = useState(0);
-  // Opening balances already fetched, keyed by period start.
-  const balanceCacheRef = useRef(new Map<string, number>());
+  const [balance, setBalance] = useState<PeriodBalance>(EMPTY_PERIOD_BALANCE);
+  // Balances already fetched, keyed by period start.
+  const balanceCacheRef = useRef(new Map<string, PeriodBalance>());
   const expectedDayLength = defaultDayLength ?? 0;
   
   // Initialize state from localStorage
@@ -706,8 +714,8 @@ export default function Home() {
   // with, so stepping back and forth between two months costs one request, not one per step.
   const fetchTimeBalance = useCallback(async (signal?: AbortSignal) => {
     const cached = balanceCacheRef.current.get(dateRange.startDate);
-    if (cached !== undefined) {
-      setOpeningBalance(cached);
+    if (cached) {
+      setBalance(cached);
       return;
     }
 
@@ -719,21 +727,25 @@ export default function Home() {
       if (!response.ok) {
         // No active project yet — fetchTasks already surfaces that state to the user.
         if (response.status === 400 || response.status === 403 || response.status === 404) {
-          setOpeningBalance(0);
+          setBalance(EMPTY_PERIOD_BALANCE);
           return;
         }
         throw new Error("Failed to fetch the time balance");
       }
       const data = (await response.json()) as TimeBalance;
-      balanceCacheRef.current.set(dateRange.startDate, data.openingBalance);
-      setOpeningBalance(data.openingBalance);
+      const periodBalance: PeriodBalance = {
+        openingBalance: data.openingBalance,
+        firstTrackedDate: data.firstTrackedDate,
+      };
+      balanceCacheRef.current.set(dateRange.startDate, periodBalance);
+      setBalance(periodBalance);
     } catch (err) {
       if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
         return;
       }
       // A missing balance must not blank the grid: fall back to a period that starts at zero.
       console.error("Failed to load the time balance:", err);
-      setOpeningBalance(0);
+      setBalance(EMPTY_PERIOD_BALANCE);
     }
   }, [dateRange, todayKey]);
 
@@ -1098,28 +1110,21 @@ export default function Home() {
   // Calculate cumulative overwork time for each day, continuing from the balance carried in
   // from every earlier tracked day instead of restarting at zero on the first day of the period.
   const cumulativeOverwork = useMemo(
-    () => {
-      let cumulative = openingBalance;
-      return calendarDays.map((day, index) => {
-        // Future days contribute nothing: the balance is defined as of min(day, today), which is
-        // exactly how the server computes the opening balance of the following period. Comparing
-        // date keys keeps both sides on the same calendar day.
-        if (day.key > todayKey) {
-          return cumulative;
-        }
-        const actualHours = allTotalHoursByDay[index];
-        // Only count expected hours for workdays (half-day entries count as half)
-        const expectedHours = day.isWeekend
-          ? 0
-          : day.isDayOff
-          ? (day.isHalfDay ? expectedDayLength / 2 : 0)
-          : expectedDayLength;
-        const dailyDifference = actualHours - expectedHours;
-        cumulative += dailyDifference;
-        return cumulative;
-      });
-    },
-    [calendarDays, allTotalHoursByDay, expectedDayLength, openingBalance, todayKey]
+    () =>
+      accumulateOvertime({
+        days: calendarDays.map((day, index) => ({
+          key: day.key,
+          isWeekend: day.isWeekend,
+          isDayOff: day.isDayOff,
+          isHalfDay: day.isHalfDay,
+          actualHours: allTotalHoursByDay[index],
+        })),
+        openingBalance: balance.openingBalance,
+        firstTrackedDate: balance.firstTrackedDate,
+        todayKey,
+        dayLength: expectedDayLength,
+      }),
+    [calendarDays, allTotalHoursByDay, expectedDayLength, balance, todayKey]
   );
 
   const toggleStatusVisibility = (status: string) => {
@@ -1268,7 +1273,11 @@ export default function Home() {
 
       if (!response.ok) throw new Error("Failed to delete task");
 
-      await fetchTasks();
+      // Deleting a work item cascades to its time entries, which can sit anywhere in the
+      // history, so every cached balance is suspect — drop them all and refetch.
+      balanceCacheRef.current.clear();
+
+      await Promise.all([fetchTasks(), fetchTimeBalance()]);
       setPendingDeleteTask(null);
       toast.success("Task deleted successfully");
     } catch (err) {
@@ -1693,16 +1702,16 @@ export default function Home() {
                 <span>Carried over:</span>
                 <span
                   className={`font-semibold ${
-                    openingBalance > 0
+                    balance.openingBalance > 0
                       ? "text-green-600 dark:text-green-400"
-                      : openingBalance < 0
+                      : balance.openingBalance < 0
                       ? "text-red-600 dark:text-red-400"
                       : "text-foreground"
                   }`}
                 >
-                  {openingBalance > 0 ? "+" : openingBalance < 0 ? "-" : ""}
-                  {openingBalance !== 0
-                    ? formatTimeDisplay(Math.abs(openingBalance))
+                  {balance.openingBalance > 0 ? "+" : balance.openingBalance < 0 ? "-" : ""}
+                  {balance.openingBalance !== 0
+                    ? formatTimeDisplay(Math.abs(balance.openingBalance))
                     : "0:00"}
                 </span>
               </div>
