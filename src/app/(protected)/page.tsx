@@ -621,6 +621,10 @@ export default function Home() {
   const statusFilterLabel = isStatusFilterActive
     ? "Filter status active"
     : "Filter status";
+  // Recomputed every render so it self-heals across midnight, but stable as a string, so it can
+  // be a dependency without causing refetches. Every "is this day in the future?" decision on the
+  // page — and the cutoff the server applies — goes through this one value.
+  const todayKey = format(new Date(), "yyyy-MM-dd");
   const dateRange = useMemo(() => {
     if (viewMode === "week") {
       return {
@@ -708,7 +712,10 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch(`/api/time-balance?asOf=${dateRange.startDate}`, { signal });
+      const response = await fetch(
+        `/api/time-balance?asOf=${dateRange.startDate}&today=${todayKey}`,
+        { signal }
+      );
       if (!response.ok) {
         // No active project yet — fetchTasks already surfaces that state to the user.
         if (response.status === 400 || response.status === 403 || response.status === 404) {
@@ -728,7 +735,7 @@ export default function Home() {
       console.error("Failed to load the time balance:", err);
       setOpeningBalance(0);
     }
-  }, [dateRange]);
+  }, [dateRange, todayKey]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -1092,12 +1099,12 @@ export default function Home() {
   // from every earlier tracked day instead of restarting at zero on the first day of the period.
   const cumulativeOverwork = useMemo(
     () => {
-      const now = new Date();
       let cumulative = openingBalance;
       return calendarDays.map((day, index) => {
         // Future days contribute nothing: the balance is defined as of min(day, today), which is
-        // exactly how the server computes the opening balance of the following period.
-        if (day.date > now) {
+        // exactly how the server computes the opening balance of the following period. Comparing
+        // date keys keeps both sides on the same calendar day.
+        if (day.key > todayKey) {
           return cumulative;
         }
         const actualHours = allTotalHoursByDay[index];
@@ -1112,7 +1119,7 @@ export default function Home() {
         return cumulative;
       });
     },
-    [calendarDays, allTotalHoursByDay, expectedDayLength, openingBalance]
+    [calendarDays, allTotalHoursByDay, expectedDayLength, openingBalance, todayKey]
   );
 
   const toggleStatusVisibility = (status: string) => {
@@ -2255,7 +2262,7 @@ export default function Home() {
                 {calendarDays.map((day, index) => {
                   const allTotal = allTotalHoursByDay[index];
                   const overwork = cumulativeOverwork[index];
-                  const isFuture = day.date > new Date();
+                  const isFuture = day.key > todayKey;
                   const showOverwork = !day.isWeekend && (!day.isDayOff || day.isHalfDay) && !isFuture && overwork !== 0;
                   
                   const cellClass = day.isToday

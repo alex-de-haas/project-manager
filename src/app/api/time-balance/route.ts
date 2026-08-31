@@ -44,7 +44,8 @@ export async function GET(request: NextRequest) {
   try {
     const userId = getRequestUserId(request);
     const projectId = getRequestProjectId(request, userId);
-    const asOf = request.nextUrl.searchParams.get("asOf");
+    const searchParams = request.nextUrl.searchParams;
+    const asOf = searchParams.get("asOf");
 
     if (!isIsoDate(asOf)) {
       return NextResponse.json(
@@ -53,13 +54,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    // "Today" has to be the caller's calendar day, not the server's: the grid hides future days
+    // by the browser's clock, and a server in another time zone would cap the range a day off.
+    // The value only caps this user's own range, so an implausible one costs them nothing.
+    const requestedToday = searchParams.get("today");
+    const today = isIsoDate(requestedToday)
+      ? requestedToday
+      : new Date().toISOString().slice(0, 10);
     const cutoff = resolveCutoff(asOf, today);
 
     // The baseline is the first tracked day, so "everything before the cutoff" already *is*
     // the balance range — the sum and the baseline come from a single index range scan.
     // The predicates mirror the time-entry query in /api/tasks so the balance and the grid
-    // can never disagree about which entries count.
+    // can never disagree about which entries count. `hours > 0` matters for MIN rather than
+    // SUM: a zero-hour row would drag the baseline back and charge expected hours for days
+    // the user never tracked.
     const tracked = db
       .prepare(
         `
@@ -71,6 +80,7 @@ export async function GET(request: NextRequest) {
           WHERE te.user_id = ?
             AND wi.project_id = ?
             AND wi.type IN ('task', 'bug')
+            AND te.hours > 0
             AND te.date < ?
         `
       )
