@@ -125,6 +125,20 @@ export interface DayOff {
   created_at: Date;
 }
 
+export interface TimeBalance {
+  /** Period start the balance was computed for (YYYY-MM-DD). */
+  asOf: string;
+  /** First tracked day counted, or null when the range is empty. */
+  baselineDate: string | null;
+  /** The user's first tracked day in the project, even when it falls after `asOf`. */
+  firstTrackedDate: string | null;
+  /** Overtime carried into the period: tracked hours minus expected hours. */
+  openingBalance: number;
+  trackedHours: number;
+  expectedHours: number;
+  dayLength: number;
+}
+
 export interface Release {
   id: number;
   user_id?: number;

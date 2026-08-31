@@ -1,7 +1,7 @@
 # Time Tracking
 
 Created: 2026-05-26
-Updated: 2026-06-12
+Updated: 2026-08-31
 
 ## Overview
 
@@ -39,6 +39,20 @@ Expected-hour calculations use the current user's profile work schedule for the 
 
 Completed work items with no period time remain hidden from the grid so old closed work does not clutter current tracking.
 
+## Overtime Balance
+
+The grid footer shows the tracked total for each day and, below it, the running overtime balance as of that day. The balance is cumulative and continues across periods: the first day of a week or month starts from the balance carried in from every earlier tracked day rather than from zero. A header chip states the carried-in balance for the displayed period.
+
+The balance is `tracked hours - expected hours` over every day from the user's first tracked day in the active project up to, but not including, the displayed period. Tracked hours count hours logged on any day, so work on a weekend or a day off becomes surplus. Expected hours count business days at the profile day length, minus full days off and half of each half day off; days off that fall on a weekend change nothing because the expectation there is already zero.
+
+Days before the user's first tracked day in the project contribute nothing either, so a period that ends before any time was tracked shows no deficit, and the period holding the first tracked day starts counting from that day. Days in the future contribute nothing to the balance. A period that has not started yet therefore carries the balance as of today instead of a deficit for days nobody could have tracked, and the running figure stays hidden on future days, weekends and full days off.
+
+The balance is scoped to the active project, matching the grid above it. Days off are stored per user rather than per project, so a user who tracks time on two projects has the same absence deducted in both.
+
+The day length has no history: `default_day_length` holds one current value per user and project, so changing it re-prices every past day and shifts the whole balance. There is no balance start date and no manual adjustment — a wrong balance is corrected by fixing the underlying time entries.
+
+Computing the balance never loads historical time entries into the browser. One request per period start returns a single aggregated scalar, and the day count behind the expectation is arithmetic rather than a walk over the calendar, so the cost does not grow with the length of the history.
+
 ## Refresh
 
 When the user clicks **Refresh**, Project Manager refreshes only linked Azure DevOps work items currently visible on the Time Management page for the selected week or month.
@@ -66,3 +80,12 @@ When a work item is linked to Azure DevOps, Project Manager first validates and 
 ## Export
 
 Monthly Excel export includes Time Management work items for the current user only. User stories and project tasks or bugs that have not been added to the user's Time Management list are not exported as time rows.
+
+Only work items with tracked time in the exported period are included. A task or bug that overlaps the period but holds no hours in it is left out regardless of status, so the sheet never carries zero rows.
+
+## Testing Expectations
+
+- Business-day counting over ranges that start or end on a weekend, cross month and year boundaries, or are empty.
+- Expected hours with full days off, half days off, and days off that fall on a weekend.
+- Balance range resolution for a past period, a period that starts in the future, and a user with no tracked history.
+- Balance arithmetic for an empty history, weekend-only work, and a deficit.

@@ -8,7 +8,6 @@ import {
 } from '@/lib/user-context';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getAzureDevOpsProjectSettings } from '@/lib/azure-devops/settings';
-import { displayWorkItemStatus } from '@/lib/work-items';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -46,7 +45,9 @@ export async function GET(request: NextRequest) {
     // Fetch Azure DevOps settings for building links
     const azureSettings = getAzureDevOpsProjectSettings(projectId);
 
-    // Fetch tasks that overlap with the selected period
+    // Fetch the work items that actually hold time in the selected period. A time export only
+    // carries rows that carry hours: an item that merely overlaps the period would export as a
+    // zero that says nothing, so it is filtered here rather than after loading it.
     const tasks = db.prepare(`
       SELECT
         wi.*,
@@ -62,20 +63,17 @@ export async function GET(request: NextRequest) {
         WHERE tti.project_id = ?
           AND tti.user_id = ?
           AND wi.type IN ('task', 'bug')
-          AND (
-            (DATE(wi.created_at) <= ? AND (wi.completed_at IS NULL OR DATE(wi.completed_at) >= ?))
-            OR EXISTS (
-              SELECT 1
-              FROM time_entries te_scope
-              WHERE te_scope.work_item_id = wi.id
-                AND te_scope.user_id = ?
-                AND te_scope.date >= ?
-                AND te_scope.date <= ?
+          AND EXISTS (
+            SELECT 1
+            FROM time_entries te_scope
+            WHERE te_scope.work_item_id = wi.id
+              AND te_scope.user_id = ?
+              AND te_scope.date >= ?
+              AND te_scope.date <= ?
               AND te_scope.hours > 0
-            )
           )
         ORDER BY COALESCE(tti.display_order, 999999), tti.created_at ASC
-    `).all(projectId, userId, endDate, startDate, userId, startDate, endDate) as Task[];
+    `).all(projectId, userId, userId, startDate, endDate) as Task[];
 
     const timeEntries = db.prepare(
       `SELECT te.work_item_id, te.date, te.hours
@@ -97,17 +95,6 @@ export async function GET(request: NextRequest) {
     timeEntries.forEach(entry => {
       const current = taskHours.get(entry.work_item_id) || 0;
       taskHours.set(entry.work_item_id, current + entry.hours);
-    });
-
-    // Filter out completed tasks (Resolved/Closed) without tracked time in the period
-    const completedStatuses = ['Resolved', 'Closed'];
-    const filteredTasks = tasks.filter(task => {
-      const status = displayWorkItemStatus(task.status);
-      if (completedStatuses.includes(status)) {
-        const totalHours = taskHours.get(task.id) || 0;
-        return totalHours > 0;
-      }
-      return true;
     });
 
     // Create workbook
@@ -135,7 +122,7 @@ export async function GET(request: NextRequest) {
     };
 
     // Add data rows
-    filteredTasks.forEach(task => {
+    tasks.forEach(task => {
       const totalHours = taskHours.get(task.id) || 0;
       
       // Build Azure DevOps link if applicable

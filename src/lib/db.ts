@@ -377,6 +377,7 @@ const initDb = () => {
     CREATE INDEX IF NOT EXISTS idx_provider_user_identities_project_provider ON provider_user_identities(project_id, provider);
     CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(date);
     CREATE INDEX IF NOT EXISTS idx_time_entries_work_item_date ON time_entries(work_item_id, user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_time_entries_user_date ON time_entries(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_time_tracking_items_user_project_order ON time_tracking_items(user_id, project_id, display_order);
     CREATE INDEX IF NOT EXISTS idx_time_tracking_items_work_item_id ON time_tracking_items(work_item_id);
     CREATE INDEX IF NOT EXISTS idx_settings_user_project_key ON settings(user_id, project_id, key);

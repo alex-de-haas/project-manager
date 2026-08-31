@@ -17,7 +17,15 @@ import {
   isSunday,
   parseISO,
 } from "date-fns";
-import type { TaskWithTimeEntries, DayOff, Blocker } from "@/types";
+import type { TaskWithTimeEntries, DayOff, Blocker, TimeBalance } from "@/types";
+import { accumulateOvertime } from "@/lib/time-balance";
+
+interface PeriodBalance {
+  openingBalance: number;
+  firstTrackedDate: string | null;
+}
+
+const EMPTY_PERIOD_BALANCE: PeriodBalance = { openingBalance: 0, firstTrackedDate: null };
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -550,6 +558,9 @@ export default function Home() {
   const [projectRequired, setProjectRequired] = useState(false);
   const [defaultDayLength, setDefaultDayLength] = useState<number | null>(null);
   const [defaultDayLengthLoading, setDefaultDayLengthLoading] = useState(true);
+  const [balance, setBalance] = useState<PeriodBalance>(EMPTY_PERIOD_BALANCE);
+  // Balances already fetched, keyed by period start.
+  const balanceCacheRef = useRef(new Map<string, PeriodBalance>());
   const expectedDayLength = defaultDayLength ?? 0;
   
   // Initialize state from localStorage
@@ -618,6 +629,10 @@ export default function Home() {
   const statusFilterLabel = isStatusFilterActive
     ? "Filter status active"
     : "Filter status";
+  // Recomputed every render so it self-heals across midnight, but stable as a string, so it can
+  // be a dependency without causing refetches. Every "is this day in the future?" decision on the
+  // page — and the cutoff the server applies — goes through this one value.
+  const todayKey = format(new Date(), "yyyy-MM-dd");
   const dateRange = useMemo(() => {
     if (viewMode === "week") {
       return {
@@ -692,6 +707,47 @@ export default function Home() {
       console.error("Failed to load days off:", err);
     }
   }, [dateRange]);
+
+  // Overtime carried into the displayed period. It spans the user's whole history, so it is
+  // never derived from loaded rows — the server answers with a single scalar. Cached per period
+  // start: an edit inside the displayed period cannot change the balance that period opened
+  // with, so stepping back and forth between two months costs one request, not one per step.
+  const fetchTimeBalance = useCallback(async (signal?: AbortSignal) => {
+    const cached = balanceCacheRef.current.get(dateRange.startDate);
+    if (cached) {
+      setBalance(cached);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/time-balance?asOf=${dateRange.startDate}&today=${todayKey}`,
+        { signal }
+      );
+      if (!response.ok) {
+        // No active project yet — fetchTasks already surfaces that state to the user.
+        if (response.status === 400 || response.status === 403 || response.status === 404) {
+          setBalance(EMPTY_PERIOD_BALANCE);
+          return;
+        }
+        throw new Error("Failed to fetch the time balance");
+      }
+      const data = (await response.json()) as TimeBalance;
+      const periodBalance: PeriodBalance = {
+        openingBalance: data.openingBalance,
+        firstTrackedDate: data.firstTrackedDate,
+      };
+      balanceCacheRef.current.set(dateRange.startDate, periodBalance);
+      setBalance(periodBalance);
+    } catch (err) {
+      if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+        return;
+      }
+      // A missing balance must not blank the grid: fall back to a period that starts at zero.
+      console.error("Failed to load the time balance:", err);
+      setBalance(EMPTY_PERIOD_BALANCE);
+    }
+  }, [dateRange, todayKey]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -802,6 +858,12 @@ export default function Home() {
     fetchDayOffs(controller.signal);
     return () => controller.abort();
   }, [fetchDayOffs]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchTimeBalance(controller.signal);
+    return () => controller.abort();
+  }, [fetchTimeBalance]);
 
   // Fetch the current user's work-day length for the active project.
   useEffect(() => {
@@ -1045,24 +1107,24 @@ export default function Home() {
     }, 0);
   }, [viewMode, calendarDays, expectedDayLength]);
 
-  // Calculate cumulative overwork time for each day (incrementing from start of month)
+  // Calculate cumulative overwork time for each day, continuing from the balance carried in
+  // from every earlier tracked day instead of restarting at zero on the first day of the period.
   const cumulativeOverwork = useMemo(
-    () => {
-      let cumulative = 0;
-      return calendarDays.map((day, index) => {
-        const actualHours = allTotalHoursByDay[index];
-        // Only count expected hours for workdays (half-day entries count as half)
-        const expectedHours = day.isWeekend
-          ? 0
-          : day.isDayOff
-          ? (day.isHalfDay ? expectedDayLength / 2 : 0)
-          : expectedDayLength;
-        const dailyDifference = actualHours - expectedHours;
-        cumulative += dailyDifference;
-        return cumulative;
-      });
-    },
-    [calendarDays, allTotalHoursByDay, expectedDayLength]
+    () =>
+      accumulateOvertime({
+        days: calendarDays.map((day, index) => ({
+          key: day.key,
+          isWeekend: day.isWeekend,
+          isDayOff: day.isDayOff,
+          isHalfDay: day.isHalfDay,
+          actualHours: allTotalHoursByDay[index],
+        })),
+        openingBalance: balance.openingBalance,
+        firstTrackedDate: balance.firstTrackedDate,
+        todayKey,
+        dayLength: expectedDayLength,
+      }),
+    [calendarDays, allTotalHoursByDay, expectedDayLength, balance, todayKey]
   );
 
   const toggleStatusVisibility = (status: string) => {
@@ -1107,6 +1169,13 @@ export default function Home() {
       });
 
       if (!response.ok) throw new Error("Failed to save time entry");
+
+      // Only later periods can shift: the displayed period opened before this day.
+      for (const cachedPeriodStart of Array.from(balanceCacheRef.current.keys())) {
+        if (cachedPeriodStart > editingCell.date) {
+          balanceCacheRef.current.delete(cachedPeriodStart);
+        }
+      }
 
       await fetchTasks();
       setEditingCell(null);
@@ -1204,7 +1273,11 @@ export default function Home() {
 
       if (!response.ok) throw new Error("Failed to delete task");
 
-      await fetchTasks();
+      // Deleting a work item cascades to its time entries, which can sit anywhere in the
+      // history, so every cached balance is suspect — drop them all and refetch.
+      balanceCacheRef.current.clear();
+
+      await Promise.all([fetchTasks(), fetchTimeBalance()]);
       setPendingDeleteTask(null);
       toast.success("Task deleted successfully");
     } catch (err) {
@@ -1621,6 +1694,27 @@ export default function Home() {
                   </span>
                 </div>
               )}
+
+              <div
+                className="ml-1 flex h-10 items-center gap-1 rounded-md border px-3 text-sm text-muted-foreground"
+                title="Overtime carried into this period from every earlier tracked day"
+              >
+                <span>Carried over:</span>
+                <span
+                  className={`font-semibold ${
+                    balance.openingBalance > 0
+                      ? "text-green-600 dark:text-green-400"
+                      : balance.openingBalance < 0
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-foreground"
+                  }`}
+                >
+                  {balance.openingBalance > 0 ? "+" : balance.openingBalance < 0 ? "-" : ""}
+                  {balance.openingBalance !== 0
+                    ? formatTimeDisplay(Math.abs(balance.openingBalance))
+                    : "0:00"}
+                </span>
+              </div>
             </div>
           </TooltipProvider>
         </div>
@@ -2177,7 +2271,7 @@ export default function Home() {
                 {calendarDays.map((day, index) => {
                   const allTotal = allTotalHoursByDay[index];
                   const overwork = cumulativeOverwork[index];
-                  const isFuture = day.date > new Date();
+                  const isFuture = day.key > todayKey;
                   const showOverwork = !day.isWeekend && (!day.isDayOff || day.isHalfDay) && !isFuture && overwork !== 0;
                   
                   const cellClass = day.isToday
