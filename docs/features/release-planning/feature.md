@@ -1,7 +1,7 @@
 # Release Planning
 
 Created: 2026-05-30
-Updated: 2026-06-12
+Updated: 2026-09-04
 
 ## Overview
 
@@ -11,7 +11,7 @@ Release Planning requires an active Project Manager project. When no project exi
 
 ## Release Items
 
-Release membership is stored separately from work item identity. A release item links a release to a canonical work item and stores release-specific order and notes.
+Release membership is stored separately from work item identity. A release item links a release to a canonical work item and stores the release-specific display order.
 
 Release items can reference:
 
@@ -24,6 +24,11 @@ Release items can reference:
 User stories are Project Manager work items with type `user_story`. They are planning items and do not appear in Time Management.
 
 Users can create local user stories from the release planner dialog. User story descriptions support Markdown and are stored on the canonical work item.
+
+The Notes column shows the [work item note](../work-item-notes/feature.md), rendered as
+Markdown. The note belongs to the work item rather than to the release item, so moving a
+user story to another release keeps its note, and the same text is visible wherever the
+work item appears.
 
 Azure DevOps user story imports create or link local Project Manager user story records and attach them to the selected release. Imported user stories keep provider identity in `work_item_external_links`.
 
@@ -46,3 +51,10 @@ Release Planning refresh updates linked provider user stories and fetches curren
 Blockers can be attached to any work item type. Release Planning exposes blockers for release items so blocked planning work is visible during release review.
 
 Local status changes use Project Manager workflow gates. Status updates received from Azure DevOps refresh are accepted as provider state and stored with provider diagnostics, even if they would not have passed a local workflow gate.
+
+## Testing Expectations
+
+- Saving a note from Release Planning updates the work item, including a work item that
+  is linked to Azure DevOps.
+- A note saved from Release Planning is scoped to the active project and cannot reach a
+  work item in another project.

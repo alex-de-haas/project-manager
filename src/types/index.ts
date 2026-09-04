@@ -28,6 +28,8 @@ export interface WorkItem {
   project_id: number;
   title: string;
   description?: string | null;
+  /** Internal Markdown note. Never sent to an integration provider. */
+  notes?: string | null;
   type: WorkItemType;
   status: WorkItemStatus;
   tags?: string | null;

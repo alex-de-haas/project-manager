@@ -208,6 +208,7 @@ export default function ReleaseTrackingPage() {
   const [selectedWorkItemToMove, setSelectedWorkItemToMove] = useState<ReleaseWorkItem | null>(null);
   const [selectedTargetReleaseId, setSelectedTargetReleaseId] = useState<string>("");
   const [showNotesDialog, setShowNotesDialog] = useState<{
+    releaseItemId: number;
     workItemId: number;
     workItemTitle: string;
   } | null>(null);
@@ -735,7 +736,8 @@ export default function ReleaseTrackingPage() {
 
   const handleOpenNotesDialog = (item: ReleaseWorkItem) => {
     setShowNotesDialog({
-      workItemId: item.id,
+      releaseItemId: item.id,
+      workItemId: Number(item.work_item_id ?? item.id),
       workItemTitle: item.title,
     });
     setNotesDraft(item.notes ?? "");
@@ -744,14 +746,15 @@ export default function ReleaseTrackingPage() {
   const handleSaveNotes = async () => {
     if (!showNotesDialog) return;
 
-    const workItemId = showNotesDialog.workItemId;
-    setNotesSavingWorkItemId(workItemId);
+    const { releaseItemId, workItemId } = showNotesDialog;
+    setNotesSavingWorkItemId(releaseItemId);
 
     try {
-      const response = await fetch(`/api/releases/work-items/${workItemId}`, {
+      const response = await fetch("/api/work-items/notes", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          workItemId,
           notes: notesDraft,
         }),
       });
@@ -764,7 +767,7 @@ export default function ReleaseTrackingPage() {
       const normalizedNotes = notesDraft.trim();
       setWorkItems((previous) =>
         previous.map((item) =>
-          item.id === workItemId
+          Number(item.work_item_id ?? item.id) === workItemId
             ? {
                 ...item,
                 notes: normalizedNotes.length > 0 ? normalizedNotes : null,
@@ -780,7 +783,7 @@ export default function ReleaseTrackingPage() {
       toast.error(message);
     } finally {
       setNotesSavingWorkItemId((current) =>
-        current === workItemId ? null : current
+        current === releaseItemId ? null : current
       );
     }
   };
@@ -2020,18 +2023,10 @@ export default function ReleaseTrackingPage() {
                               </td>
                               <td className="py-1.5 px-3 align-top">
                                 {item.notes ? (
-                                  <p
-                                    className="text-sm text-foreground break-words whitespace-pre-wrap"
-                                    style={{
-                                      display: "-webkit-box",
-                                      WebkitLineClamp: 3,
-                                      WebkitBoxOrient: "vertical",
-                                      overflow: "hidden",
-                                    }}
-                                    title={item.notes}
-                                  >
-                                    {item.notes}
-                                  </p>
+                                  <MarkdownContent
+                                    content={item.notes}
+                                    className="max-h-24 overflow-y-auto break-words"
+                                  />
                                 ) : (
                                   <span className="text-muted-foreground text-sm">-</span>
                                 )}
@@ -2283,7 +2278,7 @@ export default function ReleaseTrackingPage() {
           <DialogContent className="sm:max-w-[520px]">
             <DialogHeader>
               <DialogTitle>
-                {workItems.find((item) => item.id === showNotesDialog.workItemId)?.notes
+                {workItems.find((item) => item.id === showNotesDialog.releaseItemId)?.notes
                   ? "Edit note"
                   : "Add note"}
               </DialogTitle>
@@ -2293,6 +2288,10 @@ export default function ReleaseTrackingPage() {
             </DialogHeader>
             <div className="space-y-2">
               <Label htmlFor="work-item-notes">Notes</Label>
+              <p className="text-xs text-muted-foreground">
+                Markdown is supported. Notes stay in Project Manager and are never sent
+                to Azure DevOps.
+              </p>
               <textarea
                 id="work-item-notes"
                 value={notesDraft}
@@ -2309,16 +2308,16 @@ export default function ReleaseTrackingPage() {
                   setShowNotesDialog(null);
                   setNotesDraft("");
                 }}
-                disabled={notesSavingWorkItemId === showNotesDialog.workItemId}
+                disabled={notesSavingWorkItemId === showNotesDialog.releaseItemId}
               >
                 Cancel
               </Button>
               <Button
                 type="button"
                 onClick={() => void handleSaveNotes()}
-                disabled={notesSavingWorkItemId === showNotesDialog.workItemId}
+                disabled={notesSavingWorkItemId === showNotesDialog.releaseItemId}
               >
-                {notesSavingWorkItemId === showNotesDialog.workItemId
+                {notesSavingWorkItemId === showNotesDialog.releaseItemId
                   ? "Saving..."
                   : "Save"}
               </Button>

@@ -1,7 +1,7 @@
 # Time Tracking
 
 Created: 2026-05-26
-Updated: 2026-08-31
+Updated: 2026-09-04
 
 ## Overview
 
@@ -20,10 +20,18 @@ Trackable work item rows include:
 - Project Manager type: task or bug.
 - Normalized status displayed with user-friendly labels.
 - Optional Markdown description preview.
+- Optional [work item note](../work-item-notes/feature.md) preview.
 - Optional tags from provider metadata.
 - Checklist progress when checklist items exist.
 - Active blocker count and highest-severity blocker highlighting.
 - Linked provider metadata when the item is synchronized with Azure DevOps.
+
+## Notes
+
+The row menu opens an Add note or Edit note dialog for the work item note, and a badge
+beside the description badge previews the saved note as rendered Markdown. Unlike title,
+type and description, the note stays editable on Azure DevOps-linked rows, because it is
+local context that no integration reads or writes.
 
 ## Import
 
@@ -89,3 +97,5 @@ Only work items with tracked time in the exported period are included. A task or
 - Expected hours with full days off, half days off, and days off that fall on a weekend.
 - Balance range resolution for a past period, a period that starts in the future, and a user with no tracked history.
 - Balance arithmetic for an empty history, weekend-only work, and a deficit.
+- Saving a note from Time Management updates the work item, including a work item that
+  is linked to Azure DevOps, and clearing the text removes the note.

@@ -1,7 +1,7 @@
 # Azure DevOps Integration
 
 Created: 2026-05-23
-Updated: 2026-06-12
+Updated: 2026-09-04
 
 ## Overview
 
@@ -25,6 +25,7 @@ Project Manager remains the local source of truth for its own work item records.
 - Map Azure DevOps assignees to Project Manager users when provider identities are known.
 - Preserve Azure DevOps assignee snapshots when the assignee is not a Project Manager user.
 - Export local tasks and bugs to Azure DevOps, including Markdown descriptions.
+- Keep [work item notes](../work-item-notes/feature.md) out of every Azure DevOps request.
 - Export creates Azure DevOps work items first, then applies the current Project Manager status in a separate state update so process rules can run on the newly created work item.
 - Synchronize local status and assignment changes back to Azure DevOps when permissions and process rules allow it.
 - Preserve local status changes and mark sync failures when Azure DevOps updates fail.
@@ -55,6 +56,25 @@ Azure DevOps work item types are mapped into Project Manager types:
 - Bug maps to `bug`.
 
 Provider-native type is preserved on the provider link for diagnostics and display. Project Manager behavior uses the normalized Project Manager type.
+
+## Exported Description Fields
+
+Export writes the local description into the long text field that the target work
+item type actually renders:
+
+- A Task description is written to `System.Description`.
+- A Bug description is written to `Microsoft.VSTS.TCM.ReproSteps`. `System.Description`
+  exists on the Bug type but the Azure DevOps work item form does not render it.
+
+Descriptions are authored in Markdown, and Azure DevOps large text fields default to
+HTML. Export therefore declares the format in the same patch document, with a
+`/multilineFieldsFormat/<field>` operation set to `Markdown` next to the field value.
+Azure DevOps treats that switch as one-way: a field stored as Markdown cannot be
+converted back to HTML. Only newly exported work items are affected — export never
+rewrites an existing provider link.
+
+Work item notes are never part of an exported patch document. They are local context
+and no Azure DevOps request reads or writes them.
 
 ## Status Mapping
 
@@ -123,3 +143,12 @@ Project Manager blocks switching from one configured provider to a different pro
 - Check whether the selected status exists in the Azure DevOps process used by the project.
 - Review whether the work item is in a state that allows the requested transition.
 - Review the Project Manager sync failure indicator for the latest local error message.
+
+## Testing Expectations
+
+- The create patch document routes a Task description to `System.Description` and a
+  Bug description to `Microsoft.VSTS.TCM.ReproSteps`.
+- The create patch document declares the Markdown format for whichever description
+  field it writes, and omits both operations when there is no description.
+- The create patch document carries the assignee and the parent link when they are
+  provided, and never carries work item notes.

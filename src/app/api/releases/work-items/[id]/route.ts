@@ -32,9 +32,8 @@ export async function PATCH(
       );
     }
     const hasReleaseId = Object.prototype.hasOwnProperty.call(body, "release_id");
-    const hasNotes = Object.prototype.hasOwnProperty.call(body, "notes");
 
-    if (!hasReleaseId && !hasNotes) {
+    if (!hasReleaseId) {
       return NextResponse.json(
         { error: "No fields provided to update" },
         { status: 400 }
@@ -106,23 +105,6 @@ export async function PATCH(
 
       fieldsToUpdate.push("release_id = ?", "display_order = ?");
       updateValues.push(releaseId, nextOrder);
-    }
-
-    if (hasNotes) {
-      const rawNotes = body.notes;
-      if (rawNotes !== null && rawNotes !== undefined && typeof rawNotes !== "string") {
-        return NextResponse.json(
-          { error: "Notes must be a string or null" },
-          { status: 400 }
-        );
-      }
-
-      const normalizedNotes =
-        typeof rawNotes === "string" && rawNotes.trim().length > 0
-          ? rawNotes.trim()
-          : null;
-      fieldsToUpdate.push("notes = ?");
-      updateValues.push(normalizedNotes);
     }
 
     if (fieldsToUpdate.length === 0) {
