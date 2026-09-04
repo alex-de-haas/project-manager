@@ -19,6 +19,7 @@ import {
   getStoredAzureDevOpsUserIdentity,
   isAzureDevOpsConfigProblem,
 } from "@/lib/azure-devops/settings";
+import { buildWorkItemCreatePatchDocument } from "@/lib/azure-devops/export-patch";
 import {
   displayWorkItemStatus,
   markExternalLinkSyncFailed,
@@ -112,51 +113,16 @@ export async function POST(request: NextRequest) {
     const workItemType = task.type === "bug" ? "Bug" : "Task";
     const nativeStatus = displayWorkItemStatus(task.status);
 
-    const buildCreatePatchDocument = (): JsonPatchDocument => {
-      const patchOperations: JsonPatchOperation[] = [
-        {
-          op: Operation.Add,
-          path: "/fields/System.Title",
-          value: task.title,
-        } as JsonPatchOperation,
-      ];
-
-      if (task.description) {
-        patchOperations.push({
-          op: Operation.Add,
-          path: "/fields/System.Description",
-          value: task.description,
-        } as JsonPatchOperation);
-      }
-
-      if (assignedUserValue) {
-        patchOperations.push({
-          op: Operation.Add,
-          path: "/fields/System.AssignedTo",
-          value: assignedUserValue,
-        } as JsonPatchOperation);
-      }
-
-      if (parentWorkItemId) {
-        patchOperations.push({
-          op: Operation.Add,
-          path: "/relations/-",
-          value: {
-            rel: "System.LinkTypes.Hierarchy-Reverse",
-            url: `https://dev.azure.com/${settings.organization}/_apis/wit/workItems/${parentWorkItemId}`,
-            attributes: {
-              comment: "Parent work item",
-            },
-          },
-        } as JsonPatchOperation);
-      }
-
-      return patchOperations;
-    };
-
     const createdWorkItem = await witApi.createWorkItem(
       undefined,
-      buildCreatePatchDocument(),
+      buildWorkItemCreatePatchDocument({
+        title: task.title,
+        description: task.description,
+        workItemType,
+        assignedUserValue,
+        parentWorkItemId,
+        organization: settings.organization,
+      }),
       settings.project,
       workItemType
     );

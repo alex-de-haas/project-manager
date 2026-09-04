@@ -80,6 +80,7 @@ import {
   ExternalWorkItemReference,
   formatExternalWorkItemId,
 } from "@/components/ExternalWorkItemReference";
+import { Label } from "@/components/ui/label";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   Bug,
@@ -97,6 +98,7 @@ import {
   Plus,
   RefreshCw,
   ShieldAlert,
+  StickyNote,
   Trash2,
   TreePalm,
   TriangleAlert,
@@ -239,6 +241,7 @@ interface TaskMetaRowProps {
   status?: string | null;
   tags?: string | null;
   description?: string | null;
+  notes?: string | null;
   assignedUserName?: string | null;
   assignedUserEmail?: string | null;
   azureAssignedToName?: string | null;
@@ -248,6 +251,7 @@ interface TaskMetaRowProps {
   checklistSummary?: TaskWithTimeEntries["checklistSummary"];
   onOpenBlockers: () => void;
   onOpenChecklist: () => void;
+  onOpenNotes: () => void;
 }
 
 const estimateChipWidth = (label: string, hasIcon = false) => {
@@ -259,6 +263,7 @@ function TaskMetaRow({
   status,
   tags,
   description,
+  notes,
   assignedUserName,
   assignedUserEmail,
   azureAssignedToName,
@@ -268,11 +273,13 @@ function TaskMetaRow({
   checklistSummary,
   onOpenBlockers,
   onOpenChecklist,
+  onOpenNotes,
 }: TaskMetaRowProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const parsedTags = useMemo(() => parseTaskTags(tags), [tags]);
   const hasDescription = Boolean(description?.trim());
+  const hasNotes = Boolean(notes?.trim());
   const assigneeLabel = assignedUserName?.trim() || assignedUserEmail?.trim() || "";
   const azureAssigneeLabel =
     azureAssignedToName?.trim() || azureAssignedToUniqueName?.trim() || "";
@@ -324,6 +331,7 @@ function TaskMetaRow({
           ]
         : []),
       ...(hasDescription ? [estimateChipWidth("", true)] : []),
+      ...(hasNotes ? [estimateChipWidth("", true)] : []),
       ...(hasAssignee ? [estimateChipWidth(assigneeLabel, true)] : []),
       ...(hasExternalAssignee ? [estimateChipWidth(azureAssigneeLabel, true)] : []),
     ];
@@ -369,6 +377,7 @@ function TaskMetaRow({
     hasAssignee,
     hasDescription,
     hasExternalAssignee,
+    hasNotes,
     parsedTags,
     status,
   ]);
@@ -474,6 +483,23 @@ function TaskMetaRow({
           </HoverCardTrigger>
           <HoverCardContent className="w-96 max-w-[calc(100vw-2rem)]" align="start" side="top" sideOffset={5}>
             <MarkdownContent content={description} className="max-h-72 overflow-y-auto text-sm" />
+          </HoverCardContent>
+        </HoverCard>
+      )}
+      {hasNotes && notes && (
+        <HoverCard openDelay={100} closeDelay={100}>
+          <HoverCardTrigger>
+            <Badge
+              variant="outline"
+              className="h-5 flex-shrink-0 cursor-pointer gap-1 border-border/70 bg-background/80 px-2 text-[11px] text-muted-foreground"
+              title="Note"
+              onClick={onOpenNotes}
+            >
+              <StickyNote className="h-3 w-3" />
+            </Badge>
+          </HoverCardTrigger>
+          <HoverCardContent className="w-96 max-w-[calc(100vw-2rem)]" align="start" side="top" sideOffset={5}>
+            <MarkdownContent content={notes} className="max-h-72 overflow-y-auto text-sm" />
           </HoverCardContent>
         </HoverCard>
       )}
@@ -590,6 +616,9 @@ export default function Home() {
   const [showBlockers, setShowBlockers] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showChecklist, setShowChecklist] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showTimeEntries, setShowTimeEntries] = useState<{ taskId: number; taskTitle: string } | null>(null);
+  const [showNotesDialog, setShowNotesDialog] = useState<{ taskId: number; taskTitle: string } | null>(null);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSavingTaskId, setNotesSavingTaskId] = useState<number | null>(null);
   const [pendingDeleteTask, setPendingDeleteTask] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [pendingNoTimeStatusChange, setPendingNoTimeStatusChange] = useState<{
     taskId: number;
@@ -1262,6 +1291,48 @@ export default function Home() {
       } catch (err) {
         console.error("Failed to open Azure DevOps link", err);
       }
+    }
+  };
+
+  const handleOpenNotesDialog = (task: TaskWithTimeEntries) => {
+    setShowNotesDialog({ taskId: task.id, taskTitle: task.title });
+    setNotesDraft(task.notes ?? "");
+  };
+
+  const handleSaveNotes = async () => {
+    if (!showNotesDialog) return;
+
+    const { taskId } = showNotesDialog;
+    setNotesSavingTaskId(taskId);
+
+    try {
+      const response = await fetch("/api/work-items/notes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workItemId: taskId, notes: notesDraft }),
+      });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error || "Failed to save note");
+      }
+
+      const normalizedNotes = notesDraft.trim();
+      setTasks((previous) =>
+        previous.map((task) =>
+          task.id === taskId
+            ? { ...task, notes: normalizedNotes.length > 0 ? normalizedNotes : null }
+            : task
+        )
+      );
+      toast.success(normalizedNotes.length > 0 ? "Note saved" : "Note cleared");
+      setShowNotesDialog(null);
+      setNotesDraft("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save note";
+      toast.error(message);
+    } finally {
+      setNotesSavingTaskId((current) => (current === taskId ? null : current));
     }
   };
 
@@ -1978,6 +2049,7 @@ export default function Home() {
                                 status={task.status}
                                 tags={task.tags}
                                 description={task.description}
+                                notes={task.notes}
                                 assignedUserName={task.assignedUserName}
                                 assignedUserEmail={task.assignedUserEmail}
                                 azureAssignedToName={task.azureAssignedToName}
@@ -1991,6 +2063,7 @@ export default function Home() {
                                 onOpenChecklist={() =>
                                   setShowChecklist({ taskId: task.id, taskTitle: task.title })
                                 }
+                                onOpenNotes={() => handleOpenNotesDialog(task)}
                               />
                             </div>
                           </div>
@@ -2135,6 +2208,12 @@ export default function Home() {
                                           {task.checklistSummary.completed}/{task.checklistSummary.total}
                                         </Badge>
                                       )}
+                                    </span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleOpenNotesDialog(task)}>
+                                    <span className="flex items-center gap-2">
+                                      <StickyNote className="h-4 w-4" />
+                                      <span>{task.notes ? "Edit note" : "Add note"}</span>
                                     </span>
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
@@ -2466,6 +2545,63 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {showNotesDialog && (
+        <Dialog
+          open={Boolean(showNotesDialog)}
+          onOpenChange={(open) => {
+            if (!open && notesSavingTaskId === null) {
+              setShowNotesDialog(null);
+              setNotesDraft("");
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-[520px]">
+            <DialogHeader>
+              <DialogTitle>
+                {tasks.find((task) => task.id === showNotesDialog.taskId)?.notes
+                  ? "Edit note"
+                  : "Add note"}
+              </DialogTitle>
+              <DialogDescription>{showNotesDialog.taskTitle}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="work-item-note">Note</Label>
+              <p className="text-xs text-muted-foreground">
+                Markdown is supported. Notes stay in Project Manager and are never sent
+                to Azure DevOps.
+              </p>
+              <textarea
+                id="work-item-note"
+                value={notesDraft}
+                onChange={(event) => setNotesDraft(event.target.value)}
+                placeholder="Add implementation details, dependencies, risks, or any context..."
+                className="w-full min-h-[140px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setShowNotesDialog(null);
+                  setNotesDraft("");
+                }}
+                disabled={notesSavingTaskId === showNotesDialog.taskId}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleSaveNotes()}
+                disabled={notesSavingTaskId === showNotesDialog.taskId}
+              >
+                {notesSavingTaskId === showNotesDialog.taskId ? "Saving..." : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {showAddTask && (
         <WorkItemModal

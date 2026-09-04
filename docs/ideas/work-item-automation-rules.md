@@ -1048,8 +1048,8 @@ Before promoting this idea to a planning document:
 
 - [Domain model](../features/domain-model.md)
 - [Time tracking](../features/time-tracking.md)
-- [Azure DevOps integration](../features/azure-devops-integration.md)
-- [Release planning](../features/release-planning.md)
+- [Azure DevOps integration](../features/azure-devops-integration/feature.md)
+- [Release planning](../features/release-planning/feature.md)
 - [Settings](../features/settings.md)
 - [Azure DevOps PAT retirement](azure-devops-pat-retirement.md)
 

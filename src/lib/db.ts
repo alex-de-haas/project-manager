@@ -9,7 +9,7 @@ const dbPath = path.join(dataDirPath, databaseFileName);
 const backupDirPath = getBackupDirPath();
 const backupFilePrefix = path.basename(databaseFileName, ".db");
 const backupAlias = "restore_source";
-const schemaVersion = "domain-model-v3";
+const schemaVersion = "domain-model-v4";
 
 const ensureDataDirectory = () => {
   if (!fs.existsSync(dataDirPath)) {
@@ -153,6 +153,7 @@ const initDb = () => {
       project_id INTEGER NOT NULL,
       title TEXT NOT NULL,
       description TEXT,
+      notes TEXT,
       type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'new',
       tags TEXT,
@@ -311,7 +312,6 @@ const initDb = () => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       release_id INTEGER NOT NULL,
       work_item_id INTEGER NOT NULL,
-      notes TEXT,
       display_order INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -412,6 +412,22 @@ const initDb = () => {
       WHERE app_display_name IS NULL
     `
   ).run();
+
+  const workItemColumns = db
+    .prepare("PRAGMA table_info(work_items)")
+    .all() as Array<{ name: string }>;
+  if (!workItemColumns.some((column) => column.name === "notes")) {
+    db.prepare("ALTER TABLE work_items ADD COLUMN notes TEXT").run();
+  }
+
+  // Notes moved from the release item to the work item, so a note now follows the
+  // item across releases and both Planning and Time Management edit the same text.
+  const releaseItemColumns = db
+    .prepare("PRAGMA table_info(release_items)")
+    .all() as Array<{ name: string }>;
+  if (releaseItemColumns.some((column) => column.name === "notes")) {
+    db.prepare("ALTER TABLE release_items DROP COLUMN notes").run();
+  }
 
   db.prepare(`
     INSERT INTO module_settings (key, value, updated_at)
