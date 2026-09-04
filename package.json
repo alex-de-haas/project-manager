@@ -1,6 +1,6 @@
 {
   "name": "project-manager",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -67,5 +67,8 @@
     "tailwindcss": "^4.1.16",
     "typescript": "^6.0.3",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }
