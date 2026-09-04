@@ -20,9 +20,12 @@ the lockfile cannot leave the vulnerable version.
 
 The override is hardening, not an active fix: `typed-rest-client` uses `qs` for
 `stringify()` only (its `Util.js`), while both advisories need `qs.parse` of
-untrusted input to bite. Drop the entry once `typed-rest-client` ships a release
-whose own `qs` range reaches 6.16.0 — a security pin left in place after
-upstream catches up starts holding the package *back* instead of forward.
+untrusted input to bite.
+
+The entry is load-bearing only while that upstream pin stands. Its precondition
+is `typed-rest-client`'s own `qs` range: the override matters exactly when that
+range cannot reach 6.16.0, and is inert the moment it can — at which point the
+pin constrains the resolver without buying anything.
 
 ## Capabilities
 
