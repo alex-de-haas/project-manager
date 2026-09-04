@@ -9,6 +9,24 @@ The Azure DevOps integration connects Project Manager work items with Azure DevO
 
 Project Manager remains the local source of truth for its own work item records. Azure DevOps identity, native state, native type, assignee snapshots, and sync diagnostics are stored on provider link records.
 
+## Dependency Pins
+
+The Azure DevOps client chain forces one transitive pin from the root manifest.
+`azure-devops-node-api` pulls `typed-rest-client`, which declares `"qs":
+"6.15.3"` as an **exact** pin, and that version carries GHSA-x5fp-wj9c-mxmx and
+GHSA-4mjr-xmp4-gh2g. No `typed-rest-client` release moves off it, so the root
+`package.json` holds an `overrides` entry pinning `qs` to `^6.16.0`; without it
+the lockfile cannot leave the vulnerable version.
+
+The override is hardening, not an active fix: `typed-rest-client` uses `qs` for
+`stringify()` only (its `Util.js`), while both advisories need `qs.parse` of
+untrusted input to bite.
+
+The entry is load-bearing only while that upstream pin stands. Its precondition
+is `typed-rest-client`'s own `qs` range: the override matters exactly when that
+range cannot reach 6.16.0, and is inert the moment it can — at which point the
+pin constrains the resolver without buying anything.
+
 ## Capabilities
 
 - Configure Azure DevOps as a project-level integration.
