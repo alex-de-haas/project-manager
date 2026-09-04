@@ -18,9 +18,6 @@ project and stays with the item across releases and across pages.
 saved as blank or whitespace is stored as `NULL`, so an empty note is indistinguishable
 from no note.
 
-Notes were previously scoped to a release item. The `release_items.notes` column is
-removed and nothing is carried over from it.
-
 ## Editing
 
 `PATCH /api/work-items/notes` takes a `workItemId` and the note text and updates the work
