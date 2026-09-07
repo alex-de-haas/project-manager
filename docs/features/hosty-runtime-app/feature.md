@@ -1,7 +1,7 @@
 # Hosty Runtime App
 
 Created: 2026-06-02
-Updated: 2026-08-05
+Updated: 2026-09-07
 
 Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 
@@ -142,11 +142,20 @@ The navigation links render only in `standalone` launches; under a shell they ar
 
 ## Hosty Theme Integration
 
-Project Manager supports Hosty Shell theme propagation. Shell launch URLs may include `hosty_theme=light|dark` and `hosty_theme_preference=light|dark|system`. The root layout applies that resolved theme before hydration so the initial embedded render does not flash through the wrong palette.
+Project Manager follows the Hosty Shell theme through the SDK's theme slice (`@hosty-sdk/app/theme`,
+`HostThemeBridge` from `@hosty-sdk/app/react`), which owns the protocol: the `hosty_theme` /
+`hosty_theme_preference` launch parameters decide the theme a document loads with, the value
+persisted for the tab carries it across app-internal navigation, and the `hosty:shell-theme`
+`postMessage` covers changes while the frame is up. The root layout mounts the SDK's bootstrap
+(`createThemeBootstrapScript`) ahead of any markup so the first paint is already in the shell's
+theme, and the bridge cleans the parameters out of the URL afterwards.
 
-After launch, the app listens for Shell `postMessage` events with `type: "hosty:shell-theme"`, `theme`, and `preference`. Valid Shell updates apply the `.dark` class on the document root, update `color-scheme`, persist the resolved theme for the current embedded session, and keep `next-themes` in sync for app components such as notifications.
-
-When Hosty does not provide a theme signal, Project Manager falls back to the normal `next-themes` system preference behavior.
+What stays in the app is the hand-off to `next-themes`, in `src/components/HostThemeBridge.tsx`: the
+bridge's `onTheme` callback passes each theme a shell declared to `setTheme`, so app components that
+render off `next-themes` state (notifications, the toggle) follow too. Both the bridge and the
+bootstrap are created with `followSystem: false`, because `next-themes` owns the standalone case —
+when Hosty provides no theme signal, Project Manager keeps the normal `next-themes` behavior, and the
+operating system never overwrites a theme the operator picked with the toggle.
 
 ## Launch Mode Detection
 

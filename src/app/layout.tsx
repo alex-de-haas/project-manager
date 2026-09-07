@@ -3,6 +3,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { launchModeBootstrapScript } from "@hosty-sdk/app";
+import { createThemeBootstrapScript } from "@hosty-sdk/app/theme";
 import { AppIdentityBridge, HostLaunchBridge } from "@hosty-sdk/app/react";
 import { HostThemeBridge } from "@/components/HostThemeBridge";
 
@@ -15,44 +16,9 @@ export const metadata: Metadata = {
   },
 };
 
-const hostThemeBootstrapScript = `
-(() => {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const queryTheme = params.get("hosty_theme");
-    const readSessionStorage = (key) => {
-      try {
-        return window.sessionStorage.getItem(key);
-      } catch {
-        return null;
-      }
-    };
-    const storedTheme = readSessionStorage("hosty.theme.resolved");
-    const theme = queryTheme === "dark" || queryTheme === "light"
-      ? queryTheme
-      : storedTheme === "dark" || storedTheme === "light"
-        ? storedTheme
-        : null;
-
-    if (!theme) {
-      return;
-    }
-
-    const queryPreference = params.get("hosty_theme_preference");
-    const storedPreference = readSessionStorage("hosty.theme.preference");
-    const preference = queryPreference === "light" || queryPreference === "dark" || queryPreference === "system"
-      ? queryPreference
-      : storedPreference === "light" || storedPreference === "dark" || storedPreference === "system"
-        ? storedPreference
-        : theme;
-    const root = document.documentElement;
-    root.classList.toggle("dark", theme === "dark");
-    root.style.colorScheme = theme;
-    root.dataset.hostyTheme = theme;
-    root.dataset.hostyThemePreference = preference;
-  } catch {}
-})();
-`;
+// The app runs next-themes for standalone use, so the host's bootstrap applies only a theme a shell
+// declared and leaves the system case to the provider — the same switch `HostThemeBridge` passes.
+const hostThemeBootstrapScript = createThemeBootstrapScript({ followSystem: false });
 
 export default function RootLayout({
   children,
@@ -63,11 +29,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Ahead of any body markup, so chrome a shell already renders is never painted. */}
+        {/* Ahead of any body markup, so chrome a shell already renders is never painted, and the
+            first paint is already in the shell's theme. */}
         <script dangerouslySetInnerHTML={{ __html: launchModeBootstrapScript }} />
+        <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
       </head>
       <body className="bg-background text-foreground">
-        <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
         <AppIdentityBridge />
         <HostLaunchBridge />
         <ThemeProvider
