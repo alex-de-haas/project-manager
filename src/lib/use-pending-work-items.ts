@@ -19,5 +19,7 @@ export function usePendingWorkItems() {
     setPendingIds(new Set(activeIds.current));
   }, []);
 
-  return { pendingIds, beginOperation, endOperation };
+  const isOperationPending = useCallback((id: string) => activeIds.current.has(id), []);
+
+  return { pendingIds, beginOperation, endOperation, isOperationPending };
 }

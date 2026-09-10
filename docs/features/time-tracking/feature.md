@@ -81,7 +81,7 @@ Rows assigned away in Azure DevOps remain visible to the current user only when 
 
 ## Status Changes
 
-While a row saves a status, time entry, or note, or deletes a work item, its actions button shows a circular loading indicator instead of the three-dot menu. The indicator stays visible without hovering until the request and any row reload finish. The menu is disabled while the row is busy; repeated submissions for that row are ignored, while other rows can save independently. Errors restore the actions button and show the existing error notification. Status and row colors update after the server response.
+While a row saves a status, time entry, or note, or deletes a work item, its actions button shows a circular loading indicator instead of the three-dot menu. The indicator stays visible without hovering until the request and any row reload finish. The menu is disabled while the row is busy; repeated submissions for that row are ignored, while other rows can save independently. While a row is busy, its time cells cannot open another editor and an existing input is read-only. A completed save only closes its own editor, preserving a newer edit in another row. Errors restore the actions button and show the existing error notification. Status and row colors update after the server response.
 
 Local status changes use Project Manager workflow gates. For example, a task cannot be completed while it still has active blockers or incomplete checklist items.
 
@@ -102,3 +102,4 @@ Only work items with tracked time in the exported period are included. A task or
 - Saving a note from Time Management updates the work item, including a work item that
   is linked to Azure DevOps, and clearing the text removes the note.
 - With a delayed status response, the affected task or bug shows a visible loading indicator, blocks repeated actions, and restores its menu after success or failure. Concurrent changes on different rows retain independent indicators.
+- A delayed time-entry save prevents opening another day in the same row, and completing it does not clear an editor opened in another row. A failed save makes the current input editable again.

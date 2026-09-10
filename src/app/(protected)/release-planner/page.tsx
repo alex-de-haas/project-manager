@@ -248,7 +248,6 @@ export default function ReleaseTrackingPage() {
   const [loadingChildItemsDialog, setLoadingChildItemsDialog] = useState(false);
   const [childItemsDialogError, setChildItemsDialogError] = useState<string | null>(null);
   const [childSubmitting, setChildSubmitting] = useState(false);
-  const [blockerTaskLoadingItemId, setBlockerTaskLoadingItemId] = useState<number | null>(null);
   const [showBlockers, setShowBlockers] = useState<{
     taskId: number;
     taskTitle: string;
@@ -550,7 +549,7 @@ export default function ReleaseTrackingPage() {
         return Number(item.task_id);
       }
 
-      setBlockerTaskLoadingItemId(item.id);
+      if (!beginOperation(`release:${item.id}`)) return null;
       try {
         const response = await fetch(
           `/api/releases/work-items/${item.id}/blocker-task`,
@@ -586,12 +585,10 @@ export default function ReleaseTrackingPage() {
         toast.error(message);
         return null;
       } finally {
-        setBlockerTaskLoadingItemId((current) =>
-          current === item.id ? null : current
-        );
+        endOperation(`release:${item.id}`);
       }
     },
-    []
+    [beginOperation, endOperation]
   );
 
   const handleOpenBlockers = useCallback(
@@ -1915,10 +1912,7 @@ export default function ReleaseTrackingPage() {
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <WorkItemActionsButton
-                                        busy={
-                                          pendingIds.has(`release:${item.id}`) ||
-                                          blockerTaskLoadingItemId === item.id
-                                        }
+                                        busy={pendingIds.has(`release:${item.id}`)}
                                       />
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="w-48">
@@ -1950,13 +1944,13 @@ export default function ReleaseTrackingPage() {
                                         </DropdownMenuSubContent>
                                       </DropdownMenuSub>
                                       <DropdownMenuItem
-                                        disabled={blockerTaskLoadingItemId === item.id}
+                                        disabled={pendingIds.has(`release:${item.id}`)}
                                         onClick={() => void handleOpenBlockers(item)}
                                       >
                                         <span className="flex items-center gap-2">
                                           <ShieldAlert className="h-4 w-4" />
                                           <span>
-                                            {blockerTaskLoadingItemId === item.id
+                                            {pendingIds.has(`release:${item.id}`)
                                               ? "Preparing..."
                                               : "Manage Blockers"}
                                           </span>

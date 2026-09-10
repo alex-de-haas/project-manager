@@ -615,7 +615,7 @@ export default function Home() {
   const [showAddTask, setShowAddTask] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const { pendingIds, beginOperation, endOperation } = usePendingWorkItems();
+  const { pendingIds, beginOperation, endOperation, isOperationPending } = usePendingWorkItems();
   const [showBlockers, setShowBlockers] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showChecklist, setShowChecklist] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showTimeEntries, setShowTimeEntries] = useState<{ taskId: number; taskTitle: string } | null>(null);
@@ -639,6 +639,7 @@ export default function Home() {
     date: string;
   } | null>(null);
   const [editValue, setEditValue] = useState("");
+  const editingCellRef = useRef<typeof editingCell>(null);
   const [isTaskDragActive, setIsTaskDragActive] = useState(false);
   const trackerScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const lockedTrackerScrollLeftRef = useRef<number | null>(null);
@@ -1173,10 +1174,14 @@ export default function Home() {
 
   const handleCellClick = useCallback(
     (taskId: number, date: string, currentHours: number) => {
-      setEditingCell({ taskId, date });
+      // A blur can start a save before this click, even before React re-renders.
+      if (isOperationPending(String(taskId))) return;
+      const cell = { taskId, date };
+      editingCellRef.current = cell;
+      setEditingCell(cell);
       setEditValue(currentHours > 0 ? currentHours.toString() : "");
     },
-    []
+    [isOperationPending]
   );
 
   const handleCellSave = useCallback(async () => {
@@ -1213,8 +1218,12 @@ export default function Home() {
       }
 
       await fetchTasks();
-      setEditingCell(null);
-      setEditValue("");
+      // A completed save must not clear a newer edit in another row.
+      if (editingCellRef.current === editingCell) {
+        editingCellRef.current = null;
+        setEditingCell(null);
+        setEditValue("");
+      }
     } catch (err) {
       toast.error("Failed to save time entry");
       console.error(err);
@@ -1228,6 +1237,7 @@ export default function Home() {
       if (e.key === "Enter") {
         handleCellSave();
       } else if (e.key === "Escape") {
+        editingCellRef.current = null;
         setEditingCell(null);
         setEditValue("");
       }
@@ -2248,6 +2258,7 @@ export default function Home() {
                   </td>
                   {calendarDays.map((day) => {
                     const hours = task.timeEntries[day.key] || 0;
+                    const isRowBusy = pendingIds.has(String(task.id));
                     const isEditing =
                       editingCell?.taskId === task.id &&
                       editingCell?.date === day.key;
@@ -2293,13 +2304,15 @@ export default function Home() {
                       <td
                         key={day.key}
                         className={`py-1.5 px-3 text-center ${
-                          canManageTask ? "cursor-pointer" : "cursor-not-allowed"
+                          isRowBusy ? "cursor-wait" : canManageTask ? "cursor-pointer" : "cursor-not-allowed"
                         } ${cellClass}`}
                         onClick={() =>
                           !isEditing && canManageTask && handleCellClick(task.id, day.key, hours)
                         }
                         title={
-                          canManageTask
+                          isRowBusy
+                            ? "Updating work item…"
+                            : canManageTask
                             ? undefined
                             : `Assigned to ${assignedUserLabel}. Only the assignee can track time.`
                         }
@@ -2311,6 +2324,7 @@ export default function Home() {
                             min="0"
                             step="0.25"
                             value={editValue}
+                            readOnly={isRowBusy}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={handleCellSave}
                             onKeyDown={handleKeyPress}
