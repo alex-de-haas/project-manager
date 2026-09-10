@@ -41,6 +41,8 @@ RUN --mount=type=cache,target=/app/.next/cache npm run build
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
+# Standalone Next reads HOSTNAME; Docker's container hostname excludes loopback healthchecks.
+ENV HOSTNAME=0.0.0.0
 # gosu lets the entrypoint drop from root to the unprivileged `node` user after fixing data-dir
 # ownership (see docker-entrypoint.sh).
 RUN apt-get update \
