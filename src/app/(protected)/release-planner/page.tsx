@@ -6,6 +6,8 @@ import { format } from "date-fns";
 import type { Release, ReleaseWorkItem } from "@/types";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
+import { WorkItemActionsButton } from "@/components/WorkItemActionsButton";
+import { usePendingWorkItems } from "@/lib/use-pending-work-items";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,7 +77,6 @@ import {
   ClipboardCheck,
   FileText,
   GripVertical,
-  MoreVertical,
   Plus,
   RefreshCw,
   ShieldAlert,
@@ -194,6 +195,7 @@ export default function ReleaseTrackingPage() {
   const [userStoryDescription, setUserStoryDescription] = useState("");
   const [userStorySubmitting, setUserStorySubmitting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { pendingIds, beginOperation, endOperation } = usePendingWorkItems();
   const [workItems, setWorkItems] = useState<ReleaseWorkItem[]>([]);
   const [workItemsLoading, setWorkItemsLoading] = useState(false);
   const [activeReleaseId, setActiveReleaseId] = useState<number | null>(() => {
@@ -242,20 +244,10 @@ export default function ReleaseTrackingPage() {
     title: string;
     filter: ChildItemFilter;
   } | null>(null);
-  const [releaseStatusUpdatingItemId, setReleaseStatusUpdatingItemId] = useState<
-    number | null
-  >(null);
   const [childItemsDialogItems, setChildItemsDialogItems] = useState<ExistingChildTask[]>([]);
   const [loadingChildItemsDialog, setLoadingChildItemsDialog] = useState(false);
   const [childItemsDialogError, setChildItemsDialogError] = useState<string | null>(null);
-  const [childStatusUpdatingId, setChildStatusUpdatingId] = useState<number | null>(
-    null
-  );
-  const [childAssignmentUpdatingId, setChildAssignmentUpdatingId] = useState<
-    number | null
-  >(null);
   const [childSubmitting, setChildSubmitting] = useState(false);
-  const [blockerTaskLoadingItemId, setBlockerTaskLoadingItemId] = useState<number | null>(null);
   const [showBlockers, setShowBlockers] = useState<{
     taskId: number;
     taskTitle: string;
@@ -557,7 +549,7 @@ export default function ReleaseTrackingPage() {
         return Number(item.task_id);
       }
 
-      setBlockerTaskLoadingItemId(item.id);
+      if (!beginOperation(`release:${item.id}`)) return null;
       try {
         const response = await fetch(
           `/api/releases/work-items/${item.id}/blocker-task`,
@@ -593,12 +585,10 @@ export default function ReleaseTrackingPage() {
         toast.error(message);
         return null;
       } finally {
-        setBlockerTaskLoadingItemId((current) =>
-          current === item.id ? null : current
-        );
+        endOperation(`release:${item.id}`);
       }
     },
-    []
+    [beginOperation, endOperation]
   );
 
   const handleOpenBlockers = useCallback(
@@ -706,6 +696,9 @@ export default function ReleaseTrackingPage() {
   const handleMoveWorkItem = async () => {
     if (!selectedWorkItemToMove || !selectedTargetReleaseId) return;
 
+    const operationId = `release:${selectedWorkItemToMove.id}`;
+    if (!beginOperation(operationId)) return;
+
     try {
       const response = await fetch(`/api/releases/work-items/${selectedWorkItemToMove.id}`, {
         method: "PATCH",
@@ -726,11 +719,13 @@ export default function ReleaseTrackingPage() {
 
       // Refresh work items for current release
       if (activeReleaseId) {
-        loadWorkItemsForRelease(activeReleaseId);
+        await loadWorkItemsForRelease(activeReleaseId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to move work item";
       toast.error(message);
+    } finally {
+      endOperation(operationId);
     }
   };
 
@@ -747,6 +742,7 @@ export default function ReleaseTrackingPage() {
     if (!showNotesDialog) return;
 
     const { releaseItemId, workItemId } = showNotesDialog;
+    if (!beginOperation(`release:${releaseItemId}`)) return;
     setNotesSavingWorkItemId(releaseItemId);
 
     try {
@@ -785,10 +781,14 @@ export default function ReleaseTrackingPage() {
       setNotesSavingWorkItemId((current) =>
         current === releaseItemId ? null : current
       );
+      endOperation(`release:${releaseItemId}`);
     }
   };
 
   const handleRemoveWorkItem = async (workItemId: number) => {
+    const operationId = `release:${workItemId}`;
+    if (!beginOperation(operationId)) return;
+
     try {
       const response = await fetch(`/api/releases/work-items?id=${workItemId}`, {
         method: "DELETE",
@@ -802,11 +802,13 @@ export default function ReleaseTrackingPage() {
 
       // Refresh work items for current release
       if (activeReleaseId) {
-        loadWorkItemsForRelease(activeReleaseId);
+        await loadWorkItemsForRelease(activeReleaseId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to remove work item";
       toast.error(message);
+    } finally {
+      endOperation(operationId);
     }
   };
 
@@ -908,7 +910,7 @@ export default function ReleaseTrackingPage() {
         return;
       }
 
-      setReleaseStatusUpdatingItemId(item.id);
+      if (!beginOperation(`release:${item.id}`)) return;
       try {
         const response = await fetch("/api/azure-devops/release-work-items/status", {
           method: "POST",
@@ -959,12 +961,10 @@ export default function ReleaseTrackingPage() {
           err instanceof Error ? err.message : "Failed to update user story status";
         toast.error(message);
       } finally {
-        setReleaseStatusUpdatingItemId((current) =>
-          current === item.id ? null : current
-        );
+        endOperation(`release:${item.id}`);
       }
     },
-    []
+    [beginOperation, endOperation]
   );
 
   const handleChildStatusChange = useCallback(
@@ -975,7 +975,7 @@ export default function ReleaseTrackingPage() {
         return;
       }
 
-      setChildStatusUpdatingId(workItemId);
+      if (!beginOperation(`child:${workItemId}`)) return;
       try {
         const response = await fetch("/api/azure-devops/child-work-items/status", {
           method: "POST",
@@ -1033,12 +1033,10 @@ export default function ReleaseTrackingPage() {
             : "Failed to update child work item status";
         toast.error(message);
       } finally {
-        setChildStatusUpdatingId((current) =>
-          current === workItemId ? null : current
-        );
+        endOperation(`child:${workItemId}`);
       }
     },
-    [loadChildCounts, workItems]
+    [loadChildCounts, workItems, beginOperation, endOperation]
   );
 
   const handleChildAssignmentChange = useCallback(
@@ -1049,7 +1047,7 @@ export default function ReleaseTrackingPage() {
         return;
       }
 
-      setChildAssignmentUpdatingId(workItemId);
+      if (!beginOperation(`child:${workItemId}`)) return;
       try {
         const response = await fetch(
           "/api/azure-devops/child-work-items/assignment",
@@ -1090,12 +1088,10 @@ export default function ReleaseTrackingPage() {
           err instanceof Error ? err.message : "Failed to assign child work item";
         toast.error(message);
       } finally {
-        setChildAssignmentUpdatingId((current) =>
-          current === workItemId ? null : current
-        );
+        endOperation(`child:${workItemId}`);
       }
     },
-    [projectUsers]
+    [projectUsers, beginOperation, endOperation]
   );
 
   const renderChildWorkItemRow = (
@@ -1193,18 +1189,12 @@ export default function ReleaseTrackingPage() {
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`${actionButtonClassName} flex-shrink-0 self-center opacity-70 hover:opacity-100`}
-                  disabled={
-                    childStatusUpdatingId === item.id ||
-                    childAssignmentUpdatingId === item.id
-                  }
-                  title="Actions"
-                >
-                  <MoreVertical className={actionIconClassName} />
-                </Button>
+                <WorkItemActionsButton
+                  busy={pendingIds.has(`child:${item.id}`)}
+                  className={actionButtonClassName}
+                  iconClassName={actionIconClassName}
+                  hideUntilHover={false}
+                />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuSub>
@@ -1216,7 +1206,7 @@ export default function ReleaseTrackingPage() {
                       <DropdownMenuItem
                         key={`${item.id}-${statusOption}`}
                         disabled={
-                          childStatusUpdatingId === item.id ||
+                          pendingIds.has(`child:${item.id}`) ||
                           (item.status || "New").toLowerCase() ===
                             statusOption.toLowerCase()
                         }
@@ -1237,7 +1227,7 @@ export default function ReleaseTrackingPage() {
                   <DropdownMenuSubTrigger
                     disabled={
                       projectUsers.length === 0 ||
-                      childAssignmentUpdatingId === item.id
+                      pendingIds.has(`child:${item.id}`)
                     }
                   >
                     <span>Assign to</span>
@@ -1249,7 +1239,7 @@ export default function ReleaseTrackingPage() {
                         <DropdownMenuItem
                           key={`${item.id}-assign-${user.id}`}
                           disabled={
-                            childAssignmentUpdatingId === item.id ||
+                            pendingIds.has(`child:${item.id}`) ||
                             isAssigned
                           }
                           onClick={() =>
@@ -1921,14 +1911,9 @@ export default function ReleaseTrackingPage() {
                                   </div>
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 flex-shrink-0 self-center opacity-0 group-hover:opacity-60 hover:opacity-100 transition-opacity"
-                                        title="Actions"
-                                      >
-                                        <MoreVertical className="h-4 w-4" />
-                                      </Button>
+                                      <WorkItemActionsButton
+                                        busy={pendingIds.has(`release:${item.id}`)}
+                                      />
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="w-48">
                                       <DropdownMenuSub>
@@ -1940,7 +1925,7 @@ export default function ReleaseTrackingPage() {
                                             <DropdownMenuItem
                                               key={`${item.id}-${statusOption}`}
                                               disabled={
-                                                releaseStatusUpdatingItemId === item.id ||
+                                                pendingIds.has(`release:${item.id}`) ||
                                                 (item.state || "New").toLowerCase() ===
                                                   statusOption.toLowerCase() ||
                                                 item.external_source !== "azure_devops" ||
@@ -1959,13 +1944,13 @@ export default function ReleaseTrackingPage() {
                                         </DropdownMenuSubContent>
                                       </DropdownMenuSub>
                                       <DropdownMenuItem
-                                        disabled={blockerTaskLoadingItemId === item.id}
+                                        disabled={pendingIds.has(`release:${item.id}`)}
                                         onClick={() => void handleOpenBlockers(item)}
                                       >
                                         <span className="flex items-center gap-2">
                                           <ShieldAlert className="h-4 w-4" />
                                           <span>
-                                            {blockerTaskLoadingItemId === item.id
+                                            {pendingIds.has(`release:${item.id}`)
                                               ? "Preparing..."
                                               : "Manage Blockers"}
                                           </span>

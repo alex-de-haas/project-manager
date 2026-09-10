@@ -1,7 +1,7 @@
 # Release Planning
 
 Created: 2026-05-30
-Updated: 2026-09-04
+Updated: 2026-09-10
 
 ## Overview
 
@@ -48,6 +48,8 @@ Release Planning refresh updates linked provider user stories and fetches curren
 
 ## Blockers And Status
 
+User story action buttons show a circular loading indicator while changing status, saving notes, preparing blockers, moving, or removing the item. Child task and bug action buttons show the same indicator while changing status or assignee, in both child-item dialogs. Busy buttons stay visible without hovering and cannot open their menus. Status, assignment, and blocker preparation requests are tracked per row, so concurrent requests on different rows retain separate indicators; completion or failure restores the affected button.
+
 Blockers can be attached to any work item type. Release Planning exposes blockers for release items so blocked planning work is visible during release review.
 
 Local status changes use Project Manager workflow gates. Status updates received from Azure DevOps refresh are accepted as provider state and stored with provider diagnostics, even if they would not have passed a local workflow gate.
@@ -58,3 +60,5 @@ Local status changes use Project Manager workflow gates. Status updates received
   is linked to Azure DevOps.
 - A note saved from Release Planning is scoped to the active project and cannot reach a
   work item in another project.
+- Delayed user story status, child task/bug status, and child assignment requests show loading indicators until completion, restore actions on error, and prevent duplicate requests for the same row while allowing independent rows to update.
+- Concurrent blocker preparation on different user stories keeps both rows busy independently and prevents duplicate preparation for a pending row.
