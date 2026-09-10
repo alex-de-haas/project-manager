@@ -28,6 +28,8 @@ interface PeriodBalance {
 const EMPTY_PERIOD_BALANCE: PeriodBalance = { openingBalance: 0, firstTrackedDate: null };
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
+import { WorkItemActionsButton } from "@/components/WorkItemActionsButton";
+import { usePendingWorkItems } from "@/lib/use-pending-work-items";
 import {
   Card,
   CardContent,
@@ -613,6 +615,7 @@ export default function Home() {
   const [showAddTask, setShowAddTask] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { pendingIds, beginOperation, endOperation } = usePendingWorkItems();
   const [showBlockers, setShowBlockers] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showChecklist, setShowChecklist] = useState<{ taskId: number; taskTitle: string } | null>(null);
   const [showTimeEntries, setShowTimeEntries] = useState<{ taskId: number; taskTitle: string } | null>(null);
@@ -1186,6 +1189,9 @@ export default function Home() {
       return;
     }
 
+    const taskId = editingCell.taskId;
+    if (!beginOperation(String(taskId))) return;
+
     try {
       const response = await fetch("/api/time-entries", {
         method: "POST",
@@ -1212,8 +1218,10 @@ export default function Home() {
     } catch (err) {
       toast.error("Failed to save time entry");
       console.error(err);
+    } finally {
+      endOperation(String(taskId));
     }
-  }, [editValue, editingCell, fetchTasks]);
+  }, [editValue, editingCell, fetchTasks, beginOperation, endOperation]);
 
   const handleKeyPress = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -1303,6 +1311,7 @@ export default function Home() {
     if (!showNotesDialog) return;
 
     const { taskId } = showNotesDialog;
+    if (!beginOperation(String(taskId))) return;
     setNotesSavingTaskId(taskId);
 
     try {
@@ -1333,10 +1342,12 @@ export default function Home() {
       toast.error(message);
     } finally {
       setNotesSavingTaskId((current) => (current === taskId ? null : current));
+      endOperation(String(taskId));
     }
   };
 
   const handleDeleteTask = async (taskId: number) => {
+    if (!beginOperation(String(taskId))) return;
     try {
       const response = await fetch(`/api/tasks?id=${taskId}`, {
         method: "DELETE",
@@ -1354,6 +1365,8 @@ export default function Home() {
     } catch (err) {
       toast.error("Failed to delete task");
       console.error(err);
+    } finally {
+      endOperation(String(taskId));
     }
   };
 
@@ -1387,6 +1400,8 @@ export default function Home() {
       });
       return;
     }
+
+    if (!beginOperation(String(taskId))) return;
 
     try {
       // Use Azure DevOps sync endpoint if task is linked to Azure DevOps
@@ -1425,6 +1440,8 @@ export default function Home() {
       const message = err instanceof Error ? err.message : "Failed to update status";
       toast.error(message);
       console.error(err);
+    } finally {
+      endOperation(String(taskId));
     }
   };
 
@@ -2069,14 +2086,9 @@ export default function Home() {
                           </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 flex-shrink-0 self-center opacity-0 transition-opacity group-hover:opacity-60 hover:opacity-100"
-                                title="Actions"
-                              >
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
+                              <WorkItemActionsButton
+                                busy={pendingIds.has(String(task.id))}
+                              />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-48">
                               {canManageTask && (
