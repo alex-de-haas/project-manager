@@ -1,7 +1,7 @@
 # Hosty Runtime App
 
 Created: 2026-06-02
-Updated: 2026-09-07
+Updated: 2026-09-10
 
 Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 
@@ -50,6 +50,7 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 - The image ships the Next standalone bundle: `.next/standalone` at `/app`, plus `.next/static` and `public/` copied alongside it. It carries no full `node_modules` — standalone output traces only the packages the server requires, leaving build-only weight such as the SWC binaries out of the image.
 - Standalone output is opt-in through `NEXT_OUTPUT_STANDALONE=1`, which the Dockerfile's builder stage sets. A plain `npm run build` outside Docker does not emit the bundle, so `npm run start` (`next start`) keeps working and keeps the data directory at `./data`.
 - The container starts `node server.js` through `docker-entrypoint.sh`, never as root. The entrypoint runs privileged only long enough to decide which uid to run as, then drops with `gosu`.
+- The runner image sets `HOSTNAME=0.0.0.0` so the standalone server listens on all IPv4 interfaces, including loopback. The manifest healthcheck requests `http://127.0.0.1:3000/api/health`; binding only to Docker's default container hostname makes that check fail even when proxied requests succeed.
 - It **adopts the data mount's existing owner** rather than taking ownership of it. Hosty Core bind-mounts the directory from its own app tree, owned by the user running Core — normally not root. Chowning it to the image's uid would take it away from Core on any host whose Core uid differs, and Core's uninstall path swallows the resulting error, so removing the app with its data would report success while leaving the data on disk. Ownership is assigned only when the directory is root-owned, where nothing else holds a claim.
 - Because the server may therefore run as an arbitrary uid, the Next image-optimizer cache directory is mode `1777` — sticky like `/tmp`, holding only derived, non-secret output.
 - The base image is pinned by digest, and every `COPY` into the runner stage stamps `node:node` ownership directly rather than running a recursive `chown` afterwards.
@@ -168,7 +169,7 @@ Use these checks when changing the app contract or preparing a release:
 - Run `npm run build` to verify the Next.js application and TypeScript compilation.
 - Run `npm run app:manifest -- --tag sha-test --output /tmp/project-manager-manifest.json` to verify manifest rendering.
 - Build the production image locally with Docker when packaging changes affect the runtime image.
-- Smoke-test `/api/health` in the built container; it should be public and return database/storage readiness.
+- Run the manifest's exact healthcheck command in the built container against `127.0.0.1:3000`, and smoke-test `/api/health` through the published port; both should succeed without identity and return database/storage readiness.
 - After a packaging change, verify in the built container that the server process runs as uid 1000, that `/app/data` is writable, and that a `/_next/static/…` asset is served — the standalone bundle copies static assets separately, so a missing copy only shows up as broken assets, not a failed start.
 - After a packaging change, verify `npm run start` still serves `/api/health` outside Docker, so the standalone opt-in has not leaked into local builds.
 - Verify normal app and API requests reject missing Hosty identity.
