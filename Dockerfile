@@ -8,7 +8,7 @@
 #
 # Pinned by digest for reproducible builds. To update: re-pin with
 #   docker buildx imagetools inspect node:24-trixie-slim --format '{{.Manifest.Digest}}'
-FROM node:24-trixie-slim@sha256:50c3b2f6988dfc307b86e5301d69611af31f4789bdf232863b07d3b02fe55ae0 AS base
+FROM node:24-trixie-slim@sha256:6950b66b4c0cb0151ce89fa75074673850763d096b044f422c6729b588dd4956 AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_HOST_MODULE_ID=com.haas.project-manager
