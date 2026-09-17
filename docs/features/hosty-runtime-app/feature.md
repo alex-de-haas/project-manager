@@ -1,7 +1,7 @@
 # Hosty Runtime App
 
 Created: 2026-06-02
-Updated: 2026-09-10
+Updated: 2026-09-17
 
 Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 
@@ -37,7 +37,8 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 ## App Packaging
 
 - Production app contract: `manifest.json`, schema `app.0.1`.
-- Runtime profiles: `docker` and `dev`.
+- Runtime profiles: `docker` (default) and `dev` (`localCommand`, `development: true`).
+- The development profile uses the source folder selected in Hosty, including a custom source override, and adopts source manifest edits on restart. `npm run dev` supplies Next.js hot reload. The profile name alone does not enable development behavior.
 - Runtime service: `app`, image `ghcr.io/alex-de-haas/project-manager`, container port `3000`.
 - Local command runtime service: `app`, command `npm run dev`, with the local port assigned by Hosty Core.
 - Public endpoint: `http`.
