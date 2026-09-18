@@ -1,13 +1,25 @@
 # Time Tracking
 
 Created: 2026-05-26
-Updated: 2026-09-10
+Updated: 2026-09-18
 
 ## Overview
 
 Time Management shows weekly and monthly trackable work items that the user has explicitly added to Time Management for the active project. Users can enter time inline, review totals, filter by status, manage blockers and checklists, refresh linked provider items, and export monthly time to Excel.
 
 Only Project Manager `task` and `bug` work items can be added to time tracking. Azure DevOps Time Management import also lists only Tasks and Bugs. `user_story` work items are reserved for release planning and are excluded from import, time entry editing, and time export.
+
+## Scroll Position
+
+On opening or reloading Time Management, the loaded grid scrolls to the bottom of the task list. If the displayed week or month includes today, its column is centered in the visible date area between the pinned work item and total columns, within the table's scroll limits. A saved period that does not include today stays selected and keeps its initial horizontal position.
+
+Switching between week and month views or navigating to another period centers today again whenever it is in the displayed range. Vertical scrolling to the last task happens only when the grid first appears. Editing time, refreshing tasks, filtering statuses, and reordering rows do not repeat the automatic positioning.
+
+## Current Day
+
+The current-day highlight in the header, task cells, and footer follows the browser's local calendar date. It updates at local midnight and rechecks the date when the window gains focus, the tab becomes visible, or the page is restored. An overnight tab therefore catches up after sleep without a reload. Balance calculations use the same date, and cached opening balances are refreshed on a new local day.
+
+The selected week or month and scroll position stay unchanged when the date rolls over. If the new day falls outside the selected period, that period has no current-day highlight.
 
 ## Work Items
 
@@ -95,6 +107,10 @@ Only work items with tracked time in the exported period are included. A task or
 
 ## Testing Expectations
 
+- Local midnight moves the highlight to the next date without user interaction, including month and year boundaries. Focus, visibility, and page restoration catch up after sleep; disposing the date subscription removes its timer and event listeners.
+- Opening or reloading a long task list scrolls to the bottom and centers today between the pinned columns where the horizontal scroll range permits it. Check both week and month views, short and empty lists, and a saved period without today.
+- Manual scroll positions remain unchanged by subsequent data refreshes and time edits.
+- Switching from week to month or back, and leaving then returning to the current period, centers today again without resetting the vertical scroll position.
 - Business-day counting over ranges that start or end on a weekend, cross month and year boundaries, or are empty.
 - Expected hours with full days off, half days off, and days off that fall on a weekend.
 - Balance range resolution for a past period, a period that starts in the future, and a user with no tracked history.

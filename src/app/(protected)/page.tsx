@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, KeyboardEvent } from "react";
 import dynamic from "next/dynamic";
 import {
@@ -10,7 +10,6 @@ import {
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
-  isToday,
   addWeeks,
   addMonths,
   isSaturday,
@@ -19,6 +18,7 @@ import {
 } from "date-fns";
 import type { TaskWithTimeEntries, DayOff, Blocker, TimeBalance } from "@/types";
 import { accumulateOvertime } from "@/lib/time-balance";
+import { subscribeToLocalDate } from "@/lib/local-date";
 
 interface PeriodBalance {
   openingBalance: number;
@@ -587,8 +587,8 @@ export default function Home() {
   const [defaultDayLength, setDefaultDayLength] = useState<number | null>(null);
   const [defaultDayLengthLoading, setDefaultDayLengthLoading] = useState(true);
   const [balance, setBalance] = useState<PeriodBalance>(EMPTY_PERIOD_BALANCE);
-  // Balances already fetched, keyed by period start.
-  const balanceCacheRef = useRef(new Map<string, PeriodBalance>());
+  // Balances already fetched, keyed by period start and valid for one local day.
+  const balanceCacheRef = useRef(new Map<string, { todayKey: string; balance: PeriodBalance }>());
   const expectedDayLength = defaultDayLength ?? 0;
   
   // Initialize state from localStorage
@@ -642,6 +642,11 @@ export default function Home() {
   const editingCellRef = useRef<typeof editingCell>(null);
   const [isTaskDragActive, setIsTaskDragActive] = useState(false);
   const trackerScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const trackerWorkItemHeaderRef = useRef<HTMLTableCellElement | null>(null);
+  const trackerTodayHeaderRef = useRef<HTMLTableCellElement | null>(null);
+  const trackerTotalHeaderRef = useRef<HTMLTableCellElement | null>(null);
+  const hasInitiallyScrolledTrackerRef = useRef(false);
+  const lastCenteredTrackerPeriodRef = useRef<string | null>(null);
   const lockedTrackerScrollLeftRef = useRef<number | null>(null);
   
   const [visibleStatuses, setVisibleStatuses] = useState<Set<string>>(() => {
@@ -662,10 +667,9 @@ export default function Home() {
   const statusFilterLabel = isStatusFilterActive
     ? "Filter status active"
     : "Filter status";
-  // Recomputed every render so it self-heals across midnight, but stable as a string, so it can
-  // be a dependency without causing refetches. Every "is this day in the future?" decision on the
-  // page — and the cutoff the server applies — goes through this one value.
-  const todayKey = format(new Date(), "yyyy-MM-dd");
+  // Highlighting and balance cutoffs share a date that updates even while the page is idle.
+  const [todayKey, setTodayKey] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  useEffect(() => subscribeToLocalDate(setTodayKey), []);
   const dateRange = useMemo(() => {
     if (viewMode === "week") {
       return {
@@ -685,6 +689,35 @@ export default function Home() {
       endDate: format(endOfMonth(currentDate), "yyyy-MM-dd"),
     };
   }, [currentDate, viewMode]);
+
+  const trackerPeriodKey = `${dateRange.startDate}:${dateRange.endDate}`;
+  useLayoutEffect(() => {
+    const container = trackerScrollContainerRef.current;
+    if (!container || lastCenteredTrackerPeriodRef.current === trackerPeriodKey) {
+      return;
+    }
+
+    const todayHeader = trackerTodayHeaderRef.current;
+    const workItemHeader = trackerWorkItemHeaderRef.current;
+    const totalHeader = trackerTotalHeaderRef.current;
+    if (todayHeader && workItemHeader && totalHeader) {
+      // Center today in the date area between the sticky columns, not the whole grid.
+      const visibleLeft = workItemHeader.getBoundingClientRect().right;
+      const visibleRight = totalHeader.getBoundingClientRect().left;
+      const todayRect = todayHeader.getBoundingClientRect();
+      if (visibleRight > visibleLeft) {
+        container.scrollLeft +=
+          todayRect.left + todayRect.width / 2 - (visibleLeft + visibleRight) / 2;
+      }
+    }
+
+    lastCenteredTrackerPeriodRef.current = trackerPeriodKey;
+    // Only the first load moves to the last task; period navigation preserves vertical position.
+    if (!hasInitiallyScrolledTrackerRef.current) {
+      container.scrollTop = container.scrollHeight;
+      hasInitiallyScrolledTrackerRef.current = true;
+    }
+  }, [trackerPeriodKey, initialLoading, defaultDayLengthLoading, projectRequired, defaultDayLength]);
 
   const fetchTasks = useCallback(
     async (signal?: AbortSignal) => {
@@ -743,12 +776,12 @@ export default function Home() {
 
   // Overtime carried into the displayed period. It spans the user's whole history, so it is
   // never derived from loaded rows — the server answers with a single scalar. Cached per period
-  // start: an edit inside the displayed period cannot change the balance that period opened
-  // with, so stepping back and forth between two months costs one request, not one per step.
+  // start for the current local day: navigating back and forth reuses the balance, but a new
+  // day refreshes the cutoff used for periods that have not started yet.
   const fetchTimeBalance = useCallback(async (signal?: AbortSignal) => {
     const cached = balanceCacheRef.current.get(dateRange.startDate);
-    if (cached) {
-      setBalance(cached);
+    if (cached?.todayKey === todayKey) {
+      setBalance(cached.balance);
       return;
     }
 
@@ -770,7 +803,7 @@ export default function Home() {
         openingBalance: data.openingBalance,
         firstTrackedDate: data.firstTrackedDate,
       };
-      balanceCacheRef.current.set(dateRange.startDate, periodBalance);
+      balanceCacheRef.current.set(dateRange.startDate, { todayKey, balance: periodBalance });
       setBalance(periodBalance);
     } catch (err) {
       if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
@@ -972,11 +1005,11 @@ export default function Home() {
           isDayOff: hasDayOff,
           isHalfDay,
           isWeekend: isSaturday(date) || isSunday(date),
-          isToday: isToday(date),
+          isToday: key === todayKey,
         };
       });
     },
-    [currentDate, viewMode, dayOffMap]
+    [currentDate, viewMode, dayOffMap, todayKey]
   );
 
   const periodDateKeys = useMemo(
@@ -1835,6 +1868,7 @@ export default function Home() {
                     {/* Drag handle column */}
                   </th>
                   <th
+                    ref={trackerWorkItemHeaderRef}
                     className="p-3 text-left font-normal text-muted-foreground text-sm sticky left-[40px] bg-muted dark:bg-muted z-[21] overflow-hidden"
                     style={WORK_ITEM_COLUMN_STYLE}
                   >
@@ -1874,6 +1908,7 @@ export default function Home() {
                     return (
                       <th
                         key={day.key}
+                        ref={day.isToday ? trackerTodayHeaderRef : undefined}
                         className={`p-3 text-center font-normal text-sm ${headerClass}`}
                         style={{ minWidth: "84px", width: "84px" }}
                         title={title}
@@ -1894,6 +1929,7 @@ export default function Home() {
                     );
                   })}
                   <th
+                    ref={trackerTotalHeaderRef}
                     className="p-3 text-center font-normal text-muted-foreground text-sm bg-muted dark:bg-muted sticky right-0 z-[21]"
                     style={{ minWidth: "84px", width: "84px" }}
                   >
