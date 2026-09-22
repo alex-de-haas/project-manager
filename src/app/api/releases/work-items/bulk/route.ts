@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       `).all(body.sourceReleaseId, projectId) as { id: number; work_item_id: number }[])
         .filter((row) => ids.has(row.id));
       if (rows.length !== ids.size) {
-        throw new MembershipError("Some selected stories are no longer in this release. Reload and select them again.");
+        throw new MembershipError("Some selected items are unavailable or are not user stories in this release. Reload and select user stories again.");
       }
       if (body.action === "remove") {
         const remove = db.prepare("DELETE FROM release_items WHERE id = ?");

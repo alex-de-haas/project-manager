@@ -203,6 +203,7 @@ export default function ReleaseTrackingPage() {
   const { pendingIds, beginOperation, endOperation } = usePendingWorkItems();
   const [workItems, setWorkItems] = useState<ReleaseWorkItem[]>([]);
   const [workItemsLoading, setWorkItemsLoading] = useState(false);
+  const [workItemsRevision, setWorkItemsRevision] = useState(0);
   const [activeReleaseId, setActiveReleaseId] = useState<number | null>(() => {
     const stored = readLocalStorage(ACTIVE_RELEASE_STORAGE_KEY);
     if (!stored) return null;
@@ -229,7 +230,10 @@ export default function ReleaseTrackingPage() {
     setSelectedIds(new Set());
     setBulkAction(null);
     setBulkError(null);
-    return () => { viewGeneration.current += 1; };
+    return () => {
+      releaseRef.current = null;
+      viewGeneration.current += 1;
+    };
   }, [activeReleaseId]);
 
   useEffect(() => {
@@ -476,7 +480,7 @@ export default function ReleaseTrackingPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeReleaseId, projectRequired]);
+  }, [activeReleaseId, projectRequired, workItemsRevision]);
 
   useEffect(() => {
     if (sortedReleases.length === 0) return;
@@ -725,7 +729,12 @@ export default function ReleaseTrackingPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not update selected stories");
-      if (generation !== viewGeneration.current) return;
+      if (generation !== viewGeneration.current) {
+        // Navigation may have fetched the active release before the mutation committed.
+        // Restart its effect so any older in-flight GET is also cancelled.
+        if (releaseRef.current !== null) setWorkItemsRevision((revision) => revision + 1);
+        return;
+      }
       setSelectedIds(new Set());
       setBulkAction(null);
       // Reflect the committed operation even if reloading subsequently fails.

@@ -75,7 +75,9 @@ dialog. Successful operations clear selection and reload the source release.
 Pending operations disable repeat submissions and conflicting row actions,
 reordering, imports, and refresh. Selection resets on release changes and project
 reloads, and reconciles with reloaded rows. Stale bulk responses cannot overwrite
-a different release view.
+a different release view. When navigation occurs during a successful bulk operation,
+the currently active release reloads after the operation commits; any older
+in-flight navigation fetch is cancelled.
 
 ## Testing Expectations
 

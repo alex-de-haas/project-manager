@@ -155,7 +155,7 @@ export interface Release {
 
 export interface ReleaseWorkItem {
   id: number;
-  type?: WorkItemType;
+  type: WorkItemType;
   release_id: number;
   work_item_id?: number;
   title: string;

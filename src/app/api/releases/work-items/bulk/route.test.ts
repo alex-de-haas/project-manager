@@ -76,7 +76,11 @@ describe("atomic bulk release operations", () => {
   it("does not bulk-operate on a child task membership", async () => {
     const task = member(source, workItem("Child", "task"));
     const before = snapshot();
-    expect((await move({ ids: [first, task] })).status).toBe(409);
+    const response = await move({ ids: [first, task] });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Some selected items are unavailable or are not user stories in this release. Reload and select user stories again.",
+    });
     expect(snapshot()).toEqual(before);
   });
   it("rejects duplicate IDs, invalid action and same-release moves", async () => {
