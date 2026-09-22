@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { format } from "date-fns";
 import type { Release, ReleaseWorkItem } from "@/types";
@@ -145,6 +145,8 @@ interface SortableRowProps {
   children: React.ReactNode;
   rowClassName: string;
   dragHandleBgClassName: string;
+  disabled: boolean;
+  selection: React.ReactNode;
 }
 
 function SortableRow({
@@ -152,6 +154,8 @@ function SortableRow({
   children,
   rowClassName,
   dragHandleBgClassName,
+  disabled,
+  selection,
 }: SortableRowProps) {
   const {
     attributes,
@@ -160,7 +164,7 @@ function SortableRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -180,6 +184,7 @@ function SortableRow({
           <GripVertical className="w-4 h-4 text-muted-foreground" />
         </div>
       </td>
+      <td className={`px-3 py-1.5 ${dragHandleBgClassName.replace("left-0", "left-[40px]")}`}>{selection}</td>
       {children}
     </tr>
   );
@@ -198,12 +203,43 @@ export default function ReleaseTrackingPage() {
   const { pendingIds, beginOperation, endOperation } = usePendingWorkItems();
   const [workItems, setWorkItems] = useState<ReleaseWorkItem[]>([]);
   const [workItemsLoading, setWorkItemsLoading] = useState(false);
+  const [workItemsRevision, setWorkItemsRevision] = useState(0);
   const [activeReleaseId, setActiveReleaseId] = useState<number | null>(() => {
     const stored = readLocalStorage(ACTIVE_RELEASE_STORAGE_KEY);
     if (!stored) return null;
     const parsed = Number(stored);
     return Number.isNaN(parsed) ? null : parsed;
   });
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [bulkAction, setBulkAction] = useState<"move" | "remove" | null>(null);
+  const [bulkTarget, setBulkTarget] = useState("");
+  const [bulkPending, setBulkPending] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const bulkLock = useRef(false);
+  const [reordering, setReordering] = useState(false);
+  const reorderLock = useRef(false);
+  const viewGeneration = useRef(0);
+  const releaseRef = useRef(activeReleaseId);
+  const selectableItems = workItems.filter((item) => item.type === "user_story");
+  const selectedItems = selectableItems.filter((item) => selectedIds.has(item.id));
+  const membershipBusy = bulkPending || reordering || isRefreshing || workItemsLoading || pendingIds.size > 0;
+
+  useEffect(() => {
+    releaseRef.current = activeReleaseId;
+    viewGeneration.current += 1;
+    setSelectedIds(new Set());
+    setBulkAction(null);
+    setBulkError(null);
+    return () => {
+      releaseRef.current = null;
+      viewGeneration.current += 1;
+    };
+  }, [activeReleaseId]);
+
+  useEffect(() => {
+    setSelectedIds((previous) => new Set(workItems.filter((item) => previous.has(item.id)).map((item) => item.id)));
+  }, [workItems]);
+
   const [azureDevOpsOrganization, setAzureDevOpsOrganization] = useState("");
   const [azureDevOpsProject, setAzureDevOpsProject] = useState("");
   const [moveWorkItemDialogOpen, setMoveWorkItemDialogOpen] = useState(false);
@@ -444,7 +480,7 @@ export default function ReleaseTrackingPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeReleaseId, projectRequired]);
+  }, [activeReleaseId, projectRequired, workItemsRevision]);
 
   useEffect(() => {
     if (sortedReleases.length === 0) return;
@@ -527,6 +563,8 @@ export default function ReleaseTrackingPage() {
     };
   }, [showCreateChild]);
   const loadWorkItemsForRelease = useCallback(async (releaseId: number) => {
+    if (releaseRef.current !== releaseId) return;
+    const generation = viewGeneration.current;
     setWorkItemsLoading(true);
     try {
       const response = await fetch(`/api/releases/work-items?releaseId=${releaseId}`, {
@@ -534,12 +572,12 @@ export default function ReleaseTrackingPage() {
       });
       if (!response.ok) throw new Error("Failed to fetch work items");
       const data = (await response.json()) as ReleaseWorkItem[];
-      setWorkItems(data);
+      if (generation === viewGeneration.current) setWorkItems(data);
     } catch (err) {
       console.error(err);
-      toast.error("Failed to load release work items");
+      if (generation === viewGeneration.current) toast.error("Failed to load release work items");
     } finally {
-      setWorkItemsLoading(false);
+      if (generation === viewGeneration.current) setWorkItemsLoading(false);
     }
   }, []);
 
@@ -649,37 +687,70 @@ export default function ReleaseTrackingPage() {
   }, [workItems, loadChildCounts]);
 
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    if (bulkLock.current || reorderLock.current || membershipBusy) return;
     const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      setWorkItems((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over.id);
-
-        const newItems = arrayMove(items, oldIndex, newIndex);
-
-        // Update display_order in database
-        const workItemOrders = newItems.map((item, index) => ({
-          id: item.id,
-          order: index,
-        }));
-
-        fetch("/api/releases/work-items/reorder", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workItemOrders }),
-        }).catch((err) => {
-          console.error("Failed to update work item order:", err);
-          // Revert on error by fetching fresh data
-          if (activeReleaseId) {
-            loadWorkItemsForRelease(activeReleaseId);
-          }
-        });
-
-        return newItems;
+    if (!over || active.id === over.id || !activeReleaseId) return;
+    const oldIndex = workItems.findIndex((item) => item.id === active.id);
+    const newIndex = workItems.findIndex((item) => item.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reordered = arrayMove(workItems, oldIndex, newIndex);
+    reorderLock.current = true;
+    setReordering(true);
+    setWorkItems(reordered);
+    try {
+      const response = await fetch("/api/releases/work-items/reorder", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workItemOrders: reordered.map((item, order) => ({ id: item.id, order })) }),
       });
+      if (!response.ok) throw new Error("Failed to reorder stories");
+    } catch {
+      toast.error("Failed to reorder stories");
+      await loadWorkItemsForRelease(activeReleaseId);
+    } finally {
+      reorderLock.current = false;
+      setReordering(false);
     }
-  }, [activeReleaseId, loadWorkItemsForRelease]);
+  }, [activeReleaseId, loadWorkItemsForRelease, membershipBusy, workItems]);
+
+  const handleBulkAction = async () => {
+    if (!bulkAction || !activeReleaseId || !selectedItems.length || bulkLock.current || reorderLock.current || membershipBusy) return;
+    const generation = viewGeneration.current;
+    const sourceReleaseId = activeReleaseId;
+    const ids = selectedItems.map((item) => item.id);
+    bulkLock.current = true;
+    setBulkPending(true);
+    setBulkError(null);
+    try {
+      const response = await fetch("/api/releases/work-items/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: bulkAction, sourceReleaseId, ids, targetReleaseId: Number(bulkTarget) }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not update selected stories");
+      if (generation !== viewGeneration.current) {
+        // Navigation may have fetched the active release before the mutation committed.
+        // Restart its effect so any older in-flight GET is also cancelled.
+        if (releaseRef.current !== null) setWorkItemsRevision((revision) => revision + 1);
+        return;
+      }
+      setSelectedIds(new Set());
+      setBulkAction(null);
+      // Reflect the committed operation even if reloading subsequently fails.
+      setWorkItems((items) => items.filter((item) => !ids.includes(item.id)));
+      toast.success(`${ids.length} stories ${bulkAction === "move" ? "moved" : "removed from release"}`);
+      await loadWorkItemsForRelease(sourceReleaseId);
+    } catch (error) {
+      if (generation === viewGeneration.current) {
+        setBulkError(error instanceof Error ? error.message : "Could not update selected stories");
+      }
+    } finally {
+      bulkLock.current = false;
+      setBulkPending(false);
+    }
+  };
+
   const handlePrevRelease = () => {
     if (activeReleaseIndex <= 0) return;
     const prev = sortedReleases[activeReleaseIndex - 1];
@@ -694,7 +765,7 @@ export default function ReleaseTrackingPage() {
   };
 
   const handleMoveWorkItem = async () => {
-    if (!selectedWorkItemToMove || !selectedTargetReleaseId) return;
+    if (bulkLock.current || reorderLock.current || !selectedWorkItemToMove || !selectedTargetReleaseId) return;
 
     const operationId = `release:${selectedWorkItemToMove.id}`;
     if (!beginOperation(operationId)) return;
@@ -786,6 +857,7 @@ export default function ReleaseTrackingPage() {
   };
 
   const handleRemoveWorkItem = async (workItemId: number) => {
+    if (bulkLock.current || reorderLock.current) return;
     const operationId = `release:${workItemId}`;
     if (!beginOperation(operationId)) return;
 
@@ -1414,6 +1486,7 @@ export default function ReleaseTrackingPage() {
   );
 
   const handleRefresh = async () => {
+    if (bulkLock.current || reorderLock.current) return;
     setIsRefreshing(true);
 
     try {
@@ -1541,7 +1614,7 @@ export default function ReleaseTrackingPage() {
                     variant="outline"
                     size="icon"
                     className="h-10 w-10"
-                    disabled={!activeRelease}
+                    disabled={bulkPending || reordering || !activeRelease}
                     aria-label="Add release work item"
                     title="Add release work item"
                   >
@@ -1571,7 +1644,7 @@ export default function ReleaseTrackingPage() {
                     size="icon"
                     className="h-10 w-10"
                     variant="outline"
-                    disabled={isRefreshing || !activeRelease}
+                    disabled={membershipBusy || !activeRelease}
                     aria-label="Refresh Azure DevOps work items"
                   >
                     <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
@@ -1599,6 +1672,14 @@ export default function ReleaseTrackingPage() {
         ) : activeRelease && (
           <div className="overflow-auto h-full">
             <div className="p-6 space-y-3">
+              {selectedItems.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/50 p-3" aria-label="Selected story actions">
+                  <span className="mr-auto text-sm" role="status">{selectedItems.length} selected</span>
+                  <Button variant="ghost" size="sm" disabled={bulkPending} onClick={() => setSelectedIds(new Set())}>Clear selection</Button>
+                  <Button variant="outline" size="sm" disabled={membershipBusy} onClick={() => { setBulkTarget(""); setBulkError(null); setBulkAction("move"); }}>Move to release</Button>
+                  <Button variant="outline" size="sm" disabled={membershipBusy} onClick={() => { setBulkError(null); setBulkAction("remove"); }}>Remove from release</Button>
+                </div>
+              )}
               {workItemsLoading ? null : workItems.length === 0 ? (
                 <div className="text-center text-sm text-muted-foreground py-8">
                   No work items yet. Import user stories to start planning.
@@ -1619,8 +1700,13 @@ export default function ReleaseTrackingPage() {
                           <th className="p-3 sticky left-0 bg-muted z-10" style={{ width: "40px" }}>
                             {/* Drag handle column */}
                           </th>
+                          <th className="p-3 w-10 sticky left-[40px] bg-muted z-10">
+                            <Checkbox aria-label="Select all stories" disabled={membershipBusy || selectableItems.length === 0}
+                              checked={selectedItems.length > 0 && selectedItems.length === selectableItems.length ? true : selectedItems.length > 0 ? "indeterminate" : false}
+                              onCheckedChange={(checked) => setSelectedIds(checked === true ? new Set(selectableItems.map((item) => item.id)) : new Set())} />
+                          </th>
                           <th
-                            className="p-3 text-left font-normal text-muted-foreground text-sm sticky left-[40px] bg-muted z-10 overflow-hidden"
+                            className="p-3 text-left font-normal text-muted-foreground text-sm sticky left-[80px] bg-muted z-10 overflow-hidden"
                             style={{ width: "55%", minWidth: "280px", maxWidth: "55vw" }}
                           >
                             Work item
@@ -1708,22 +1794,22 @@ export default function ReleaseTrackingPage() {
                             if (hasBlockers) {
                               switch (highestSeverity) {
                                 case "critical":
-                                  return "py-1.5 px-3 sticky left-[40px] bg-red-100 group-hover:bg-red-200 dark:bg-red-950 dark:group-hover:bg-red-900 z-10";
+                                  return "py-1.5 px-3 sticky left-[80px] bg-red-100 group-hover:bg-red-200 dark:bg-red-950 dark:group-hover:bg-red-900 z-10";
                                 case "high":
-                                  return "py-1.5 px-3 sticky left-[40px] bg-orange-100 group-hover:bg-orange-200 dark:bg-orange-950 dark:group-hover:bg-orange-900 z-10";
+                                  return "py-1.5 px-3 sticky left-[80px] bg-orange-100 group-hover:bg-orange-200 dark:bg-orange-950 dark:group-hover:bg-orange-900 z-10";
                                 case "medium":
-                                  return "py-1.5 px-3 sticky left-[40px] bg-yellow-100 group-hover:bg-yellow-200 dark:bg-yellow-950 dark:group-hover:bg-yellow-900 z-10";
+                                  return "py-1.5 px-3 sticky left-[80px] bg-yellow-100 group-hover:bg-yellow-200 dark:bg-yellow-950 dark:group-hover:bg-yellow-900 z-10";
                                 case "low":
-                                  return "py-1.5 px-3 sticky left-[40px] bg-blue-100 group-hover:bg-blue-200 dark:bg-blue-950 dark:group-hover:bg-blue-900 z-10";
+                                  return "py-1.5 px-3 sticky left-[80px] bg-blue-100 group-hover:bg-blue-200 dark:bg-blue-950 dark:group-hover:bg-blue-900 z-10";
                               }
                             }
                             if (itemState === "done" || itemState === "resolved" || itemState === "closed") {
-                              return "py-1.5 px-3 sticky left-[40px] bg-green-50 group-hover:bg-green-100 dark:bg-green-950 dark:group-hover:bg-green-900 z-10";
+                              return "py-1.5 px-3 sticky left-[80px] bg-green-50 group-hover:bg-green-100 dark:bg-green-950 dark:group-hover:bg-green-900 z-10";
                             }
                             if (itemState === "active") {
-                              return "py-1.5 px-3 sticky left-[40px] bg-blue-50 group-hover:bg-blue-100 dark:bg-blue-950 dark:group-hover:bg-blue-900 z-10";
+                              return "py-1.5 px-3 sticky left-[80px] bg-blue-50 group-hover:bg-blue-100 dark:bg-blue-950 dark:group-hover:bg-blue-900 z-10";
                             }
-                            return "py-1.5 px-3 sticky left-[40px] bg-background dark:bg-card group-hover:bg-muted dark:group-hover:bg-muted z-10";
+                            return "py-1.5 px-3 sticky left-[80px] bg-background dark:bg-card group-hover:bg-muted dark:group-hover:bg-muted z-10";
                           };
 
                           const getDragHandleBgClass = () => {
@@ -1752,6 +1838,13 @@ export default function ReleaseTrackingPage() {
                             <SortableRow
                               key={item.id}
                               id={item.id}
+                              disabled={membershipBusy}
+                              selection={<Checkbox aria-label={`Select ${item.title}`} checked={selectedIds.has(item.id)} disabled={membershipBusy || item.type !== "user_story"}
+                                onCheckedChange={(checked) => setSelectedIds((previous) => {
+                                  const next = new Set(previous);
+                                  if (checked === true) next.add(item.id); else next.delete(item.id);
+                                  return next;
+                                })} />}
                               rowClassName={getRowClass()}
                               dragHandleBgClassName={getDragHandleBgClass()}
                             >
@@ -1912,7 +2005,8 @@ export default function ReleaseTrackingPage() {
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <WorkItemActionsButton
-                                        busy={pendingIds.has(`release:${item.id}`)}
+                                        busy={pendingIds.has(`release:${item.id}`) || (bulkPending && selectedIds.has(item.id))}
+                                        disabled={bulkPending || reordering}
                                       />
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="w-48">
@@ -2310,6 +2404,38 @@ export default function ReleaseTrackingPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      <Dialog open={bulkAction !== null} onOpenChange={(open) => { if (!open && !bulkLock.current) setBulkAction(null); }}>
+        <DialogContent className="sm:max-w-[440px]" aria-busy={bulkPending}>
+          <DialogHeader>
+            <DialogTitle>{bulkAction === "remove" ? "Remove stories from release" : "Move stories to release"}</DialogTitle>
+            <DialogDescription>
+              {bulkAction === "remove"
+                ? `Remove ${selectedItems.length} selected stories from this release? The stories, their notes and child tasks are preserved.`
+                : `Move ${selectedItems.length} selected stories together to another active release.`}
+            </DialogDescription>
+          </DialogHeader>
+          {bulkAction === "move" && (
+            <div className="space-y-2">
+              <Label htmlFor="bulk-target-release">Target release</Label>
+              <Select value={bulkTarget} onValueChange={setBulkTarget} disabled={bulkPending}>
+                <SelectTrigger id="bulk-target-release"><SelectValue placeholder="Select a release" /></SelectTrigger>
+                <SelectContent>{moveTargetReleases.map((release) => <SelectItem key={release.id} value={String(release.id)}>{release.name}</SelectItem>)}</SelectContent>
+              </Select>
+              {moveTargetReleases.length === 0 && <p className="text-sm text-muted-foreground">No active target releases available. Create a release in Settings.</p>}
+            </div>
+          )}
+          {bulkError && <p role="alert" className="text-sm text-destructive">{bulkError}</p>}
+          <DialogFooter>
+            <Button variant="secondary" disabled={bulkPending} onClick={() => setBulkAction(null)}>Cancel</Button>
+            <Button variant={bulkAction === "remove" ? "destructive" : "default"}
+              disabled={membershipBusy || selectedItems.length === 0 || (bulkAction === "move" && !moveTargetReleases.some((release) => String(release.id) === bulkTarget))}
+              onClick={() => void handleBulkAction()}>
+              {bulkPending ? "Applying…" : bulkAction === "remove" ? "Remove from release" : "Move"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {moveWorkItemDialogOpen && (
         <Dialog open={moveWorkItemDialogOpen} onOpenChange={setMoveWorkItemDialogOpen}>

@@ -1,7 +1,7 @@
 # Release Planning
 
 Created: 2026-05-30
-Updated: 2026-09-10
+Updated: 2026-09-22
 
 ## Overview
 
@@ -54,6 +54,31 @@ Blockers can be attached to any work item type. Release Planning exposes blocker
 
 Local status changes use Project Manager workflow gates. Status updates received from Azure DevOps refresh are accepted as provider state and stored with provider diagnostics, even if they would not have passed a local workflow gate.
 
+## Bulk Release Operations
+
+User story rows have selection checkboxes. The header checkbox selects all user
+stories in the current release and displays a partial-selection indicator. Other
+work item types retain their individual actions but cannot be selected for bulk
+story operations. A selection toolbar shows the selected count, clear selection,
+`Move to release`, and `Remove from release`.
+
+Bulk moves offer other active releases in the current project. New releases are
+created in Settings. Selected stories are appended in their source display order.
+Bulk removal asks for confirmation and removes only the selected release
+memberships; stories, notes, children, provider links, assignments, and tracked
+time remain intact. Neither action changes Azure DevOps iterations or statuses.
+
+Both operations are atomic. Missing or stale selections, cross-project items,
+completed move destinations, and duplicate destination membership reject the
+whole operation. Failures preserve the selection and display an error in the
+dialog. Successful operations clear selection and reload the source release.
+Pending operations disable repeat submissions and conflicting row actions,
+reordering, imports, and refresh. Selection resets on release changes and project
+reloads, and reconciles with reloaded rows. Stale bulk responses cannot overwrite
+a different release view. When navigation occurs during a successful bulk operation,
+the currently active release reloads after the operation commits; any older
+in-flight navigation fetch is cancelled.
+
 ## Testing Expectations
 
 - Saving a note from Release Planning updates the work item, including a work item that
@@ -62,3 +87,13 @@ Local status changes use Project Manager workflow gates. Status updates received
   work item in another project.
 - Delayed user story status, child task/bug status, and child assignment requests show loading indicators until completion, restore actions on error, and prevent duplicate requests for the same row while allowing independent rows to update.
 - Concurrent blocker preparation on different user stories keeps both rows busy independently and prevents duplicate preparation for a pending row.
+
+- Bulk move tests verify source ordering, append ordering, project isolation,
+  invalid and stale selections, completed destinations, duplicate membership,
+  and unchanged canonical work item data and provider links.
+- Bulk removal tests verify that only selected memberships are removed and that
+  stories, notes, children, and membership in other releases remain intact.
+- Database failures after an earlier write roll back every move or removal.
+- Browser checks cover partial/all selection, keyboard operation, clear selection,
+  move and removal dialogs, successful moves, retained selection on failure,
+  release/project selection resets, and disabled controls during submission.
