@@ -103,10 +103,10 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
 - The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In local HTTP development contexts, it uses `SameSite=Lax` without `Secure`; separate named local origins and cross-site frames use the memory grant when cookies are unavailable.
-- On navigation with a Core `code`, the SDK removes it from the URL, exchanges it once and probes the session without reloading. The identity probe accepts bearer grants and cookies, and returns SDK recovery and activity metadata. A fresh bearer grant takes precedence over an old cookie.
+- On navigation with a Core `code`, the SDK removes it from the URL, exchanges it once and probes the session without reloading. The identity probe accepts bearer grants and cookies, and returns SDK recovery and activity metadata. A fresh bearer grant takes precedence over an old cookie. An active resolution with a missing, invalid or expired expiry is reported as expired, matching protected API validation.
 - The bridge gates initial rendering and keeps the active page mounted while renewing access, preserving drafts. A full browser reload can require sign-in again when third-party cookies are blocked because the fallback grant is memory-only.
 - User and project context come from `/api/auth/session`; administrative settings visibility follows the returned user role. API authorization remains server-enforced.
-- Project selection also lives in memory and accompanies API calls as `X-Project-Id`. Every handler still validates project membership; a selection grants no access. Existing selection cookies remain a convenience when the browser accepts them. Switching projects refreshes app context without a full document reload.
+- Project selection also lives in memory and accompanies API calls as `X-Project-Id`. Every handler still validates project membership; a selection grants no access. Existing selection cookies remain a convenience when the browser accepts them. Switching projects refreshes app context without a full document reload. If the selected project was deleted or access was revoked, the session endpoint returns 404 or 403. The context loader clears that stale selection and retries the read once without it, preserving the app grant and letting the server select an accessible project.
 - App identity revalidation calls use the SDK's bounded positive cache and in-flight deduplication. Failed validations do not grant access.
 
 ## Local Development
@@ -176,7 +176,7 @@ Use these checks when changing the app contract or preparing a release:
 - After a packaging change, verify `npm run start` still serves `/api/health` outside Docker, so the standalone opt-in has not leaked into local builds.
 - Verify protected APIs reject missing or forged Hosty identity, while the page bootstrap displays the SDK sign-in state.
 - Verify embedded popup completion when app cookies are blocked, bearer-authenticated API requests, renewal without draft loss, and project switching without document reload.
-- Run `npm test` and `npm run lint`; identity-probe and browser-API regressions cover memory grants, activity metadata, forged internal headers and cross-origin rejection.
+- Run `npm test` and `npm run lint`; identity-probe and browser-API regressions cover memory grants, activity metadata, forged internal headers, expiry consistency and cross-origin rejection. Cover deleted/revoked project selection, bounded context fallback and preservation of the app grant.
 - Verify app-code exchange with a real Core-issued app authorization code.
 - Verify direct-origin API probes with a real Core-issued app identity token.
 - Verify assigned Hosty users can access the app through Hosty Shell.

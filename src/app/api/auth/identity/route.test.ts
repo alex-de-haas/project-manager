@@ -36,3 +36,22 @@ it("preserves probe token inputs while removing forged trusted identity", async 
   expect(response.headers.get("x-middleware-request-authorization")).toBe("Bearer hostyg_fresh");
   expect(response.headers.get("x-middleware-request-x-project-manager-host-user-id")).toBeNull();
 });
+
+it.each([undefined, null, "not-a-date", "2000-01-01T00:00:00Z"])(
+  "reports expired rather than active for unusable expiry %s", async expiresAt => {
+    vi.stubEnv("HOSTY_APP_ID", "com.haas.project-manager");
+    vi.stubEnv("HOSTY_CORE_ORIGIN", "https://core.test");
+    vi.stubEnv("HOSTY_APP_SERVICE_TOKEN", "service-token");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      active: true, appId: "com.haas.project-manager", userId: "user_1",
+      expiresAt, activeUntil: "2030-01-01T00:00:00Z", activityRequired: true,
+    })));
+    const response = await GET(new NextRequest("https://app.test/api/auth/identity", {
+      headers: { authorization: "Bearer hostyg_expired" },
+    }));
+    const body = await response.json();
+    expect(body.status).toBe("expired");
+    expect(body).not.toHaveProperty("activeUntil");
+    expect(body).not.toHaveProperty("activityRequired");
+  }
+);

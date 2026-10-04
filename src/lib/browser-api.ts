@@ -11,3 +11,16 @@ export function apiFetch(input: string | URL, init: RequestInit = {}) {
   if (activeProjectId && !headers.has("x-project-id")) headers.set("x-project-id", activeProjectId);
   return appFetch(input, { ...init, headers });
 }
+
+/** Recover a stale project selection without discarding the browser's app grant. */
+export async function fetchAppContext(signal?: AbortSignal) {
+  const selectedProject = activeProjectId;
+  const response = await apiFetch("/api/auth/session", { signal });
+  if (selectedProject && selectedProject === activeProjectId && !signal?.aborted &&
+      (response.status === 403 || response.status === 404)) {
+    setActiveProjectId("");
+    // Retry this read once, letting the server choose an accessible project.
+    return apiFetch("/api/auth/session", { signal });
+  }
+  return response;
+}

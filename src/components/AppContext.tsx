@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import TopNavigation from "@/components/TopNavigation";
-import { apiFetch, setActiveProjectId, refreshAppContext } from "@/lib/browser-api";
+import { fetchAppContext, setActiveProjectId, refreshAppContext } from "@/lib/browser-api";
 
 type AppContextData = {
   user: { id: number; host_user_id: string; name: string; email: string | null; is_admin: number };
@@ -24,7 +24,7 @@ export function AppContext({ children }: { children: React.ReactNode }) {
   }, []);
   useEffect(() => {
     const controller = new AbortController();
-    void apiFetch("/api/auth/session", { signal: controller.signal }).then(async response => {
+    void fetchAppContext(controller.signal).then(async response => {
       if (!response.ok) throw new Error("Could not load your project context.");
       const data = await response.json() as AppContextData;
       if (!controller.signal.aborted) {

@@ -3,6 +3,7 @@ import {
   resolveAppSession,
   HOSTY_APP_IDENTITY_HEADER as SDK_IDENTITY_HEADER,
   type HostyAppConfig,
+  type AppSessionResolution,
 } from "@hosty-sdk/app/server";
 import type { AppSessionStatus } from "@hosty-sdk/app";
 import { PROJECT_MANAGER_APP_ID, getAppId } from "@/lib/module-runtime";
@@ -86,7 +87,10 @@ export const revalidateHostyAppIdentityToken = async (
 export const classifyAppSessionStatus = async (
   token: string | null | undefined
 ): Promise<AppSessionStatus> => {
-  const resolution = await resolveAppSession(token?.trim() || null, hostyAppConfig);
+  return classifyResolvedAppSession(await resolveAppSession(token?.trim() || null, hostyAppConfig));
+};
+
+export const classifyResolvedAppSession = (resolution: AppSessionResolution): AppSessionStatus => {
   if (resolution.status === "active" && isExpiredByTimestamp(resolution.identity.expiresAt)) {
     return "expired";
   }
