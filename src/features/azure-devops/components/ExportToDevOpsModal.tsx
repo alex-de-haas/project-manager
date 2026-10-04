@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -43,7 +45,7 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
   const fetchParentWorkItems = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch("/api/azure-devops/export");
+      const response = await apiFetch("/api/azure-devops/export");
       const data = await response.json();
 
       if (response.ok) {
@@ -78,7 +80,7 @@ export function ExportToDevOpsModal({ task, onClose, onSuccess }: ExportToDevOps
     setExporting(true);
 
     try {
-      const response = await fetch("/api/azure-devops/export", {
+      const response = await apiFetch("/api/azure-devops/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 

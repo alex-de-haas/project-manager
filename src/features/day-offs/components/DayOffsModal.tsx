@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { toast } from "@/lib/toast";
@@ -86,7 +88,7 @@ export function DayOffsModal({
 
         for (const dateStr of dates) {
           try {
-            const response = await fetch("/api/day-offs", {
+            const response = await apiFetch("/api/day-offs", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ date: dateStr, description: description || null, isHalfDay }),
@@ -115,7 +117,7 @@ export function DayOffsModal({
         );
       } else {
         // Single date
-        const response = await fetch("/api/day-offs", {
+        const response = await apiFetch("/api/day-offs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ date, description: description || null, isHalfDay }),
@@ -189,7 +191,7 @@ export function DayOffsModal({
     setMessage("");
 
     try {
-      const response = await fetch("/api/day-offs/import", {
+      const response = await apiFetch("/api/day-offs/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -225,7 +227,7 @@ export function DayOffsModal({
 
   const handleDelete = async (id: number) => {
     try {
-      const response = await fetch(`/api/day-offs?id=${id}`, {
+      const response = await apiFetch(`/api/day-offs?id=${id}`, {
         method: "DELETE",
       });
 

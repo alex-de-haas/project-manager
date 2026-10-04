@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useState, useEffect } from "react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -58,7 +60,7 @@ export function WorkItemModal({ task, onClose, onSuccess }: WorkItemModalProps) 
 
     setSubmitting(true);
     try {
-      const response = await fetch("/api/tasks", {
+      const response = await apiFetch("/api/tasks", {
         method: isEditMode ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(

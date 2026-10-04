@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
@@ -115,8 +117,8 @@ export default function DayOffsCalendarPage() {
       const currentUserDayOffsUrl = `/api/day-offs?startDate=${monthRange.startDate}&endDate=${monthRange.endDate}`;
 
       const [teamResponse, currentUserResponse] = await Promise.all([
-        fetch(teamDayOffsUrl),
-        fetch(currentUserDayOffsUrl),
+        apiFetch(teamDayOffsUrl),
+        apiFetch(currentUserDayOffsUrl),
       ]);
 
       if (!teamResponse.ok || !currentUserResponse.ok) {

@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch, setActiveProjectId as setRequestProjectId, refreshAppContext } from "@/lib/browser-api";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -119,6 +121,7 @@ export default function TopNavigation({
   );
 
   const writeProjectCookies = (projectId: string) => {
+    setRequestProjectId(projectId);
     if (!currentUser?.id || !projectId) {
       document.cookie = `${PROJECT_COOKIE_NAME}=; path=/; max-age=0; samesite=lax`;
       document.cookie = `${PROJECT_USER_COOKIE_NAME}=; path=/; max-age=0; samesite=lax`;
@@ -134,7 +137,7 @@ export default function TopNavigation({
 
     setActiveProjectId(value);
     writeProjectCookies(value);
-    window.location.reload();
+    refreshAppContext();
   };
 
   useEffect(() => {
@@ -147,7 +150,7 @@ export default function TopNavigation({
     if (!projectId) return;
 
     try {
-      const response = await fetch("/api/projects/default", {
+      const response = await apiFetch("/api/projects/default", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: Number(projectId) }),

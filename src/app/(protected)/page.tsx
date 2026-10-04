@@ -1,5 +1,9 @@
 "use client";
 
+import Link from "next/link";
+
+import { apiFetch } from "@/lib/browser-api";
+
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, KeyboardEvent } from "react";
 import dynamic from "next/dynamic";
@@ -726,7 +730,7 @@ export default function Home() {
           startDate: dateRange.startDate,
           endDate: dateRange.endDate,
         });
-        const response = await fetch(`/api/tasks?${params.toString()}`, { signal });
+        const response = await apiFetch(`/api/tasks?${params.toString()}`, { signal });
         if (!response.ok) {
           if (response.status === 400 || response.status === 403 || response.status === 404) {
             setProjectRequired(true);
@@ -759,7 +763,7 @@ export default function Home() {
 
   const fetchDayOffs = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/day-offs?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`,
         { signal }
       );
@@ -786,7 +790,7 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/time-balance?asOf=${dateRange.startDate}&today=${todayKey}`,
         { signal }
       );
@@ -878,7 +882,7 @@ export default function Home() {
     // errors, so a 4xx/5xx would otherwise be silently ignored and leave the UI diverged from
     // the DB. Check response.ok and roll back by refetching authoritative data on any failure.
     try {
-      const response = await fetch("/api/tasks/reorder", {
+      const response = await apiFetch("/api/tasks/reorder", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ taskOrders }),
@@ -935,7 +939,7 @@ export default function Home() {
   useEffect(() => {
     const fetchDefaultDayLength = async () => {
       try {
-        const response = await fetch("/api/settings?key=default_day_length");
+        const response = await apiFetch("/api/settings?key=default_day_length");
         if (response.ok) {
           const data = await response.json();
           const parsed = Number(data.value);
@@ -1132,7 +1136,7 @@ export default function Home() {
       setTimeEntriesLoading(true);
       setTimeEntriesError(null);
       try {
-        const response = await fetch(`/api/time-entries?taskId=${showTimeEntries.taskId}`);
+        const response = await apiFetch(`/api/time-entries?taskId=${showTimeEntries.taskId}`);
         if (!response.ok) throw new Error("Failed to fetch tracked time");
         const data = await response.json();
         if (!cancelled) {
@@ -1231,7 +1235,7 @@ export default function Home() {
     if (!beginOperation(String(taskId))) return;
 
     try {
-      const response = await fetch("/api/time-entries", {
+      const response = await apiFetch("/api/time-entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1319,7 +1323,7 @@ export default function Home() {
   const handleTaskClick = async (task: TaskWithTimeEntries) => {
     if (task.external_source === "azure_devops" && task.external_id) {
       try {
-        const response = await fetch(`/api/settings?key=azure_devops`);
+        const response = await apiFetch(`/api/settings?key=azure_devops`);
         if (response.ok) {
           const setting = await response.json();
 
@@ -1358,7 +1362,7 @@ export default function Home() {
     setNotesSavingTaskId(taskId);
 
     try {
-      const response = await fetch("/api/work-items/notes", {
+      const response = await apiFetch("/api/work-items/notes", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workItemId: taskId, notes: notesDraft }),
@@ -1392,7 +1396,7 @@ export default function Home() {
   const handleDeleteTask = async (taskId: number) => {
     if (!beginOperation(String(taskId))) return;
     try {
-      const response = await fetch(`/api/tasks?id=${taskId}`, {
+      const response = await apiFetch(`/api/tasks?id=${taskId}`, {
         method: "DELETE",
       });
 
@@ -1452,7 +1456,7 @@ export default function Home() {
         ? "/api/azure-devops/update-status"
         : "/api/tasks";
       
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method: hasExternalSource ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -1522,7 +1526,7 @@ export default function Home() {
         .map((task) => task.id);
 
       if (refreshTaskIds.length > 0) {
-        const refreshResponse = await fetch("/api/azure-devops/refresh", {
+        const refreshResponse = await apiFetch("/api/azure-devops/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1566,7 +1570,7 @@ export default function Home() {
         endDate: dateRange.endDate,
         mode: viewMode,
       });
-      const response = await fetch(`/api/export?${params.toString()}`);
+      const response = await apiFetch(`/api/export?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error('Failed to export');
@@ -1616,7 +1620,7 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <Button asChild>
-              <a href="/settings">Open Settings</a>
+              <Link href="/settings">Open Settings</Link>
             </Button>
           </CardContent>
         </Card>
@@ -1636,7 +1640,7 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <Button asChild>
-              <a href="/settings">Open Profile Settings</a>
+              <Link href="/settings">Open Profile Settings</Link>
             </Button>
           </CardContent>
         </Card>

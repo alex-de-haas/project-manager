@@ -35,7 +35,6 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: hostThemeBootstrapScript }} />
       </head>
       <body className="bg-background text-foreground">
-        <AppIdentityBridge />
         <HostLaunchBridge />
         <ThemeProvider
           attribute="class"
@@ -45,7 +44,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <HostThemeBridge />
-          {children}
+          <AppIdentityBridge>{children}</AppIdentityBridge>
           <Toaster />
         </ThemeProvider>
       </body>

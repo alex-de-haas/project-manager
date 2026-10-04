@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   }
 
   const appResponse = NextResponse.json(
-    { ok: true },
+    { ok: true, accessToken: result.accessToken },
     {
       headers: {
         "Cache-Control": "no-store",

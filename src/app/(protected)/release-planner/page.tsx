@@ -1,5 +1,9 @@
 "use client";
 
+import Link from "next/link";
+
+import { apiFetch } from "@/lib/browser-api";
+
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { format } from "date-fns";
@@ -338,7 +342,7 @@ export default function ReleaseTrackingPage() {
   const loadReleases = async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/releases");
+      const response = await apiFetch("/api/releases");
       if (!response.ok) {
         if (response.status === 400 || response.status === 403 || response.status === 404) {
           setProjectRequired(true);
@@ -368,7 +372,7 @@ export default function ReleaseTrackingPage() {
 
   const loadAzureDevOpsSettings = async () => {
     try {
-      const response = await fetch("/api/settings?key=azure_devops");
+      const response = await apiFetch("/api/settings?key=azure_devops");
       if (response.ok) {
         const data = await response.json();
         if (data.value) {
@@ -393,8 +397,8 @@ export default function ReleaseTrackingPage() {
     const loadProjectUsers = async () => {
       try {
         const [sessionResponse, usersResponse] = await Promise.all([
-          fetch("/api/auth/session"),
-          fetch("/api/project-members"),
+          apiFetch("/api/auth/session"),
+          apiFetch("/api/project-members"),
         ]);
 
         if (!usersResponse.ok) {
@@ -452,7 +456,7 @@ export default function ReleaseTrackingPage() {
     const loadWorkItems = async () => {
       setWorkItemsLoading(true);
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `/api/releases/work-items?releaseId=${activeReleaseId}`,
           { cache: "no-store" }
         );
@@ -512,7 +516,7 @@ export default function ReleaseTrackingPage() {
       setLoadingExistingChildTasks(true);
       setExistingChildTasksError(null);
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `/api/azure-devops/child-work-items?parentId=${showCreateChild.workItemExternalId}`,
           { cache: "no-store" }
         );
@@ -567,7 +571,7 @@ export default function ReleaseTrackingPage() {
     const generation = viewGeneration.current;
     setWorkItemsLoading(true);
     try {
-      const response = await fetch(`/api/releases/work-items?releaseId=${releaseId}`, {
+      const response = await apiFetch(`/api/releases/work-items?releaseId=${releaseId}`, {
         cache: "no-store",
       });
       if (!response.ok) throw new Error("Failed to fetch work items");
@@ -589,7 +593,7 @@ export default function ReleaseTrackingPage() {
 
       if (!beginOperation(`release:${item.id}`)) return null;
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `/api/releases/work-items/${item.id}/blocker-task`,
           {
             method: "POST",
@@ -658,7 +662,7 @@ export default function ReleaseTrackingPage() {
 
     setLoadingChildCounts(true);
     try {
-      const response = await fetch("/api/azure-devops/child-work-items", {
+      const response = await apiFetch("/api/azure-devops/child-work-items", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parentIds }),
@@ -698,7 +702,7 @@ export default function ReleaseTrackingPage() {
     setReordering(true);
     setWorkItems(reordered);
     try {
-      const response = await fetch("/api/releases/work-items/reorder", {
+      const response = await apiFetch("/api/releases/work-items/reorder", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workItemOrders: reordered.map((item, order) => ({ id: item.id, order })) }),
@@ -722,7 +726,7 @@ export default function ReleaseTrackingPage() {
     setBulkPending(true);
     setBulkError(null);
     try {
-      const response = await fetch("/api/releases/work-items/bulk", {
+      const response = await apiFetch("/api/releases/work-items/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: bulkAction, sourceReleaseId, ids, targetReleaseId: Number(bulkTarget) }),
@@ -771,7 +775,7 @@ export default function ReleaseTrackingPage() {
     if (!beginOperation(operationId)) return;
 
     try {
-      const response = await fetch(`/api/releases/work-items/${selectedWorkItemToMove.id}`, {
+      const response = await apiFetch(`/api/releases/work-items/${selectedWorkItemToMove.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -817,7 +821,7 @@ export default function ReleaseTrackingPage() {
     setNotesSavingWorkItemId(releaseItemId);
 
     try {
-      const response = await fetch("/api/work-items/notes", {
+      const response = await apiFetch("/api/work-items/notes", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -862,7 +866,7 @@ export default function ReleaseTrackingPage() {
     if (!beginOperation(operationId)) return;
 
     try {
-      const response = await fetch(`/api/releases/work-items?id=${workItemId}`, {
+      const response = await apiFetch(`/api/releases/work-items?id=${workItemId}`, {
         method: "DELETE",
       });
 
@@ -984,7 +988,7 @@ export default function ReleaseTrackingPage() {
 
       if (!beginOperation(`release:${item.id}`)) return;
       try {
-        const response = await fetch("/api/azure-devops/release-work-items/status", {
+        const response = await apiFetch("/api/azure-devops/release-work-items/status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1049,7 +1053,7 @@ export default function ReleaseTrackingPage() {
 
       if (!beginOperation(`child:${workItemId}`)) return;
       try {
-        const response = await fetch("/api/azure-devops/child-work-items/status", {
+        const response = await apiFetch("/api/azure-devops/child-work-items/status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1121,7 +1125,7 @@ export default function ReleaseTrackingPage() {
 
       if (!beginOperation(`child:${workItemId}`)) return;
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           "/api/azure-devops/child-work-items/assignment",
           {
             method: "POST",
@@ -1366,7 +1370,7 @@ export default function ReleaseTrackingPage() {
             throw new Error(`Select a user for ${option.label}`);
           }
 
-          return fetch("/api/tasks", {
+          return apiFetch("/api/tasks", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1406,7 +1410,7 @@ export default function ReleaseTrackingPage() {
 
     setUserStorySubmitting(true);
     try {
-      const response = await fetch("/api/releases/work-items", {
+      const response = await apiFetch("/api/releases/work-items", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1438,7 +1442,7 @@ export default function ReleaseTrackingPage() {
       setChildItemsDialogError(null);
       setChildItemsDialogItems([]);
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `/api/azure-devops/child-work-items?parentId=${parentId}`,
           { cache: "no-store" }
         );
@@ -1495,7 +1499,7 @@ export default function ReleaseTrackingPage() {
         return;
       }
 
-      const refreshResponse = await fetch("/api/azure-devops/refresh", {
+      const refreshResponse = await apiFetch("/api/azure-devops/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ releaseId: activeReleaseId }),
@@ -1665,7 +1669,7 @@ export default function ReleaseTrackingPage() {
                 Projects can be created in Settings.
               </p>
               <Button asChild>
-                <a href="/settings">Open Settings</a>
+                <Link href="/settings">Open Settings</Link>
               </Button>
             </div>
           </div>
@@ -2570,7 +2574,7 @@ export default function ReleaseTrackingPage() {
           onSuccess={() => {
             setShowImport(false);
             if (activeReleaseId) {
-              fetch(`/api/releases/work-items?releaseId=${activeReleaseId}`)
+              apiFetch(`/api/releases/work-items?releaseId=${activeReleaseId}`)
                 .then((response) => response.json())
                 .then((data: ReleaseWorkItem[]) => setWorkItems(data))
                 .catch((err) => {

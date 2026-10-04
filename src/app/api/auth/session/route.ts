@@ -1,6 +1,9 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import { getProjectsForUser } from "@/lib/projects";
+import { getDefaultProjectIdForUser } from "@/lib/default-project";
+import { getOptionalRequestProjectId, projectContextErrorResponse } from "@/lib/user-context";
 import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
@@ -12,6 +15,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       authenticated: true,
+      projects: getProjectsForUser(user.id),
+      activeProjectId: getOptionalRequestProjectId(request, user.id),
+      defaultProjectId: getDefaultProjectIdForUser(user.id),
       user: {
         id: user.id,
         host_user_id: user.host_user_id,
@@ -22,6 +28,8 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const projectError = projectContextErrorResponse(error);
+    if (projectError) return projectError;
     console.error("Session error:", error);
     return NextResponse.json({ error: "Failed to resolve session" }, { status: 500 });
   }
