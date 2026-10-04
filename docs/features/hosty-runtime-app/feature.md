@@ -1,7 +1,7 @@
 # Hosty Runtime App
 
 Created: 2026-06-02
-Updated: 2026-09-17
+Updated: 2026-10-04
 
 Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 
@@ -23,9 +23,9 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 ## User Access
 
 - Requests must include a valid signed Hosty app identity token issued by Hosty Core.
-- Shell opens the app origin with a Core-issued app authorization code.
-- Project Manager exchanges the launch code at `/api/auth/app-code` through Core `/api/auth/apps/token`, then stores the app identity token in an HttpOnly app-origin cookie. The root client bridge follows the Hosty Demo App pattern: remove the code from the visible URL, exchange it, then reload after success.
-- Server-rendered pages and same-origin APIs revalidate that token through Core `/api/auth/apps/revalidate` using the app service token.
+- Shell opens the app origin. The shared SDK identity bridge performs sign-in directly through Core: an embedded app opens a popup from the sign-in button; a standalone app can redirect through Core.
+- Project Manager exchanges the one-time code at `/api/auth/app-code`. The SDK retains the returned app grant in memory and sends it on same-origin API requests, including when the browser blocks the app cookie. Credentials are never sent to Shell or saved in browser storage. The SDK validates the popup origin, source and state.
+- Same-origin APIs revalidate the grant through Core `/api/auth/apps/revalidate` using the app service token. Protected pages load their user and project context through that API, after the SDK bridge completes sign-in.
 - Direct probes can pass the same app identity token through `Authorization: Bearer`.
 - Host administrators receive administrative access in Project Manager automatically.
 - Settings are visible to all assigned app users; administrative settings are visible only to Host administrators.
@@ -102,11 +102,12 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 - `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to revalidate app identity tokens with Core and read the scoped directory for users assigned to this app.
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
-- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In local HTTP development contexts, it uses `SameSite=Lax` without `Secure`; Shell and runtime apps on `localhost` with different ports are same-site for this purpose, and Safari does not reliably accept `Secure` cookies over plain HTTP localhost.
-- On browser navigation with a Hosty launch `code`, the client bridge posts the code to `/api/auth/app-code`, removes `code` from the visible URL, and reloads after successful exchange so the protected layout can read the app identity cookie.
-- Launch-code navigations are bootstrap-only even when an older app identity cookie is still valid. The initial request does not render protected app content from the old cookie, preventing a stale page from flashing before the new code exchange reloads the app.
-- App identity revalidation calls to Core are cached in memory for a short TTL and concurrent revalidations for the same token are coalesced. This reduces repeated Core authorization calls during page loads while still bounding stale authorization state.
-- The app-code bridge keeps the authorization code retryable when exchange cannot complete. If Core exchange fails, Project Manager shows a retryable Hosty authorization error instead of silently leaving the user on the unauthenticated bootstrap state.
+- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In local HTTP development contexts, it uses `SameSite=Lax` without `Secure`; separate named local origins and cross-site frames use the memory grant when cookies are unavailable.
+- On navigation with a Core `code`, the SDK removes it from the URL, exchanges it once and probes the session without reloading. The identity probe accepts bearer grants and cookies, and returns SDK recovery and activity metadata. A fresh bearer grant takes precedence over an old cookie.
+- The bridge gates initial rendering and keeps the active page mounted while renewing access, preserving drafts. A full browser reload can require sign-in again when third-party cookies are blocked because the fallback grant is memory-only.
+- User and project context come from `/api/auth/session`; administrative settings visibility follows the returned user role. API authorization remains server-enforced.
+- Project selection also lives in memory and accompanies API calls as `X-Project-Id`. Every handler still validates project membership; a selection grants no access. Existing selection cookies remain a convenience when the browser accepts them. Switching projects refreshes app context without a full document reload.
+- App identity revalidation calls use the SDK's bounded positive cache and in-flight deduplication. Failed validations do not grant access.
 
 ## Local Development
 
@@ -173,7 +174,9 @@ Use these checks when changing the app contract or preparing a release:
 - Run the manifest's exact healthcheck command in the built container against `127.0.0.1:3000`, and smoke-test `/api/health` through the published port; both should succeed without identity and return database/storage readiness.
 - After a packaging change, verify in the built container that the server process runs as uid 1000, that `/app/data` is writable, and that a `/_next/static/…` asset is served — the standalone bundle copies static assets separately, so a missing copy only shows up as broken assets, not a failed start.
 - After a packaging change, verify `npm run start` still serves `/api/health` outside Docker, so the standalone opt-in has not leaked into local builds.
-- Verify normal app and API requests reject missing Hosty identity.
+- Verify protected APIs reject missing or forged Hosty identity, while the page bootstrap displays the SDK sign-in state.
+- Verify embedded popup completion when app cookies are blocked, bearer-authenticated API requests, renewal without draft loss, and project switching without document reload.
+- Run `npm test` and `npm run lint`; identity-probe and browser-API regressions cover memory grants, activity metadata, forged internal headers and cross-origin rejection.
 - Verify app-code exchange with a real Core-issued app authorization code.
 - Verify direct-origin API probes with a real Core-issued app identity token.
 - Verify assigned Hosty users can access the app through Hosty Shell.

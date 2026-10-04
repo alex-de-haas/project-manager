@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useState, useEffect, useCallback } from "react";
 import type { Blocker, BlockerSeverity } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -50,7 +52,7 @@ export default function BlockersModal({
   const fetchBlockers = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/blockers?taskId=${taskId}`);
+      const response = await apiFetch(`/api/blockers?taskId=${taskId}`);
       if (!response.ok) throw new Error("Failed to fetch blockers");
       const data = await response.json();
       setBlockers(data);
@@ -74,7 +76,7 @@ export default function BlockersModal({
     }
 
     try {
-      const response = await fetch("/api/blockers", {
+      const response = await apiFetch("/api/blockers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -103,7 +105,7 @@ export default function BlockersModal({
     }
 
     try {
-      const response = await fetch("/api/blockers", {
+      const response = await apiFetch("/api/blockers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -128,7 +130,7 @@ export default function BlockersModal({
 
   const handleResolveBlocker = async (blockerId: number) => {
     try {
-      const response = await fetch("/api/blockers", {
+      const response = await apiFetch("/api/blockers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -152,7 +154,7 @@ export default function BlockersModal({
 
   const handleUnresolveBlocker = async (blockerId: number) => {
     try {
-      const response = await fetch("/api/blockers", {
+      const response = await apiFetch("/api/blockers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -173,7 +175,7 @@ export default function BlockersModal({
 
   const handleDeleteBlocker = async (blockerId: number) => {
     try {
-      const response = await fetch(`/api/blockers?id=${blockerId}`, {
+      const response = await apiFetch(`/api/blockers?id=${blockerId}`, {
         method: "DELETE",
       });
 

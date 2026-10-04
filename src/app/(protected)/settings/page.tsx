@@ -1,13 +1,11 @@
+"use client";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { GeneralSettingsForm } from "@/features/settings/components/GeneralSettingsForm";
-import { headers } from "next/headers";
-import { resolveTrustedHostIdentity } from "@/lib/host-identity";
-import { ensureHostUser } from "@/lib/host-users";
+import { useAppContext } from "@/components/AppContext";
 
-export default async function SettingsPage() {
-  const headerStore = await headers();
-  const identity = await resolveTrustedHostIdentity(headerStore);
-  const currentUser = identity ? ensureHostUser(identity) : null;
+export default function SettingsPage() {
+  const currentUser = useAppContext()?.user;
 
   return (
     <div className="h-full overflow-auto p-6">

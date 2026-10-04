@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Filter } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -137,7 +139,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
         source === "external"
           ? "/api/azure-devops/work-items"
           : "/api/tasks/backlog";
-      const response = await fetch(`${endpoint}?${params.toString()}`, { signal });
+      const response = await apiFetch(`${endpoint}?${params.toString()}`, { signal });
       const data = await response.json();
 
       if (response.ok) {
@@ -170,7 +172,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
 
     const fetchExternalSettings = async () => {
       try {
-        const response = await fetch("/api/settings?key=azure_devops");
+        const response = await apiFetch("/api/settings?key=azure_devops");
         if (!response.ok) {
           if (!cancelled) {
             setExternalAvailable(false);
@@ -293,7 +295,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     try {
       const endpoint =
         activeTab === "external" ? "/api/azure-devops/import" : "/api/tasks/backlog";
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workItemIds: Array.from(selectedIds) }),

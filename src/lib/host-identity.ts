@@ -167,11 +167,6 @@ export const readAppIdentityToken = (
   token: string | null;
   source: AppIdentityTokenSource | null;
 } => {
-  const cookieToken = readCookie(headers.get("cookie"), HOSTY_APP_IDENTITY_COOKIE);
-  if (cookieToken) {
-    return { token: cookieToken, source: "cookie" };
-  }
-
   const authorization = headers.get("authorization")?.trim();
   if (authorization?.toLowerCase().startsWith("bearer ")) {
     return { token: authorization.slice("Bearer ".length).trim(), source: "authorization-header" };
@@ -180,6 +175,11 @@ export const readAppIdentityToken = (
   const identityHeader = headers.get(HOSTY_APP_IDENTITY_HEADER)?.trim();
   if (identityHeader) {
     return { token: identityHeader, source: "identity-header" };
+  }
+
+  const cookieToken = readCookie(headers.get("cookie"), HOSTY_APP_IDENTITY_COOKIE);
+  if (cookieToken) {
+    return { token: cookieToken, source: "cookie" };
   }
 
   return { token: null, source: null };

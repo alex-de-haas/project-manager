@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useState, useEffect } from "react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -53,7 +55,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
   const loadSettings = async () => {
     try {
-      const response = await fetch("/api/settings?key=azure_devops");
+      const response = await apiFetch("/api/settings?key=azure_devops");
       if (response.ok) {
         const data = await response.json();
         if (data.value) {
@@ -83,7 +85,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     setTesting(true);
     setMessage("");
     try {
-      const response = await fetch("/api/azure-devops/test", {
+      const response = await apiFetch("/api/azure-devops/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectUrl: projectUrl.trim(), pat }),
@@ -124,7 +126,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     setSaving(true);
     setMessage("");
     try {
-      const response = await fetch("/api/settings", {
+      const response = await apiFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

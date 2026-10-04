@@ -1,6 +1,9 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import { getProjectsForUser } from "@/lib/projects";
+import { getDefaultProjectIdForUser } from "@/lib/default-project";
+import { getOptionalRequestProjectId } from "@/lib/user-context";
 import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
@@ -12,6 +15,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       authenticated: true,
+      projects: getProjectsForUser(user.id),
+      activeProjectId: getOptionalRequestProjectId(request, user.id),
+      defaultProjectId: getDefaultProjectIdForUser(user.id),
       user: {
         id: user.id,
         host_user_id: user.host_user_id,

@@ -44,7 +44,7 @@ export async function proxy(request: NextRequest) {
   if (isPublicPath(pathname)) {
     return NextResponse.next({
       request: {
-        headers: stripInternalHeaders(request.headers),
+        headers: publicRequestHeaders(request),
       },
     });
   }
@@ -166,3 +166,15 @@ const removeCookie = (cookieHeader: string | null, name: string) => {
 export const config = {
   matcher: ["/((?!.*\\..*).*)"],
 };
+
+// The identity probe validates tokens with Core; internal identity headers stay stripped.
+function publicRequestHeaders(request: NextRequest): Headers {
+  const headers = stripInternalHeaders(request.headers);
+  if (request.nextUrl.pathname === "/api/auth/identity") {
+    for (const name of ["authorization", HOSTY_APP_IDENTITY_HEADER]) {
+      const value = request.headers.get(name);
+      if (value) headers.set(name, value);
+    }
+  }
+  return headers;
+}

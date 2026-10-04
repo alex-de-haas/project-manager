@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,8 +75,8 @@ export function ProfileSettingsForm({
     setLoading(true);
     try {
       const [azureResponse, dayLengthResponse] = await Promise.all([
-        fetch("/api/settings?key=azure_devops"),
-        fetch("/api/settings?key=default_day_length"),
+        apiFetch("/api/settings?key=azure_devops"),
+        apiFetch("/api/settings?key=default_day_length"),
       ]);
       if (azureResponse.ok) {
         const data = await azureResponse.json();
@@ -131,7 +133,7 @@ export function ProfileSettingsForm({
     setSavingDayLength(true);
     setMessage("");
     try {
-      const response = await fetch("/api/settings", {
+      const response = await apiFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -168,7 +170,7 @@ export function ProfileSettingsForm({
 
     try {
       const parsed = JSON.parse(await jsonImportFile.text());
-      const response = await fetch("/api/json-import", {
+      const response = await apiFetch("/api/json-import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed),
@@ -209,7 +211,7 @@ export function ProfileSettingsForm({
     setSaving(true);
     setMessage("");
     try {
-      const response = await fetch("/api/settings", {
+      const response = await apiFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -259,7 +261,7 @@ export function ProfileSettingsForm({
     setTesting(true);
     setMessage("");
     try {
-      const response = await fetch("/api/azure-devops/test", {
+      const response = await apiFetch("/api/azure-devops/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pat }),
@@ -300,7 +302,7 @@ export function ProfileSettingsForm({
     setSaving(true);
     setMessage("");
     try {
-      const response = await fetch("/api/settings?key=azure_devops&credential=pat", {
+      const response = await apiFetch("/api/settings?key=azure_devops&credential=pat", {
         method: "DELETE",
       });
 

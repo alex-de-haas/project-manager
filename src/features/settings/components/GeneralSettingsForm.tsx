@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch, getActiveProjectId, setActiveProjectId as setRequestProjectId, refreshAppContext } from "@/lib/browser-api";
+
 import { useEffect, useMemo, useState } from "react";
 import type { Release } from "@/types";
 import { CheckCircle2, ExternalLink, GripVertical, MoreHorizontal } from "lucide-react";
@@ -276,7 +278,7 @@ export function GeneralSettingsForm({
   const fetchModels = async (baseUrl: string) => {
     setLoadingModels(true);
     try {
-      const response = await fetch("/api/ai-provider/test", {
+      const response = await apiFetch("/api/ai-provider/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ baseUrl }),
@@ -296,8 +298,8 @@ export function GeneralSettingsForm({
     setLoadingUsers(true);
     try {
       const [usersResponse, sessionResponse] = await Promise.all([
-        fetch("/api/users", { method: "POST" }),
-        fetch("/api/auth/session"),
+        apiFetch("/api/users", { method: "POST" }),
+        apiFetch("/api/auth/session"),
       ]);
       if (!usersResponse.ok) {
         throw new Error("Failed to fetch users");
@@ -328,7 +330,7 @@ export function GeneralSettingsForm({
 
     setLoadingReleases(true);
     try {
-      const response = await fetch(`/api/releases?projectId=${encodeURIComponent(projectId)}`);
+      const response = await apiFetch(`/api/releases?projectId=${encodeURIComponent(projectId)}`);
       if (!response.ok) {
         throw new Error("Failed to fetch releases");
       }
@@ -342,13 +344,8 @@ export function GeneralSettingsForm({
     }
   };
 
-  const readCookie = (key: string) => {
-    const parts = document.cookie.split(";").map((item) => item.trim());
-    const found = parts.find((part) => part.startsWith(`${key}=`));
-    return found ? decodeURIComponent(found.split("=").slice(1).join("=")) : "";
-  };
-
   const setProjectCookie = (projectId: string) => {
+    setRequestProjectId(projectId);
     if (!projectId) {
       document.cookie = "pm_project_id=; path=/; max-age=0; samesite=lax";
       document.cookie = "pm_project_user_id=; path=/; max-age=0; samesite=lax";
@@ -363,14 +360,14 @@ export function GeneralSettingsForm({
   const loadProjects = async () => {
     setLoadingProjects(true);
     try {
-      const response = await fetch("/api/projects");
+      const response = await apiFetch("/api/projects");
       if (!response.ok) {
         throw new Error("Failed to fetch projects");
       }
 
       const data = (await response.json()) as AppProject[];
       setProjects(data);
-      const cookieProjectId = readCookie("pm_project_id");
+      const cookieProjectId = getActiveProjectId();
       const defaultProject = data.find((project) => project.is_default);
       const selectedId = data.some((project) => String(project.id) === cookieProjectId)
         ? cookieProjectId
@@ -448,7 +445,7 @@ export function GeneralSettingsForm({
   const loadBackups = async () => {
     setLoadingBackups(true);
     try {
-      const response = await fetch("/api/database/backups");
+      const response = await apiFetch("/api/database/backups");
       if (!response.ok) {
         throw new Error("Failed to load backups");
       }
@@ -467,7 +464,7 @@ export function GeneralSettingsForm({
     setLoading(true);
     try {
       // Load AI provider settings
-      const aiProviderResponse = await fetch("/api/settings?key=ai_provider");
+      const aiProviderResponse = await apiFetch("/api/settings?key=ai_provider");
       if (aiProviderResponse.ok) {
         const data = await aiProviderResponse.json();
         if (data.value) {
@@ -568,7 +565,7 @@ export function GeneralSettingsForm({
         memberUserIds: Array.from(projectFormMemberUserIds),
         azureProjectUrl: trimmedAzureProjectUrl,
       };
-      const response = await fetch("/api/projects", {
+      const response = await apiFetch("/api/projects", {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -586,7 +583,7 @@ export function GeneralSettingsForm({
       }
       setMessage(editing ? `Project "${trimmed}" updated.` : `Project "${trimmed}" created.`);
       setMessageType("success");
-      window.setTimeout(() => window.location.reload(), 600);
+      window.setTimeout(() => refreshAppContext(), 600);
     } catch (err) {
       const errorMessage =
         err instanceof Error
@@ -605,7 +602,7 @@ export function GeneralSettingsForm({
   const handleDeleteProject = async (project: AppProject) => {
     setUpdatingProject(true);
     try {
-      const response = await fetch(`/api/projects?id=${project.id}`, {
+      const response = await apiFetch(`/api/projects?id=${project.id}`, {
         method: "DELETE",
       });
       const data = (await response.json().catch(() => ({}))) as ApiError;
@@ -623,7 +620,7 @@ export function GeneralSettingsForm({
       }
       setMessage(`Project "${project.name}" deleted.`);
       setMessageType("success");
-      window.setTimeout(() => window.location.reload(), 600);
+      window.setTimeout(() => refreshAppContext(), 600);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to delete project.";
       setMessage(errorMessage);
@@ -636,13 +633,13 @@ export function GeneralSettingsForm({
   const handleSwitchProject = (projectId: string) => {
     setActiveProjectId(projectId);
     setProjectCookie(projectId);
-    window.location.reload();
+    refreshAppContext();
   };
 
   const handleSetDefaultProject = async (project: AppProject) => {
     setSettingDefaultProjectId(project.id);
     try {
-      const response = await fetch("/api/projects/default", {
+      const response = await apiFetch("/api/projects/default", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: project.id }),
@@ -714,7 +711,7 @@ export function GeneralSettingsForm({
     }
 
     try {
-      const response = await fetch("/api/releases", {
+      const response = await apiFetch("/api/releases", {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -754,7 +751,7 @@ export function GeneralSettingsForm({
 
     setUpdatingReleaseId(release.id);
     try {
-      const response = await fetch("/api/releases", {
+      const response = await apiFetch("/api/releases", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: release.id, status }),
@@ -803,7 +800,7 @@ export function GeneralSettingsForm({
     setReleases(reordered);
 
     try {
-      const response = await fetch("/api/releases/reorder", {
+      const response = await apiFetch("/api/releases/reorder", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -837,7 +834,7 @@ export function GeneralSettingsForm({
     setTestingAiProvider(true);
     setMessage("");
     try {
-      const response = await fetch("/api/ai-provider/test", {
+      const response = await apiFetch("/api/ai-provider/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ baseUrl: aiProviderBaseUrl }),
@@ -882,7 +879,7 @@ export function GeneralSettingsForm({
     setMessage("");
     try {
       if (hasAnyAiProviderInput) {
-        const aiProviderResponse = await fetch("/api/settings", {
+        const aiProviderResponse = await apiFetch("/api/settings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -899,7 +896,7 @@ export function GeneralSettingsForm({
         }
         setHasAiProviderSettings(true);
       } else if (hasAiProviderSettings) {
-        const aiProviderResponse = await fetch("/api/settings?key=ai_provider", {
+        const aiProviderResponse = await apiFetch("/api/settings?key=ai_provider", {
           method: "DELETE",
         });
 
@@ -940,7 +937,7 @@ export function GeneralSettingsForm({
     setMessage("");
 
     try {
-      const response = await fetch("/api/database/backups", {
+      const response = await apiFetch("/api/database/backups", {
         method: "POST",
       });
       const data = await response.json();
@@ -967,7 +964,7 @@ export function GeneralSettingsForm({
     setMessage("");
 
     try {
-      const response = await fetch("/api/database/restore", {
+      const response = await apiFetch("/api/database/restore", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileName }),
@@ -995,7 +992,7 @@ export function GeneralSettingsForm({
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/database/backups?fileName=${encodeURIComponent(fileName)}`,
         { method: "DELETE" }
       );

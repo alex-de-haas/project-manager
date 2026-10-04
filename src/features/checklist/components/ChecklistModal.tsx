@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useState, useEffect, useRef } from "react";
 import type { ChecklistItem } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -205,7 +207,7 @@ export default function ChecklistModal({
   const fetchItems = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/checklist?taskId=${taskId}`);
+      const response = await apiFetch(`/api/checklist?taskId=${taskId}`);
       if (!response.ok) throw new Error("Failed to fetch checklist items");
       const data = await response.json();
       setItems(data);
@@ -227,7 +229,7 @@ export default function ChecklistModal({
     if (!newItemTitle.trim()) return;
 
     try {
-      const response = await fetch("/api/checklist", {
+      const response = await apiFetch("/api/checklist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -261,7 +263,7 @@ export default function ChecklistModal({
     setError("");
 
     try {
-      const response = await fetch("/api/checklist/generate", {
+      const response = await apiFetch("/api/checklist/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -290,7 +292,7 @@ export default function ChecklistModal({
 
   const handleToggle = async (item: ChecklistItem) => {
     try {
-      const response = await fetch("/api/checklist", {
+      const response = await apiFetch("/api/checklist", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -311,7 +313,7 @@ export default function ChecklistModal({
 
   const handleEdit = async (id: number, title: string) => {
     try {
-      const response = await fetch("/api/checklist", {
+      const response = await apiFetch("/api/checklist", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, title }),
@@ -329,7 +331,7 @@ export default function ChecklistModal({
 
   const handleDelete = async (id: number) => {
     try {
-      const response = await fetch(`/api/checklist?id=${id}`, {
+      const response = await apiFetch(`/api/checklist?id=${id}`, {
         method: "DELETE",
       });
 
@@ -357,7 +359,7 @@ export default function ChecklistModal({
       try {
         await Promise.all(
           newItems.map((item, index) =>
-            fetch("/api/checklist", {
+            apiFetch("/api/checklist", {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ id: item.id, display_order: index }),

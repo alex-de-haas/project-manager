@@ -1,5 +1,7 @@
 "use client";
 
+import { apiFetch } from "@/lib/browser-api";
+
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AzureDevOpsWorkItem } from "@/types";
 import { toast } from "@/lib/toast";
@@ -72,7 +74,7 @@ export default function ReleaseImportModal({
         url += `&search=${encodeURIComponent(trimmedSearch)}`;
       }
 
-      const response = await fetch(url);
+      const response = await apiFetch(url);
       const data = await response.json();
 
       if (response.ok) {
@@ -147,7 +149,7 @@ export default function ReleaseImportModal({
     setImporting(true);
 
     try {
-      const response = await fetch("/api/releases/work-items/import", {
+      const response = await apiFetch("/api/releases/work-items/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
