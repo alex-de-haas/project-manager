@@ -26,6 +26,8 @@ export async function POST(request: NextRequest) {
 
   const result = await exchangeHostyAppAuthorizationCode(
     typeof code === "string" ? code : null,
+    body && typeof body === "object" && "codeVerifier" in body
+      ? (body as { codeVerifier?: unknown }).codeVerifier : null,
     "api-route"
   );
   if (!result.ok) {

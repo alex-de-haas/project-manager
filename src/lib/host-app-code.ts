@@ -27,6 +27,7 @@ export type HostyAppCodeExchangeResult =
 
 export async function exchangeHostyAppAuthorizationCode(
   code: string | null | undefined,
+  codeVerifier: unknown,
   source = "unknown"
 ): Promise<HostyAppCodeExchangeResult> {
   const authorizationCode = code?.trim();
@@ -36,6 +37,20 @@ export async function exchangeHostyAppAuthorizationCode(
       "app_auth_code_required",
       "A Hosty app authorization code is required.",
       422
+    );
+  }
+
+  if (typeof codeVerifier !== "string" || !/^[A-Za-z0-9._~-]{43,128}$/.test(codeVerifier)) {
+    return appAuthError("code_verifier_required", "A valid sign-in proof is required.", 400);
+  }
+
+  const serviceToken = process.env.HOSTY_APP_SERVICE_TOKEN?.trim();
+  if (!serviceToken) {
+    logHostAuthDebug("exchange skipped: app service token is not configured", { source });
+    return appAuthError(
+      "app_service_token_missing",
+      "HOSTY_APP_SERVICE_TOKEN is not configured.",
+      503
     );
   }
 
@@ -59,8 +74,10 @@ export async function exchangeHostyAppAuthorizationCode(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceToken}`,
       },
-      body: JSON.stringify({ code: authorizationCode }),
+      body: JSON.stringify({ code: authorizationCode, codeVerifier }),
+      redirect: "error",
       cache: "no-store",
       signal: AbortSignal.timeout(CORE_TOKEN_EXCHANGE_TIMEOUT_MS),
     });

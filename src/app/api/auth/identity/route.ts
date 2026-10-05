@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   const status = classifyResolvedAppSession(session);
   return NextResponse.json({
     status,
-    recovery: readSessionRecoveryParams(),
+    recovery: await readSessionRecoveryParams(),
     ...(status === "active" && session.status === "active" ? {
       activeUntil: session.identity.activeUntil,
       activityRequired: session.identity.activityRequired,
