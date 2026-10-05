@@ -1,7 +1,7 @@
 ---
 status: Draft
 created: 2026-07-10
-updated: 2026-07-10
+updated: 2026-10-05
 summary: Project-specific automation rules that react to work item events with typed conditions and ordered actions.
 ---
 
@@ -311,6 +311,21 @@ Recommended sequence:
 The automation core does not need to wait for comments or timezone settings if its first
 slice contains only assignment and Time Management actions. The full motivating workflow,
 including the monthly comment, depends on every relevant Phase 0 capability.
+
+## Deliverables
+
+The recommended dependency slices above. Each becomes its own plan, approved separately, before
+it is built.
+
+- [ ] D1. Characterization tests for current status, assignment, Time Management and integration
+      behavior.
+- [ ] D2. Canonical status, assignment and membership commands, entity revisions and durable domain
+      events.
+- [ ] D3. Provider-neutral integration projection and delivery tracking for canonical mutations.
+- [ ] D4. Automation rules core with native assignment and Time Management membership actions.
+- [ ] D5. Native work item comments as a separate user-facing feature.
+- [ ] D6. Project timezone and locale settings and the native monthly-comment action.
+- [ ] D7. Comment projection adapters for each integration that supports comments.
 
 ## Proposed Product Shape
 

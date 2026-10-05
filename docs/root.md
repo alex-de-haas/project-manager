@@ -26,7 +26,7 @@ Plans: 2 Draft.
 - [Release Planning](features/release-planning/feature.md) — Releases organize a project's user stories and their child tasks and bugs into trackable work.
 - [Settings](features/settings/feature.md) — Profile, project, release, AI provider and backup settings, with administrative tabs for Hosty administrators.
 - [Time Tracking](features/time-tracking/feature.md) — Weekly and monthly time entry for work items added to Time Management, with totals, filters and Excel export.
-- [Work Item Automation Rules](features/work-item-automation-rules/plan.md) — Project-specific automation rules that react to work item events with typed conditions and ordered actions. · Draft, updated 2026-07-10
+- [Work Item Automation Rules](features/work-item-automation-rules/plan.md) — Project-specific automation rules that react to work item events with typed conditions and ordered actions. · Draft, 0/7, updated 2026-10-05
 - [Work Item Notes](features/work-item-notes/feature.md) — A free-form internal note on each work item, shared by project members and never synced to integrations.
 
 <!-- docs-index:end -->
