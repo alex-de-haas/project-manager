@@ -1,8 +1,14 @@
+---
+status: On Hold
+created: 2026-06-25
+updated: 2026-10-05
+summary: A parked migration that lets each user connect Azure DevOps through Microsoft Entra OAuth beside an organization-scoped PAT.
+---
+
 # Azure DevOps PAT Retirement — Investigation & Deferred Plan
 
-Created: 2026-06-25
-Updated: 2026-06-25
-Status: DRAFT — investigation parked, no implementation planned yet.
+Investigation parked; no implementation is planned until one of the revisit triggers below holds.
+Carried over from `docs/ideas/` on 2026-10-05.
 
 ## Decision (TL;DR)
 
@@ -83,33 +89,35 @@ All ~12 Azure DevOps API routes flow through **two choke points**:
 Device Code flow (option 2) is preferred because it preserves per-user identity **and**
 needs no redirect URI — which matters because every Hosty deployment runs on a different URL.
 
-## Deferred migration plan (option 1 + 2 combined)
+## Deliverables
+
+The deferred migration plan (option 1 + 2 combined).
 
 Goal: let each user choose **PAT or Microsoft sign-in**, keeping PAT working during the
 transition. The cost is the OAuth machinery itself; supporting both methods side by side is
 nearly free on top of it.
 
-1. **Dependency & app registration:** add `@azure/msal-node`; register one **multi-tenant**
+- [ ] D1. **Dependency & app registration:** add `@azure/msal-node`; register one **multi-tenant**
    Entra application (public client, device-code enabled). Azure DevOps scope:
    `499b84ac-1321-427f-aa17-267ca6975798/.default`.
-2. **Credential storage:** keep `azure_devops_pat`; add `azure_devops_oauth` holding the
+- [ ] D2. **Credential storage:** keep `azure_devops_pat`; add `azure_devops_oauth` holding the
    refresh token plus cached access token and its expiry. The MSAL token cache must be
    **database-backed** (custom cache serializer), not in-memory — otherwise tokens are lost
    on container restart and not shared across multi-instance deployments.
-3. **Credential resolver:** new `getAzureDevOpsUserCredential()` returning
+- [ ] D3. **Credential resolver:** new `getAzureDevOpsUserCredential()` returning
    `{ type: 'pat' } | { type: 'oauth' } | null` (whichever is configured).
-4. **Connection builder:** in `createAzureDevOpsConnectionContext`, branch on credential
+- [ ] D4. **Connection builder:** in `createAzureDevOpsConnectionContext`, branch on credential
    type — `pat` -> `getPersonalAccessTokenHandler`, `oauth` -> MSAL refresh +
    `getBearerHandler`. Apply the same branch to the inline connection in `test/route.ts`.
    Everything downstream is unchanged.
-5. **Public settings:** replace `hasPat` with `credentialType: 'pat' | 'oauth' | null` in
+- [ ] D5. **Public settings:** replace `hasPat` with `credentialType: 'pat' | 'oauth' | null` in
    `getAzureDevOpsPublicSettings` / `getAzureDevOpsSettingsProblem`.
-6. **Enrollment UX:** add a device-code flow (initiate -> show code + verification URL ->
+- [ ] D6. **Enrollment UX:** add a device-code flow (initiate -> show code + verification URL ->
    poll -> store refresh token), 1-2 new API endpoints, plus a "Connect via Microsoft"
    button next to the existing PAT field in
    `src/features/azure-devops/components/SettingsModal.tsx` and
    `src/features/settings/components/ProfileSettingsForm.tsx`.
-7. **New error state:** handle expired/revoked refresh token -> surface "re-authenticate
+- [ ] D7. **New error state:** handle expired/revoked refresh token -> surface "re-authenticate
    with Microsoft" (PAT has no equivalent because it is a static string).
 
 ### What this does NOT make free

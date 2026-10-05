@@ -1,7 +1,10 @@
-# Settings
+---
+created: 2026-05-23
+updated: 2026-10-05
+summary: Profile, project, release, AI provider and backup settings, with administrative tabs for Hosty administrators.
+---
 
-Created: 2026-05-23
-Updated: 2026-06-12
+# Settings
 
 ## Overview
 
@@ -81,3 +84,13 @@ Checklist generation is available only after both the provider base URL and mode
 - Profile is available to all assigned app users.
 - Keep Azure DevOps tokens current, project-specific, and scoped to the permissions needed by the team.
 - Create backups before restoring data or making broad administrative changes.
+
+## Testing Expectations
+
+Required coverage:
+
+- Non-admin users see only Profile; administrative tabs require Hosty administrator rights; Profile
+  and Releases are disabled without an active project and request no project-scoped data.
+- Saving an Azure DevOps account link resolves and shows the token's identity; backups use the
+  `project_manager_backup_YYYYMMDD_HHMMSS.db` name and can be restored or deleted per row.
+- Checklist generation stays unavailable until both the AI provider base URL and model are saved.
