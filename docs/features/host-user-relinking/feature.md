@@ -1,7 +1,10 @@
-# Host User Email Relinking
+---
+created: 2026-06-11
+updated: 2026-10-05
+summary: Existing local user data is kept when Hosty regenerates a user id but the user's email stays the same.
+---
 
-Created: 2026-06-11
-Updated: 2026-06-12
+# Host User Email Relinking
 
 ## Overview
 

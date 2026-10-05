@@ -1,7 +1,10 @@
-# Azure DevOps Integration
+---
+created: 2026-05-23
+updated: 2026-09-04
+summary: Optional Azure DevOps integration that links Project Manager work items with Azure DevOps work items.
+---
 
-Created: 2026-05-23
-Updated: 2026-09-04
+# Azure DevOps Integration
 
 ## Overview
 

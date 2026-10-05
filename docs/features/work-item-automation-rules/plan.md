@@ -1,8 +1,11 @@
-# Work Item Automation Rules
+---
+status: Draft
+created: 2026-07-10
+updated: 2026-07-10
+summary: Project-specific automation rules that react to work item events with typed conditions and ordered actions.
+---
 
-Status: Draft
-Created: 2026-07-10
-Updated: 2026-07-10
+# Work Item Automation Rules
 
 ## Motivation
 
@@ -822,7 +825,7 @@ Integrations consume canonical Project Manager changes; automation does not call
   source-provider metadata. Initial rules ignore that cause, and the originating adapter
   suppresses echo back to the same provider.
 - Credential lifecycle and unattended integration retries belong to integration planning.
-  The [PAT retirement idea](../../ideas/azure-devops-pat-retirement.md) remains relevant there, but it
+  The [PAT retirement plan](../azure-devops-integration/plan.md) remains relevant there, but it
   does not affect the rule action contract.
 
 ## Risks
@@ -1046,12 +1049,12 @@ Before promoting this idea to a planning document:
 
 ## Links
 
-- [Domain model](../domain-model.md)
+- [Domain model](../domain-model/feature.md)
 - [Time tracking](../time-tracking/feature.md)
 - [Azure DevOps integration](../azure-devops-integration/feature.md)
 - [Release planning](../release-planning/feature.md)
-- [Settings](../settings.md)
-- [Azure DevOps PAT retirement](../../ideas/azure-devops-pat-retirement.md)
+- [Settings](../settings/feature.md)
+- [Azure DevOps PAT retirement](../azure-devops-integration/plan.md)
 
 ## Notes
 

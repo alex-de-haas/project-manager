@@ -1,7 +1,10 @@
-# Release Planning
+---
+created: 2026-05-30
+updated: 2026-09-22
+summary: Releases organize a project's user stories and their child tasks and bugs into trackable work.
+---
 
-Created: 2026-05-30
-Updated: 2026-09-22
+# Release Planning
 
 ## Overview
 

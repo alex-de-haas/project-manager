@@ -1,7 +1,10 @@
-# Blockers
+---
+created: 2026-05-23
+updated: 2026-10-05
+summary: Blockers record what stops a work item, its severity and resolution, without changing the work item itself.
+---
 
-Created: 2026-05-23
-Updated: 2026-06-12
+# Blockers
 
 ## Overview
 

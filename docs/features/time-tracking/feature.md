@@ -1,7 +1,10 @@
-# Time Tracking
+---
+created: 2026-05-26
+updated: 2026-09-18
+summary: Weekly and monthly time entry for work items added to Time Management, with totals, filters and Excel export.
+---
 
-Created: 2026-05-26
-Updated: 2026-09-18
+# Time Tracking
 
 ## Overview
 

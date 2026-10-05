@@ -1,7 +1,10 @@
-# Hosty Runtime App
+---
+created: 2026-06-02
+updated: 2026-10-04
+summary: Project Manager runs as a Hosty runtime app that relies on Core for login, roles, assignments and app access.
+---
 
-Created: 2026-06-02
-Updated: 2026-10-04
+# Hosty Runtime App
 
 Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 

@@ -1,7 +1,10 @@
-# Domain Model
+---
+created: 2026-05-30
+updated: 2026-10-05
+summary: Project Manager's own domain model for work planning and time tracking, with external systems as optional integrations.
+---
 
-Created: 2026-05-30
-Updated: 2026-06-12
+# Domain Model
 
 ## Overview
 

@@ -1,7 +1,10 @@
-# Work Item Notes
+---
+created: 2026-09-04
+updated: 2026-09-04
+summary: A free-form internal note on each work item, shared by project members and never synced to integrations.
+---
 
-Created: 2026-09-04
-Updated: 2026-09-04
+# Work Item Notes
 
 ## Overview
 

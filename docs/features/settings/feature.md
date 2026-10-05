@@ -1,7 +1,10 @@
-# Settings
+---
+created: 2026-05-23
+updated: 2026-10-05
+summary: Profile, project, release, AI provider and backup settings, with administrative tabs for Hosty administrators.
+---
 
-Created: 2026-05-23
-Updated: 2026-06-12
+# Settings
 
 ## Overview
 
