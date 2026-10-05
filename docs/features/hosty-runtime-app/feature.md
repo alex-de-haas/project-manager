@@ -36,11 +36,9 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 
 ## Sign-In Protocol
 
-The app's proof-aware exchange and asynchronous recovery integration are verified
-against the unpublished SDK `0.21.0` candidate. The checked-in registry dependency
-remains `@hosty-sdk/app: ^0.19.1`; this source integration does not establish a
-published SDK release or deployment. SDK publication and registry dependency
-rollout remain tracked in Hosty's existing `app-code-exchange` plan.
+The app's proof-aware exchange and asynchronous recovery integration use the
+published `@hosty-sdk/app: ^0.21.0` dependency. `package-lock.json` pins SDK `0.21.0`
+to its npm registry artifact and integrity; release installation uses this lockfile.
 
 Each attempt has an independent cryptographically random private verifier and
 public correlation state. The SDK derives `codeChallenge = BASE64URL(SHA256(verifier))`
