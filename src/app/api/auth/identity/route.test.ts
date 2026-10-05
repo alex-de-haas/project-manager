@@ -51,7 +51,71 @@ it.each([undefined, null, "not-a-date", "2000-01-01T00:00:00Z"])(
     }));
     const body = await response.json();
     expect(body.status).toBe("expired");
+    expect(body.error).toEqual({ code: "token_expired" });
     expect(body).not.toHaveProperty("activeUntil");
     expect(body).not.toHaveProperty("activityRequired");
   }
 );
+
+function mockCoreRevalidation(body: unknown, status = 200) {
+  vi.stubEnv("HOSTY_APP_ID", "com.haas.project-manager");
+  vi.stubEnv("HOSTY_CORE_ORIGIN", "https://core.test");
+  vi.stubEnv("HOSTY_APP_SERVICE_TOKEN", "service-token");
+  vi.stubGlobal("fetch", vi.fn(async (url: unknown) =>
+    String(url).endsWith("/api/auth/apps/revalidate")
+      ? Response.json(body, { status })
+      : Response.json({ version: 2 })
+  ));
+}
+
+it.each([
+  [401, "token_invalid", "expired"],
+  [401, "token_revoked", "expired"],
+  [401, "token_expired", "expired"],
+  [403, "token_app_mismatch", "forbidden"],
+  [403, "reauth_required", "forbidden"],
+] as const)("forwards only the safe %s/%s rejection code", async (status, code, expectedStatus) => {
+  mockCoreRevalidation({ error: { code, message: "secret token/proof diagnostics" } }, status);
+  const response = await GET(new NextRequest("https://app.test/api/auth/identity", {
+    headers: { authorization: "Bearer hostyg_rejected" },
+  }));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  const body = await response.json();
+  expect(body).toMatchObject({ status: expectedStatus, error: { code } });
+  expect(body.error).toEqual({ code });
+  expect(JSON.stringify(body)).not.toContain("secret token/proof diagnostics");
+});
+
+it("normalizes a resolved app-audience mismatch to the browser cleanup code", async () => {
+  mockCoreRevalidation({ active: true, appId: "foreign.app", userId: "user_1" });
+  const response = await GET(new NextRequest("https://app.test/api/auth/identity", {
+    headers: { authorization: "Bearer hostyg_wrong_app" },
+  }));
+  expect(await response.json()).toMatchObject({ status: "forbidden", error: { code: "token_app_mismatch" } });
+});
+
+it.each([
+  [403, { error: { code: "arbitrary-secret-code", message: "secret" } }, "forbidden"],
+  [503, { error: { code: "token_revoked", message: "secret" } }, "unavailable"],
+] as const)("does not expose unrecognized or transient rejection details (%s)", async (status, payload, expectedStatus) => {
+  mockCoreRevalidation(payload, status);
+  const response = await GET(new NextRequest("https://app.test/api/auth/identity", {
+    headers: { authorization: "Bearer hostyg_unknown" },
+  }));
+  const body = await response.json();
+  expect(body.status).toBe(expectedStatus);
+  expect(body).not.toHaveProperty("error");
+});
+
+it("keeps network failures transient without a cleanup rejection", async () => {
+  vi.stubEnv("HOSTY_CORE_ORIGIN", "https://core.test");
+  vi.stubEnv("HOSTY_APP_SERVICE_TOKEN", "service-token");
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("secret transport diagnostics"); }));
+  const response = await GET(new NextRequest("https://app.test/api/auth/identity", {
+    headers: { authorization: "Bearer hostyg_temporary" },
+  }));
+  const body = await response.json();
+  expect(body.status).toBe("unavailable");
+  expect(body).not.toHaveProperty("error");
+});

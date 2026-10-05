@@ -68,6 +68,14 @@ in place during renewal. Native launches use the app-initiated public proof GET
 that the trusted native client intercepts before network access; in-place renewal
 returns only correlated public code/state to the unchanged app document.
 
+The public app-code route accepts only app-origin browser submissions before it
+reads or exchanges a code. A serialized HTTP(S) `Origin` must match the public
+request `Host` and effective scheme, including the deployment's forwarded protocol;
+a proxy's internal listen address does not replace the public request origin.
+Explicit foreign, opaque or malformed origins and non-same-origin Fetch Metadata
+return 403 `cross_site_request_blocked` without exchanging a code or setting a
+cookie. When `Origin` is absent, `Sec-Fetch-Site: same-origin` is required.
+
 The public app-code route returns 400 for missing or malformed `codeVerifier`
 without contacting Core. A syntactically valid wrong verifier returns Core's 401
 `invalid_code` and leaves the one-time code available to the correct verifier.
@@ -154,7 +162,7 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
 - The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In local HTTP development contexts, it uses `SameSite=Lax` without `Secure`; separate named local origins and cross-site frames use the embedded per-tab grant when cookies are unavailable. The cookie and Core token retain the Project Manager audience; another app cookie or a Core login cookie is not an app session.
-- On navigation with a Core `code`, the SDK removes it from the URL, exchanges it once and probes the session without reloading. The identity probe accepts bearer grants and cookies, and returns SDK recovery and activity metadata. A fresh bearer grant takes precedence over an old cookie. An active resolution with a missing, invalid or expired expiry is reported as expired, matching protected API validation.
+- On navigation with a Core `code`, the SDK removes it from the URL, exchanges it once and probes the session without reloading. The identity probe accepts bearer grants and cookies, and returns SDK recovery and activity metadata. A fresh bearer grant takes precedence over an old cookie. An active resolution with a missing, invalid or expired expiry is reported as expired with `error.code: token_expired`, matching protected API validation. Non-active probes expose only known rejection codes, normalize a resolved app-audience mismatch to `token_app_mismatch`, and omit diagnostic messages. Transient revalidation failures do not return a grant-cleanup code; `reauth_required` remains distinct from explicit token rejection.
 - The embedded SDK stores the app grant in app-origin `sessionStorage` for the current tab and restores it before probing after a reload. It never writes this grant to `localStorage`; standalone launches do not persist it in `sessionStorage`. Logout and explicit `token_invalid`, `token_revoked`, `token_expired` or `token_app_mismatch` rejection clear both memory and stored grants. `reauth_required` retains the grant while access is renewed. Storage exceptions leave an in-memory grant usable for the mounted document. Stale probes cannot clear a newer grant.
 - The bridge gates initial rendering and keeps the active page mounted while renewing access, preserving drafts. Closing the tab ends its stored grant; a reload in the same embedded tab preserves it when storage is available.
 - User and project context come from `/api/auth/session`; administrative settings visibility follows the returned user role. API authorization remains server-enforced.
@@ -229,6 +237,7 @@ Use these checks when changing the app contract or preparing a release:
 - Verify protected APIs reject missing or forged Hosty identity, while the page bootstrap displays the SDK sign-in state.
 - Verify first-load silent recovery, the blocked-nonce `login_required` fallback, popup completion with app cookies blocked, bearer-authenticated API requests, renewal without draft loss, and project switching without document reload. Verify embedded reload restores the same tab grant, standalone does not store it, logout and explicit token rejection clear it, and `reauth_required` retains it. Include storage exceptions and stale-probe/new-grant races.
 - Run `npm test` and `npm run lint`; identity-probe and browser-API regressions cover asynchronous recovery protocol metadata, activity metadata, forged internal headers, expiry consistency and cross-origin rejection. Cover deleted/revoked project selection, bounded context fallback and preservation of the app grant.
+- App-code route regressions reject foreign, null, malformed and unproven origins before body parsing or exchange, including simple `text/plain` requests; refusals set no cookie. Verify same-origin submissions and public HTTPS Host/protocol forwarding through an internal HTTP listener; a wrong-scheme origin is refused even without Fetch Metadata. Identity-probe regressions cover safe token rejection codes, local expiry, audience mismatch, retained `reauth_required`, and transient failures without grant cleanup.
 - App-code exchange regressions cover the service-token bearer header, mandatory verifier validation with local code-only 400, missing or blank service tokens failing locally, and `redirect: "error"`. Verify a wrong proof returns 401 without consuming a real Core-issued code, then the correct proof succeeds once. Verify callback state/local proof, popup source/origin, Origin-plus-nonce binding, and protocol discovery failures never selecting or downgrading to legacy.
 - Registry installation and production builds use the published SDK dependency and lockfile; a candidate-tarball build alone is not evidence of publication or runtime deployment.
 - Verify direct-origin API probes with a real Core-issued app identity token.

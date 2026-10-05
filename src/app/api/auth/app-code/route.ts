@@ -8,6 +8,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
+  if (!isSameOriginSignIn(request)) {
+    return appAuthError("cross_site_request_blocked", "Sign-in must originate from this app.", 403);
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -74,4 +78,23 @@ function appAuthError(code: string, message: string, status: number) {
       },
     }
   );
+}
+
+function isSameOriginSignIn(request: NextRequest): boolean {
+  const origin = request.headers.get("origin");
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite !== null && fetchSite !== "same-origin") return false;
+  if (origin === null) return fetchSite === "same-origin";
+
+  try {
+    const source = new URL(origin);
+    // Use the public Host header rather than the internal Next listen address behind a proxy.
+    const host = request.headers.get("host") ?? new URL(request.url).host;
+    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim().toLowerCase();
+    const protocol = forwardedProto ? `${forwardedProto}:` : request.nextUrl.protocol;
+    return (source.protocol === "http:" || source.protocol === "https:") &&
+      source.origin === origin && source.host === host.toLowerCase() && source.protocol === protocol;
+  } catch {
+    return false;
+  }
 }
