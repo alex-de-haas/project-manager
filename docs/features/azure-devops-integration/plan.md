@@ -1,5 +1,5 @@
 ---
-status: Draft
+status: On Hold
 created: 2026-06-25
 updated: 2026-10-05
 summary: A parked migration that lets each user connect Azure DevOps through Microsoft Entra OAuth beside an organization-scoped PAT.
