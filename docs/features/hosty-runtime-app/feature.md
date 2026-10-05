@@ -1,7 +1,7 @@
 # Hosty Runtime App
 
 Created: 2026-06-02
-Updated: 2026-10-04
+Updated: 2026-10-05
 
 Project Manager runs as a Hosty runtime app. Hosty Core owns login, Hosty roles, app assignment, app discovery, Shell app links, and app access. Project Manager uses the Core app identity session to create or update local Host user records and keeps project membership for non-admin users in its own database.
 
@@ -23,8 +23,8 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 ## User Access
 
 - Requests must include a valid signed Hosty app identity token issued by Hosty Core.
-- Shell opens the app origin. The shared SDK identity bridge performs sign-in directly through Core: an embedded app opens a popup from the sign-in button; a standalone app can redirect through Core.
-- Project Manager exchanges the one-time code at `/api/auth/app-code`. The SDK retains the returned app grant in memory and sends it on same-origin API requests, including when the browser blocks the app cookie. Credentials are never sent to Shell or saved in browser storage. The SDK validates the popup origin, source and state.
+- Shell opens the app origin without carrying a user credential. The SDK identity bridge probes `/api/auth/identity` before mounting protected content and owns sign-in, callback correlation and recovery.
+- Project Manager exchanges `{ code, codeVerifier }` at `/api/auth/app-code`. Its server sends the proof and `Authorization: Bearer <HOSTY_APP_SERVICE_TOKEN>` to Core `/api/auth/apps/token`; a missing or blank service token returns 503 `app_service_token_missing` locally without sending the code to Core. The SDK sends the returned app grant on same-origin API requests, including when the browser blocks the app cookie. Embedded grants persist for the app-origin tab; standalone authentication uses the app cookie. Shell receives neither the verifier nor the app grant.
 - Same-origin APIs revalidate the grant through Core `/api/auth/apps/revalidate` using the app service token. Protected pages load their user and project context through that API, after the SDK bridge completes sign-in.
 - Direct probes can pass the same app identity token through `Authorization: Bearer`.
 - Host administrators receive administrative access in Project Manager automatically.
@@ -33,6 +33,67 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 - Project assignment uses the Hosty scoped app directory. Host administrators can synchronize assigned Hosty users into local records and assign non-admin users to projects.
 - Login-time user resolution and scoped directory synchronization both reuse an existing local user when no local row matches the incoming Hosty ID and exactly one local row matches the trusted normalized email.
 - Host administrators automatically have access to all projects and are not explicitly assigned as project members.
+
+## Sign-In Protocol
+
+The app's proof-aware exchange and asynchronous recovery integration use the
+published `@hosty-sdk/app: ^0.21.0` dependency. `package-lock.json` pins SDK `0.21.0`
+to its npm registry artifact and integrity; release installation uses this lockfile.
+
+Each attempt has an independent cryptographically random private verifier and
+public correlation state. The SDK derives `codeChallenge = BASE64URL(SHA256(verifier))`
+with the maintained portable SHA-256 implementation and uses only `S256`. The
+verifier stays in the initiating app document's memory for a popup, or in a bounded,
+short-lived app-origin `sessionStorage` entry for full navigation. It is never
+placed in a URL, a Core form, a parent-frame message, or a log. Callback handling
+requires the matching local attempt and its exact app callback before exchanging
+the code; public state alone is not proof.
+
+For protocol 2, an app-origin browser form posts the public challenge, state,
+callback and mode to Core `/api/apps/{appId}/sign-in-intent`. Core checks the
+browser's exact `Origin` and navigation context, binds the pending request to a
+unique HttpOnly Core browser nonce, and redirects to `/open?requestId=...`.
+An attacker-selected challenge in an arbitrary `/open` GET does not issue a code.
+Core's cookie host is isolated from every app endpoint host; sharing the same
+hostname on different ports does not provide that isolation. A known silent iframe
+intent whose nonce is blocked returns only a state-correlated `login_required`
+callback, with no code or consumed intent.
+
+An embedded document attempts silent recovery once on initial load before its
+content mounts, then offers an app-owned popup opened synchronously by a user
+action. Standalone recovery uses a stored local attempt and guarded navigation.
+When storage is unavailable, navigation and silent recovery are skipped; a popup
+keeps its proof in memory and fails closed if it cannot open. Mounted content stays
+in place during renewal. Native launches use the app-initiated public proof GET
+that the trusted native client intercepts before network access; in-place renewal
+returns only correlated public code/state to the unchanged app document.
+
+The public app-code route accepts only app-origin browser submissions before it
+reads or exchanges a code. A serialized HTTP(S) `Origin` must match the public
+request `Host` and effective scheme, including the deployment's forwarded protocol.
+URL origin normalization treats explicit HTTP `:80` and HTTPS `:443` as their
+respective default ports; other ports remain distinct. A proxy's internal listen
+address does not replace the public request origin.
+Explicit foreign, opaque or malformed origins and non-same-origin Fetch Metadata
+return 403 `cross_site_request_blocked` without exchanging a code or setting a
+cookie. When `Origin` is absent, `Sec-Fetch-Site: same-origin` is required.
+
+The public app-code route returns 400 for missing or malformed `codeVerifier`
+without contacting Core. A syntactically valid wrong verifier returns Core's 401
+`invalid_code` and leaves the one-time code available to the correct verifier.
+Core also checks the authenticated app service audience before consuming the code.
+Browser proof submission to the app and server proof submission to Core both use
+`redirect: "error"` and `cache: "no-store"` so redirects cannot carry the proof or
+service credential to another origin.
+
+The server awaits SDK recovery discovery and returns `appId`, `corePublicOrigin`
+and `appAuthProtocol` in the identity probe's `recovery` payload. Discovery uses
+uncached Core `/api/auth/apps/protocol` metadata. Protocol 1 is accepted only after
+a definite metadata 404 and a valid running `hosty-core` status with a version below
+`0.120.0`; failures and malformed metadata do not select legacy behavior. After
+protocol 2 is observed for a configured Core origin, transient errors or older
+metadata cannot downgrade it. The browser consumes this app-local probe metadata
+instead of discovering the protocol through cross-origin Core fetches.
 
 ## App Packaging
 
@@ -99,12 +160,13 @@ Hosty owns app access. Project Manager owns project-level configuration after a 
 
 - `HOSTY_APP_ID` is the app audience id used by Core app identity.
 - `HOSTY_CORE_ORIGIN` is the Core origin used for app code exchange, token revalidation, and scoped directory access.
-- `HOSTY_APP_SERVICE_TOKEN` allows Project Manager to revalidate app identity tokens with Core and read the scoped directory for users assigned to this app.
+- `HOSTY_APP_SERVICE_TOKEN` authenticates Project Manager's app-code exchange, app identity revalidation, and scoped directory requests for users assigned to this app.
 - Hosty should not forward Hosty session cookies to the app.
 - Project Manager trusts a request only after Core confirms the app identity token is active, has the expected app id, and has not expired.
-- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In local HTTP development contexts, it uses `SameSite=Lax` without `Secure`; separate named local origins and cross-site frames use the memory grant when cookies are unavailable.
-- On navigation with a Core `code`, the SDK removes it from the URL, exchanges it once and probes the session without reloading. The identity probe accepts bearer grants and cookies, and returns SDK recovery and activity metadata. A fresh bearer grant takes precedence over an old cookie. An active resolution with a missing, invalid or expired expiry is reported as expired, matching protected API validation.
-- The bridge gates initial rendering and keeps the active page mounted while renewing access, preserving drafts. A full browser reload can require sign-in again when third-party cookies are blocked because the fallback grant is memory-only.
+- The `project_manager_hosty_identity` HttpOnly app-origin cookie stores the Core app identity token returned by `/api/auth/apps/token`. The cookie lifetime follows Core's returned token lifetime. It uses `SameSite=None` and `Secure` for HTTPS so the token is available when Project Manager is embedded by Hosty Shell as an app iframe. In local HTTP development contexts, it uses `SameSite=Lax` without `Secure`; separate named local origins and cross-site frames use the embedded per-tab grant when cookies are unavailable. The cookie and Core token retain the Project Manager audience; another app cookie or a Core login cookie is not an app session.
+- On navigation with a Core `code`, the SDK removes it from the URL, exchanges it once and probes the session without reloading. The identity probe accepts bearer grants and cookies, and returns SDK recovery and activity metadata. A fresh bearer grant takes precedence over an old cookie. An active resolution with a missing, invalid or expired expiry is reported as expired with `error.code: token_expired`, matching protected API validation. Non-active probes expose only known rejection codes, normalize a resolved app-audience mismatch to `token_app_mismatch`, and omit diagnostic messages. Transient revalidation failures do not return a grant-cleanup code; `reauth_required` remains distinct from explicit token rejection.
+- The embedded SDK stores the app grant in app-origin `sessionStorage` for the current tab and restores it before probing after a reload. It never writes this grant to `localStorage`; standalone launches do not persist it in `sessionStorage`. Logout and explicit `token_invalid`, `token_revoked`, `token_expired` or `token_app_mismatch` rejection clear both memory and stored grants. `reauth_required` retains the grant while access is renewed. Storage exceptions leave an in-memory grant usable for the mounted document. Stale probes cannot clear a newer grant.
+- The bridge gates initial rendering and keeps the active page mounted while renewing access, preserving drafts. Closing the tab ends its stored grant; a reload in the same embedded tab preserves it when storage is available.
 - User and project context come from `/api/auth/session`; administrative settings visibility follows the returned user role. API authorization remains server-enforced.
 - Project selection also lives in memory and accompanies API calls as `X-Project-Id`. Every handler still validates project membership; a selection grants no access. Existing selection cookies remain a convenience when the browser accepts them. Switching projects refreshes app context without a full document reload. If the selected project was deleted or access was revoked, the session endpoint returns 404 or 403. The context loader clears that stale selection and retries the read once without it, preserving the app grant and letting the server select an accessible project.
 - App identity revalidation calls use the SDK's bounded positive cache and in-flight deduplication. Failed validations do not grant access.
@@ -128,7 +190,7 @@ TOKEN="$(hosty apps identity com.haas.project-manager --user user@docker-host.lo
 curl -H "Authorization: Bearer $TOKEN" <assigned-project-manager-origin>/api/auth/session
 ```
 
-Shell integration should still be checked through the Hosty app link; direct-origin probes only validate endpoint behavior with a real Core app identity token.
+Shell integration is checked through the Hosty app link or `hosty apps open com.haas.project-manager --mode shell`. `apps open` is credential-free and has no `--user` option: Core login establishes the browser user. The `apps identity --user` command above is a diagnostic helper for direct endpoint probes, not the browser sign-in flow.
 
 ## Navigation
 
@@ -175,9 +237,11 @@ Use these checks when changing the app contract or preparing a release:
 - After a packaging change, verify in the built container that the server process runs as uid 1000, that `/app/data` is writable, and that a `/_next/static/…` asset is served — the standalone bundle copies static assets separately, so a missing copy only shows up as broken assets, not a failed start.
 - After a packaging change, verify `npm run start` still serves `/api/health` outside Docker, so the standalone opt-in has not leaked into local builds.
 - Verify protected APIs reject missing or forged Hosty identity, while the page bootstrap displays the SDK sign-in state.
-- Verify embedded popup completion when app cookies are blocked, bearer-authenticated API requests, renewal without draft loss, and project switching without document reload.
-- Run `npm test` and `npm run lint`; identity-probe and browser-API regressions cover memory grants, activity metadata, forged internal headers, expiry consistency and cross-origin rejection. Cover deleted/revoked project selection, bounded context fallback and preservation of the app grant.
-- Verify app-code exchange with a real Core-issued app authorization code.
+- Verify first-load silent recovery, the blocked-nonce `login_required` fallback, popup completion with app cookies blocked, bearer-authenticated API requests, renewal without draft loss, and project switching without document reload. Verify embedded reload restores the same tab grant, standalone does not store it, logout and explicit token rejection clear it, and `reauth_required` retains it. Include storage exceptions and stale-probe/new-grant races.
+- Run `npm test` and `npm run lint`; identity-probe and browser-API regressions cover asynchronous recovery protocol metadata, activity metadata, forged internal headers, expiry consistency and cross-origin rejection. Cover deleted/revoked project selection, bounded context fallback and preservation of the app grant.
+- App-code route regressions reject foreign, null, malformed and unproven origins before body parsing or exchange, including simple `text/plain` requests; refusals set no cookie. Verify same-origin submissions and public HTTPS Host/protocol forwarding through an internal HTTP listener; explicit default Host ports permit sign-in, while wrong-scheme origins and different non-default ports are refused even without Fetch Metadata. Identity-probe regressions cover safe token rejection codes, local expiry, audience mismatch, retained `reauth_required`, and transient failures without grant cleanup.
+- App-code exchange regressions cover the service-token bearer header, mandatory verifier validation with local code-only 400, missing or blank service tokens failing locally, and `redirect: "error"`. Verify a wrong proof returns 401 without consuming a real Core-issued code, then the correct proof succeeds once. Verify callback state/local proof, popup source/origin, Origin-plus-nonce binding, and protocol discovery failures never selecting or downgrading to legacy.
+- Registry installation and production builds use the published SDK dependency and lockfile; a candidate-tarball build alone is not evidence of publication or runtime deployment.
 - Verify direct-origin API probes with a real Core-issued app identity token.
 - Verify assigned Hosty users can access the app through Hosty Shell.
 - Verify regenerated Hosty user IDs relink to existing local users when trusted email is unchanged and unique.
