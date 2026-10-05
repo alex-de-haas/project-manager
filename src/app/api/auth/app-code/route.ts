@@ -92,8 +92,10 @@ function isSameOriginSignIn(request: NextRequest): boolean {
     const host = request.headers.get("host") ?? new URL(request.url).host;
     const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0].trim().toLowerCase();
     const protocol = forwardedProto ? `${forwardedProto}:` : request.nextUrl.protocol;
+    if (/[\\/@?#\s]/.test(host)) return false;
+    const target = new URL(`${protocol}//${host}`);
     return (source.protocol === "http:" || source.protocol === "https:") &&
-      source.origin === origin && source.host === host.toLowerCase() && source.protocol === protocol;
+      source.origin === origin && source.origin === target.origin;
   } catch {
     return false;
   }

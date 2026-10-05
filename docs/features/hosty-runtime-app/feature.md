@@ -70,8 +70,10 @@ returns only correlated public code/state to the unchanged app document.
 
 The public app-code route accepts only app-origin browser submissions before it
 reads or exchanges a code. A serialized HTTP(S) `Origin` must match the public
-request `Host` and effective scheme, including the deployment's forwarded protocol;
-a proxy's internal listen address does not replace the public request origin.
+request `Host` and effective scheme, including the deployment's forwarded protocol.
+URL origin normalization treats explicit HTTP `:80` and HTTPS `:443` as their
+respective default ports; other ports remain distinct. A proxy's internal listen
+address does not replace the public request origin.
 Explicit foreign, opaque or malformed origins and non-same-origin Fetch Metadata
 return 403 `cross_site_request_blocked` without exchanging a code or setting a
 cookie. When `Origin` is absent, `Sec-Fetch-Site: same-origin` is required.
@@ -237,7 +239,7 @@ Use these checks when changing the app contract or preparing a release:
 - Verify protected APIs reject missing or forged Hosty identity, while the page bootstrap displays the SDK sign-in state.
 - Verify first-load silent recovery, the blocked-nonce `login_required` fallback, popup completion with app cookies blocked, bearer-authenticated API requests, renewal without draft loss, and project switching without document reload. Verify embedded reload restores the same tab grant, standalone does not store it, logout and explicit token rejection clear it, and `reauth_required` retains it. Include storage exceptions and stale-probe/new-grant races.
 - Run `npm test` and `npm run lint`; identity-probe and browser-API regressions cover asynchronous recovery protocol metadata, activity metadata, forged internal headers, expiry consistency and cross-origin rejection. Cover deleted/revoked project selection, bounded context fallback and preservation of the app grant.
-- App-code route regressions reject foreign, null, malformed and unproven origins before body parsing or exchange, including simple `text/plain` requests; refusals set no cookie. Verify same-origin submissions and public HTTPS Host/protocol forwarding through an internal HTTP listener; a wrong-scheme origin is refused even without Fetch Metadata. Identity-probe regressions cover safe token rejection codes, local expiry, audience mismatch, retained `reauth_required`, and transient failures without grant cleanup.
+- App-code route regressions reject foreign, null, malformed and unproven origins before body parsing or exchange, including simple `text/plain` requests; refusals set no cookie. Verify same-origin submissions and public HTTPS Host/protocol forwarding through an internal HTTP listener; explicit default Host ports permit sign-in, while wrong-scheme origins and different non-default ports are refused even without Fetch Metadata. Identity-probe regressions cover safe token rejection codes, local expiry, audience mismatch, retained `reauth_required`, and transient failures without grant cleanup.
 - App-code exchange regressions cover the service-token bearer header, mandatory verifier validation with local code-only 400, missing or blank service tokens failing locally, and `redirect: "error"`. Verify a wrong proof returns 401 without consuming a real Core-issued code, then the correct proof succeeds once. Verify callback state/local proof, popup source/origin, Origin-plus-nonce binding, and protocol discovery failures never selecting or downgrading to legacy.
 - Registry installation and production builds use the published SDK dependency and lockfile; a candidate-tarball build alone is not evidence of publication or runtime deployment.
 - Verify direct-origin API probes with a real Core-issued app identity token.

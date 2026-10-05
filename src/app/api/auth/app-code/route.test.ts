@@ -91,3 +91,47 @@ it.each<[string, Record<string, string>, string]>([
   expect(parse).not.toHaveBeenCalled();
   expect(exchange).not.toHaveBeenCalled();
 });
+
+
+it.each([
+  ["https", 443, false],
+  ["https", 443, true],
+  ["http", 80, false],
+  ["http", 80, true],
+] as const)("normalizes an explicit default public Host port (%s:%s, metadata: %s)", async (scheme, port, metadata) => {
+  const headers: Record<string, string> = {
+    origin: `${scheme}://pm.test`, host: `pm.test:${port}`, "x-forwarded-proto": scheme,
+  };
+  if (metadata) headers["sec-fetch-site"] = "same-origin";
+  const response = await POST(signInRequest(headers, "http://127.0.0.1:3100/api/auth/app-code"));
+  expect(response.status).toBe(200);
+  expect(exchange).toHaveBeenCalledExactlyOnceWith(code, codeVerifier, "api-route");
+  expect(response.headers.get("set-cookie")).toContain("project_manager_hosty_identity=hostyg_project-manager");
+});
+
+it.each(["https://pm.test:443", "http://pm.test:80"])("normalizes a default Host port without proxy headers (%s)", async publicUrl => {
+  const response = await POST(signInRequest({
+    origin: new URL(publicUrl).origin,
+    host: publicUrl.slice(publicUrl.indexOf("://") + 3),
+  }, `${publicUrl}/api/auth/app-code`));
+  expect(response.status).toBe(200);
+  expect(exchange).toHaveBeenCalledExactlyOnceWith(code, codeVerifier, "api-route");
+});
+
+it.each([
+  ["https://pm.test", "pm.test:80", "https"],
+  ["http://pm.test", "pm.test:443", "http"],
+  ["http://pm.test", "pm.test:443", "https"],
+  ["https://pm.test", "pm.test:80", "http"],
+  ["https://foreign.test", "pm.test:443", "https"],
+  ["https://pm.test", "attacker@pm.test:443", "https"],
+  ["https://pm.test", "pm.test:443/path", "https"],
+] as const)("still refuses a mismatching or malformed public origin (%s, %s, %s)", async (origin, host, scheme) => {
+  const request = signInRequest({ origin, host, "x-forwarded-proto": scheme }, "http://127.0.0.1:3100/api/auth/app-code");
+  const parse = vi.spyOn(request, "json");
+  const response = await POST(request);
+  expect(response.status).toBe(403);
+  expect(response.headers.get("set-cookie")).toBeNull();
+  expect(parse).not.toHaveBeenCalled();
+  expect(exchange).not.toHaveBeenCalled();
+});
