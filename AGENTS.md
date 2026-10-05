@@ -109,9 +109,10 @@ components: [apps/core, apps/shell]
 - `created` / `updated` — required, `YYYY-MM-DD`.
 - `summary` — required in `feature.md` and `plan.md`: one plain-text sentence of
   at most 200 characters, without Markdown. The index and other tools show it.
-- `components` — optional: the repository-relative directories the document
-  concerns. Each must exist. Omit it when the document concerns the whole
-  repository.
+- `components` — optional in `feature.md` and `plan.md`: the
+  repository-relative directories the document concerns. Each must exist. Omit
+  it when the document concerns the whole repository.
+- `vision.md` carries only `created` and `updated`.
 
 The block is a strict subset of YAML: one `key: value` per line, plain values or
 `[a, b]` lists, no nesting, comments or multi-line values. Wrap a value that
@@ -141,8 +142,9 @@ Unknown keys are rejected. The H1 is the title; there is no `title` key.
     in chat, never on the agent's own judgment.
   - **In Progress** — implementation started.
   - **Blocked** — cannot proceed; the blocker is recorded in the document.
-- Every plan has exactly one `## Deliverables` section, which may contain `###`
-  subsections such as phases; deliverables are the only checkboxes in a plan. Each
+- Every plan has exactly one `## Deliverables` section with at least one
+  deliverable; it may contain `###` subsections such as phases, and
+  deliverables are the only checkboxes in a plan. Each
   is a top-level item that starts with a stable ID: `- [ ] D3. Text`. IDs are
   never renumbered or reused: a new deliverable takes the next free number, and
   a removed deliverable's ID stays retired. Use plain bullets, not nested
@@ -181,3 +183,12 @@ generated block by hand; run `--fix` after changing any document.
 lives in docker-host and the others carry a byte-identical copy, so change it
 there first.
 
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

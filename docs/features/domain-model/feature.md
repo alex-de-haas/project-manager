@@ -135,3 +135,14 @@ The Calendar page stays reachable without an active project. Time Management and
 Project-scoped pages and APIs require an active accessible project. Explicit requests for an unavailable project fail with a clear `403` or `404` instead of silently falling back.
 
 Fallback to a default or first accessible project is used only when the UI has stale active-project state, such as a cookie from a previous Host identity.
+
+## Testing Expectations
+
+Required coverage:
+
+- The status sequence per type: tasks `new` → `in_progress` → `completed`; bugs and user stories
+  also pass through `resolved`.
+- Every workflow gate: incomplete checklist items or active blockers prevent a task from
+  completing and a bug or user story from resolving.
+- User stories never appear in Time Management, and Time Management membership is per user with
+  its own display order.

@@ -56,3 +56,12 @@ The database includes `idx_users_normalized_email` on `lower(trim(email))` so lo
 ## Operational Impact
 
 After relinking, the user continues to see data attached to the existing local user record, including project access, time entries, days off, assigned work, release planning data, Azure DevOps account links, and provider identity mappings.
+
+## Testing Expectations
+
+Required coverage:
+
+- A known `host_user_id` updates the existing user; an unknown id with exactly one matching
+  normalized email relinks that user and keeps `users.id`; an existing `app_display_name` is kept.
+- A missing email, no match, or more than one match creates a new user, through both
+  `ensureHostUser()` and `upsertHostDirectoryUsers()`.

@@ -50,3 +50,12 @@ Provider refreshes can still record provider statuses that bypass local gates. T
 ## Relationship To Work Items
 
 Blockers provide delivery context and prioritization signals. The work item remains the source of ownership, status, checklist, description, provider link, and time tracking information.
+
+## Testing Expectations
+
+Required coverage:
+
+- Adding, resolving with an optional note, reopening and deleting a blocker, with active and
+  resolved blockers listed separately and the row highlighted by the highest active severity.
+- The workflow gates: a task cannot complete, and a bug or user story cannot resolve, while it has
+  an active blocker; a provider refresh may still record a provider status, with sync diagnostics.

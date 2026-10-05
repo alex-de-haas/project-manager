@@ -55,3 +55,12 @@ Notifications are used across workflows where immediate feedback matters:
 ## User Experience
 
 Notifications are intended to support focused work. They should confirm important outcomes, surface failures quickly, and avoid requiring users to leave the page they are working on.
+
+## Testing Expectations
+
+Required coverage:
+
+- Success and error notifications appear for the listed workflows; error notifications use the
+  destructive style, have a close button and stay until closed.
+- A dialog action shows inline progress and one final notification, never both progress and
+  success notifications, and the dialog closes without waiting for the notification.
