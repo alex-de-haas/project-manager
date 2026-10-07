@@ -30,13 +30,17 @@ COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --prefer-offline
 
 FROM base AS builder
+ARG TARGETOS
+ARG TARGETARCH
 # next.config.js opts into `output: "standalone"` on this flag alone, so the traced bundle is
 # produced for the image while a plain `npm run build` / `next start` elsewhere stays unaffected.
 ENV NEXT_OUTPUT_STANDALONE=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN mkdir -p public .next/cache
-RUN --mount=type=cache,target=/app/.next/cache npm run build
+# Next's trace cache includes architecture-specific native bindings. Never share it across
+# platforms: a warm cache from another target can omit the binding from standalone output.
+RUN --mount=type=cache,id=project-manager-next-${TARGETOS}-${TARGETARCH},target=/app/.next/cache npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
@@ -65,6 +69,9 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
   && install -d -o node -g node /app/data \
   && install -d -o node -g node -m 1777 /app/.next/cache
+# Test the final traced bundle, not the complete builder dependencies. next build can succeed
+# even when standalone tracing omits the native binding needed by the runtime healthcheck.
+RUN gosu node node -e 'const Database = require("better-sqlite3"); const db = new Database(":memory:"); db.prepare("SELECT 1").get(); db.close();'
 
 EXPOSE 3000
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
