@@ -1,6 +1,6 @@
 ---
 created: 2026-06-02
-updated: 2026-10-05
+updated: 2026-10-07
 summary: Project Manager runs as a Hosty runtime app that relies on Core for login, roles, assignments and app access.
 ---
 
@@ -121,6 +121,8 @@ instead of discovering the protocol through cross-origin Core fetches.
 - The base image is pinned by digest, and every `COPY` into the runner stage stamps `node:node` ownership directly rather than running a recursive `chown` afterwards.
 - The base is `node:24-trixie-slim` (Debian 13, glibc 2.41) because `better-sqlite3` 13 bundles prebuilt bindings linked against `GLIBC_2.38`. An older base such as `node:24-bookworm-slim` (glibc 2.36) cannot load them, and the failure lands on the image build rather than at runtime: `next build` imports `src/lib/db.ts`, whose module-level `new Database(...)` opens the database, so an unloadable binding surfaces as `Failed to collect page data`. Any future base-image change has to keep the glibc floor the installed `better-sqlite3` requires.
 - The `deps` stage keeps `python3 make g++` even though `better-sqlite3` now ships prebuilds, because whether npm runs its `node-gyp rebuild` install script differs between the CI runner and a local build. Both the compile path and the prebuild path have to work.
+- The Next build cache is isolated by target OS and architecture. Its native-module traces cannot be reused between AMD64 and ARM64 builds, which would otherwise let a successful build omit the runtime's SQLite binding from standalone output.
+- The final runner stage opens an in-memory SQLite database and executes a query as the unprivileged `node` user. A missing or unloadable native binding fails the image build before publication. The dedicated Docker CI workflow builds both Linux architectures through the release Dockerfile when image inputs or Docker workflows change. Documentation, agent instructions, and maintenance scripts alone do not trigger this build.
 
 Stable install URL:
 
@@ -236,6 +238,7 @@ Use these checks when changing the app contract or preparing a release:
 - Run `npm run build` to verify the Next.js application and TypeScript compilation.
 - Run `npm run app:manifest -- --tag sha-test --output /tmp/project-manager-manifest.json` to verify manifest rendering.
 - Build the production image locally with Docker when packaging changes affect the runtime image.
+- Build both `linux/amd64` and `linux/arm64`, including a rebuild with warm Next caches, after native dependency or tracing changes. The final-stage SQLite query must succeed on both targets.
 - Run the manifest's exact healthcheck command in the built container against `127.0.0.1:3000`, and smoke-test `/api/health` through the published port; both should succeed without identity and return database/storage readiness.
 - After a packaging change, verify in the built container that the server process runs as uid 1000, that `/app/data` is writable, and that a `/_next/static/…` asset is served — the standalone bundle copies static assets separately, so a missing copy only shows up as broken assets, not a failed start.
 - After a packaging change, verify `npm run start` still serves `/api/health` outside Docker, so the standalone opt-in has not leaked into local builds.
