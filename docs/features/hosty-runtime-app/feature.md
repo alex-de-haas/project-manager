@@ -40,9 +40,9 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 ## Sign-In Protocol
 
 The app's proof-aware exchange and asynchronous recovery integration use the
-SDK `@hosty-sdk/app: ^0.22.0` dependency and the root
-[Hosty Overlay](../hosty-overlay/feature.md). Registry lockfile finalization is tracked
-in the [adoption plan](../hosty-overlay/plan.md). The existing `/api/auth/session`
+SDK `@hosty-sdk/app: ^0.22.1` dependency and the root
+[Hosty Overlay](../hosty-overlay/feature.md). The registry lockfile resolves SDK
+0.22.1. The existing `/api/auth/session`
 project context and `/api/auth/identity` diagnostic contracts remain available;
 the overlay uses `/api/hosty/session` for combined identity/setup readiness.
 
