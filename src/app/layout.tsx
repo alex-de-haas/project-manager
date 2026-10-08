@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { launchModeBootstrapScript } from "@hosty-sdk/app";
 import { createThemeBootstrapScript } from "@hosty-sdk/app/theme";
-import { AppIdentityBridge, HostLaunchBridge } from "@hosty-sdk/app/react";
+import { HostyOverlay, HostLaunchBridge } from "@hosty-sdk/app/react";
 import { HostThemeBridge } from "@/components/HostThemeBridge";
 
 export const metadata: Metadata = {
@@ -44,8 +44,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <HostThemeBridge />
-          <AppIdentityBridge>{children}</AppIdentityBridge>
-          <Toaster />
+          <HostyOverlay>
+            {children}
+            <Toaster />
+          </HostyOverlay>
         </ThemeProvider>
       </body>
     </html>

@@ -1,6 +1,6 @@
 ---
 created: 2026-06-02
-updated: 2026-10-07
+updated: 2026-10-08
 summary: Project Manager runs as a Hosty runtime app that relies on Core for login, roles, assignments and app access.
 ---
 
@@ -40,8 +40,11 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 ## Sign-In Protocol
 
 The app's proof-aware exchange and asynchronous recovery integration use the
-published `@hosty-sdk/app: ^0.21.0` dependency. `package-lock.json` pins SDK `0.21.0`
-to its npm registry artifact and integrity; release installation uses this lockfile.
+SDK `@hosty-sdk/app: ^0.22.1` dependency and the root
+[Hosty Overlay](../hosty-overlay/feature.md). The registry lockfile resolves SDK
+0.22.1. The existing `/api/auth/session`
+project context and `/api/auth/identity` diagnostic contracts remain available;
+the overlay uses `/api/hosty/session` for combined identity/setup readiness.
 
 Each attempt has an independent cryptographically random private verifier and
 public correlation state. The SDK derives `codeChallenge = BASE64URL(SHA256(verifier))`

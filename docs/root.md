@@ -21,6 +21,7 @@ Plans: 1 Draft · 1 On Hold.
 - [Blockers](features/blockers/feature.md) — Blockers record what stops a work item, its severity and resolution, without changing the work item itself.
 - [Domain Model](features/domain-model/feature.md) — Project Manager's own domain model for work planning and time tracking, with external systems as optional integrations.
 - [Host User Email Relinking](features/host-user-relinking/feature.md) — Existing local user data is kept when Hosty regenerates a user id but the user's email stays the same.
+- [Hosty Overlay](features/hosty-overlay/feature.md) — HostyOverlay coordinates identity recovery, required-permission readiness and protected content visibility at the application root.
 - [Hosty Runtime App](features/hosty-runtime-app/feature.md) — Project Manager runs as a Hosty runtime app that relies on Core for login, roles, assignments and app access.
 - [Notifications](features/notifications/feature.md) — Toast notifications give immediate success, error, warning and info feedback after user actions.
 - [Release Planning](features/release-planning/feature.md) — Releases organize a project's user stories and their child tasks and bugs into trackable work.

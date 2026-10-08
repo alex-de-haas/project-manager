@@ -19,6 +19,7 @@ import {
 const PUBLIC_PATHS = [
   "/api/auth/app-code",
   "/api/auth/identity",
+  "/api/hosty/session",
   "/api/health",
 ];
 
@@ -170,7 +171,7 @@ export const config = {
 // The identity probe validates tokens with Core; internal identity headers stay stripped.
 function publicRequestHeaders(request: NextRequest): Headers {
   const headers = stripInternalHeaders(request.headers);
-  if (request.nextUrl.pathname === "/api/auth/identity") {
+  if (["/api/auth/identity", "/api/hosty/session"].includes(request.nextUrl.pathname)) {
     for (const name of ["authorization", HOSTY_APP_IDENTITY_HEADER]) {
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
