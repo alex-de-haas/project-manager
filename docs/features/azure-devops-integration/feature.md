@@ -1,6 +1,6 @@
 ---
 created: 2026-05-23
-updated: 2026-09-04
+updated: 2026-10-13
 summary: Optional Azure DevOps integration that links Project Manager work items with Azure DevOps work items.
 ---
 
@@ -42,6 +42,7 @@ pin constrains the resolver without buying anything.
 - Import specific work items by ID.
 - Import user stories into Release Planning.
 - Refresh linked work items from Azure DevOps.
+- Discover reopened tasks and bugs from previous periods during [Time Management refresh](../time-tracking/feature.md#refresh), including locally final items returned from QA.
 - Upsert child tasks and bugs for imported user stories.
 - Map Azure DevOps assignees to Project Manager users when provider identities are known.
 - Preserve Azure DevOps assignee snapshots when the assignee is not a Project Manager user.
