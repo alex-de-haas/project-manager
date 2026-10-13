@@ -80,7 +80,9 @@ Computing the balance never loads historical time entries into the browser. One 
 
 When the user clicks **Refresh**, Project Manager refreshes visible linked Azure DevOps work items and checks previously added tasks and bugs across all periods in the active project. Refresh runs even when the selected week or month has no visible linked rows or a status filter hides them.
 
-Previously added items are refreshed when they are locally assigned to the current user or have a non-final local status (neither `resolved` nor `completed`). For the remaining historical items, Azure DevOps is queried for current assignment to the PAT-authenticated user or a non-final provider state. This discovers a bug returned from QA even when its local copy still says Resolved or Closed. An item reopened as New or Active has its completion date cleared and appears in the selected period when the existing assignment and status filters allow it.
+Previously added items are refreshed when they are locally assigned to the current user or have a non-final local status (neither `resolved` nor `completed`). For the remaining historical items, Azure DevOps is queried for current assignment to the PAT-authenticated user or a recognized New-like or Active-like provider state. This discovers a bug returned from QA even when its local copy still says Resolved or Closed. An item reopened as New or Active has its completion date cleared and appears in the selected period when the existing assignment and status filters allow it.
+
+An unfamiliar provider state is not evidence that a historical item reopened. If an item is selected through assignment or visible scope, or its state changes after discovery, refresh preserves its normalized local status when the provider state is unknown, while updating the native status snapshot and other metadata. A custom terminal state such as Cancelled therefore does not turn a previously completed item into New. Custom active states outside the recognized mappings do not automatically reopen historical items.
 
 Discovery is limited to the current user's existing Time Management memberships. It does not import new work items, create memberships, or change tracked hours. Resolved and closed rows without time in the selected period stay hidden. Historical items that remain final and assigned away do not need a full provider snapshot.
 
@@ -115,6 +117,7 @@ Only work items with tracked time in the exported period are included. A task or
 ## Testing Expectations
 
 - Refresh discovers a previously resolved or closed bug returned from QA in a later month, including when no linked rows are visible. The existing work item and historical time entries are preserved.
+- Custom or missing provider states do not reopen final items, including items selected through local assignment, provider assignment, or visible scope, and items whose state changes after discovery. Native status snapshots still update when fetched.
 - Refresh updates non-final historical items even when assigned away, including their transition to a final state; historical items still final and assigned away are excluded from snapshot refresh.
 - Discovery stays within the active project and the current user's Time Management memberships. Explicit task-only and release-scoped refresh requests retain their scope.
 - Historical discovery and snapshot fetching use batches of at most 200 items; unavailable snapshots do not prevent other linked items from refreshing.

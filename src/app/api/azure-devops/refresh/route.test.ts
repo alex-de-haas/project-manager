@@ -114,7 +114,33 @@ describe("Time Management refresh across periods", () => {
     expect(db.prepare("SELECT * FROM time_tracking_items").all()).toEqual(membershipsBefore);
     expect(azure.queryByWiql).toHaveBeenCalledWith({ query: expect.stringMatching(/\[System.AssignedTo\] = @Me/) }, { project: "Main" });
     expect(azure.queryByWiql.mock.calls[0][0].query).toContain("[System.TeamProject] = @project");
-    expect(azure.queryByWiql.mock.calls[0][0].query).toContain("[System.State] NOT IN ('Resolved', 'Closed', 'Done', 'Completed', 'Removed')");
+    expect(azure.queryByWiql.mock.calls[0][0].query).not.toContain("[System.State] NOT IN");
+    const states = azure.queryByWiql.mock.calls[0][0].query.match(/\[System.State\] IN \(([^)]+)\)/)[1].match(/'([^']+)'/g);
+    expect(states).toEqual(["'New'", "'Todo'", "'To Do'", "'To_Do'", "'Open'", "'Proposed'", "'Active'", "'In Progress'", "'In_Progress'", "'Doing'", "'Committed'"]);
+  });
+
+  it.each([
+    { scope: "local assignment", status: "completed", nativeStatus: "Cancelled" },
+    { scope: "provider assignment", status: "completed", nativeStatus: "Cancelled" },
+    { scope: "visible row", status: "completed", nativeStatus: "Cancelled" },
+    { scope: "state changed after discovery", status: "completed", nativeStatus: "Cancelled" },
+    { scope: "provider assignment", status: "resolved", nativeStatus: "Custom QA Complete" },
+    { scope: "local assignment", status: "completed", nativeStatus: "" },
+  ])("preserves $status for an unknown provider state through $scope ($nativeStatus)", async ({ scope, status, nativeStatus }) => {
+    const id = trackedItem(105, { status, assignedUser: scope === "local assignment" ? user : otherUser });
+    const completedAt = status === "completed" ? "2026-09-25" : null;
+    remoteItem(105, nativeStatus, scope !== "state changed after discovery");
+    snapshots.get(105)!.fields!["System.Tags"] = "Updated metadata";
+    // A returned ID may be selected by @Me, or its state may change before the snapshot arrives.
+    azure.queryByWiql.mockResolvedValue({ workItems: [{ id: 105 }] });
+    const response = scope === "visible row"
+      ? await request({ taskIds: [id] })
+      : await refresh();
+    expect(response.status).toBe(200);
+    expect(readItem(id)).toMatchObject({ status, completed_at: completedAt, tags: "Updated metadata" });
+    expect(db.prepare("SELECT native_status FROM work_item_external_links WHERE work_item_id = ?").get(id))
+      .toEqual({ native_status: nativeStatus || null });
+    expect(azure.getWorkItems.mock.calls[0][0]).toEqual([105]);
   });
 
   it("refreshes hidden assigned and non-final items, including an item newly closed upstream", async () => {

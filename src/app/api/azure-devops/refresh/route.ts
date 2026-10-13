@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { WorkItemErrorPolicy, type WorkItem } from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
 import db from "@/lib/db";
+import type { WorkItemStatus } from "@/types";
 import {
   fetchChildWorkItemsForParentIds,
   syncChildWorkItemsSnapshot,
@@ -41,7 +42,7 @@ interface LinkedWorkItemRow {
   id: number;
   title: string;
   type: string;
-  status: string;
+  status: WorkItemStatus;
   tags: string | null;
   assigned_user_id: number | null;
   completed_at?: string | null;
@@ -204,7 +205,8 @@ export async function POST(request: NextRequest) {
     }
 
     // A local final status may be stale after QA reopens or reassigns an item.
-    // Ask Azure DevOps which archived memberships need a fresh snapshot.
+    // Only known non-final states imply activity; custom terminal states must
+    // not be treated as reopened merely because their names are unfamiliar.
     for (let i = 0; i < archivedItems.length; i += MAX_BATCH_SIZE) {
       const batch = archivedItems.slice(i, i + MAX_BATCH_SIZE);
       const result = await witApi.queryByWiql({
@@ -213,7 +215,8 @@ export async function POST(request: NextRequest) {
           WHERE [System.TeamProject] = @project
             AND [System.Id] IN (${batch.map((item) => Number(item.external_id)).join(", ")})
             AND ([System.AssignedTo] = @Me
-              OR [System.State] NOT IN ('Resolved', 'Closed', 'Done', 'Completed', 'Removed'))
+              OR [System.State] IN ('New', 'Todo', 'To Do', 'To_Do', 'Open', 'Proposed',
+                'Active', 'In Progress', 'In_Progress', 'Doing', 'Committed'))
         `,
       }, { project: settings.project });
       const activeIds = new Set(result.workItems?.map((item) => item.id));
@@ -265,7 +268,9 @@ export async function POST(request: NextRequest) {
         (workItem.fields["System.WorkItemType"] as string) || "Task";
       const type = mapAzureDevOpsTypeToWorkItemType(nativeType);
       const nativeStatus = (workItem.fields["System.State"] as string) || null;
-      const status = mapAzureDevOpsStatusToWorkItemStatus(nativeStatus);
+      // Assignment can select an item in an unknown custom state, and its state
+      // can also change after discovery. Preserve its status instead of reopening it.
+      const status = mapAzureDevOpsStatusToWorkItemStatus(nativeStatus, localItem.status);
       const tags = (workItem.fields["System.Tags"] as string) || null;
       const assignedTo = normalizeAzureDevOpsWorkItemIdentity(
         workItem.fields["System.AssignedTo"]

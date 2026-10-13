@@ -92,8 +92,9 @@ export const mapAzureDevOpsTypeToTrackableWorkItemType = (
 };
 
 export const mapAzureDevOpsStatusToWorkItemStatus = (
-  nativeStatus: string | null | undefined
-): WorkItemStatus => normalizeWorkItemStatus(nativeStatus);
+  nativeStatus: string | null | undefined,
+  fallback: WorkItemStatus = "new"
+): WorkItemStatus => normalizeWorkItemStatus(nativeStatus, fallback);
 
 export const getCompletedAtForStatus = (
   nextStatus: WorkItemStatus,
