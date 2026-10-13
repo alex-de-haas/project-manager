@@ -1525,33 +1525,32 @@ export default function Home() {
         .filter((task) => task.external_source === "azure_devops" && task.external_id)
         .map((task) => task.id);
 
-      if (refreshTaskIds.length > 0) {
-        const refreshResponse = await apiFetch("/api/azure-devops/refresh", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            startDate: dateRange.startDate,
-            endDate: dateRange.endDate,
-            taskIds: refreshTaskIds,
-          }),
-        });
+      const refreshResponse = await apiFetch("/api/azure-devops/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
+          taskIds: refreshTaskIds,
+          includeActiveItems: true,
+        }),
+      });
 
-        if (refreshResponse.ok) {
-          const result = await refreshResponse.json();
-          console.log("Azure DevOps refresh result:", result);
-          
-          if (result.updated > 0) {
-            toast.success(`Successfully updated ${result.updated} task(s) from Azure DevOps`);
-          } else if (result.skipped > 0) {
-            toast.info(`All ${result.skipped} imported task(s) are up to date`);
-          }
-        } else if (refreshResponse.status === 400) {
-          // Settings not configured, silently skip
-          console.log("Azure DevOps settings not configured, skipping refresh");
-        } else {
-          const errorData = await refreshResponse.json();
-          toast.error(errorData.error || "Failed to refresh Azure DevOps tasks");
+      if (refreshResponse.ok) {
+        const result = await refreshResponse.json();
+        console.log("Azure DevOps refresh result:", result);
+
+        if (result.updated > 0) {
+          toast.success(`Successfully updated ${result.updated} task(s) from Azure DevOps`);
+        } else if (result.skipped > 0) {
+          toast.info(`All ${result.skipped} imported task(s) are up to date`);
         }
+      } else if (refreshResponse.status === 400) {
+        // Settings not configured, silently skip
+        console.log("Azure DevOps settings not configured, skipping refresh");
+      } else {
+        const errorData = await refreshResponse.json();
+        toast.error(errorData.error || "Failed to refresh Azure DevOps tasks");
       }
     } catch (err) {
       console.error("Error refreshing Azure DevOps tasks:", err);

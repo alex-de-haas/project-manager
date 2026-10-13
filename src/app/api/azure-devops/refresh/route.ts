@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import { WorkItemErrorPolicy, type WorkItem } from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
 import db from "@/lib/db";
 import {
   fetchChildWorkItemsForParentIds,
@@ -33,6 +34,7 @@ interface RefreshRequest {
   startDate?: string;
   endDate?: string;
   taskIds?: number[];
+  includeActiveItems?: boolean;
 }
 
 interface LinkedWorkItemRow {
@@ -88,6 +90,7 @@ export async function POST(request: NextRequest) {
     const taskIds = Array.isArray(body.taskIds)
       ? Array.from(new Set(body.taskIds.map(parsePositiveInt).filter(Boolean) as number[]))
       : null;
+    const includeActiveItems = !releaseId && body.includeActiveItems === true;
 
     if (releaseId) {
       const release = db
@@ -142,7 +145,14 @@ export async function POST(request: NextRequest) {
     if (releaseId) {
       queryParts.push("AND ri.release_id = ?");
       params.push(releaseId);
+    } else {
+      queryParts.push("AND wi.type IN ('task', 'bug')");
     }
+
+    // Membership, rather than the visible month, bounds reopened-item discovery.
+    const trackedItems = includeActiveItems
+      ? db.prepare(queryParts.join("\n")).all(...params) as LinkedWorkItemRow[]
+      : [];
 
     if (body.startDate && body.endDate) {
       queryParts.push(
@@ -153,15 +163,19 @@ export async function POST(request: NextRequest) {
 
     if (taskIds !== null) {
       if (taskIds.length === 0) {
-        return NextResponse.json({ updated: 0, skipped: 0 });
+        if (!includeActiveItems) {
+          return NextResponse.json({ updated: 0, skipped: 0 });
+        }
+        queryParts.push("AND 0 = 1");
+      } else {
+        queryParts.push(`AND wi.id IN (${taskIds.map(() => "?").join(", ")})`);
+        params.push(...taskIds);
       }
-      queryParts.push(`AND wi.id IN (${taskIds.map(() => "?").join(", ")})`);
-      params.push(...taskIds);
     }
 
     const linkedItems = db.prepare(queryParts.join("\n")).all(...params) as LinkedWorkItemRow[];
 
-    if (linkedItems.length === 0) {
+    if (linkedItems.length === 0 && trackedItems.length === 0) {
       return NextResponse.json({
         updated: 0,
         skipped: 0,
@@ -176,6 +190,36 @@ export async function POST(request: NextRequest) {
       projectId,
       connection
     );
+    const MAX_BATCH_SIZE = 200;
+    const selectedIds = new Set(linkedItems.map((item) => item.id));
+    const archivedItems: LinkedWorkItemRow[] = [];
+    for (const item of trackedItems) {
+      if (selectedIds.has(item.id)) continue;
+      if (item.assigned_user_id === userId || !["resolved", "completed"].includes(item.status)) {
+        linkedItems.push(item);
+        selectedIds.add(item.id);
+      } else if (Number.isSafeInteger(Number(item.external_id)) && Number(item.external_id) > 0) {
+        archivedItems.push(item);
+      }
+    }
+
+    // A local final status may be stale after QA reopens or reassigns an item.
+    // Ask Azure DevOps which archived memberships need a fresh snapshot.
+    for (let i = 0; i < archivedItems.length; i += MAX_BATCH_SIZE) {
+      const batch = archivedItems.slice(i, i + MAX_BATCH_SIZE);
+      const result = await witApi.queryByWiql({
+        query: `
+          SELECT [System.Id] FROM WorkItems
+          WHERE [System.TeamProject] = @project
+            AND [System.Id] IN (${batch.map((item) => Number(item.external_id)).join(", ")})
+            AND ([System.AssignedTo] = @Me
+              OR [System.State] NOT IN ('Resolved', 'Closed', 'Done', 'Completed', 'Removed'))
+        `,
+      }, { project: settings.project });
+      const activeIds = new Set(result.workItems?.map((item) => item.id));
+      linkedItems.push(...batch.filter((item) => activeIds.has(Number(item.external_id))));
+    }
+
     const externalIds = Array.from(
       new Set(
         linkedItems
@@ -188,15 +232,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ updated: 0, skipped: linkedItems.length });
     }
 
-    const MAX_BATCH_SIZE = 200;
-    const workItems: any[] = [];
+    const workItems: WorkItem[] = [];
     for (let i = 0; i < externalIds.length; i += MAX_BATCH_SIZE) {
       const batchItems = await witApi.getWorkItems(
         externalIds.slice(i, i + MAX_BATCH_SIZE),
         undefined,
         undefined,
         undefined,
-        undefined
+        WorkItemErrorPolicy.Omit
       );
       if (batchItems?.length) workItems.push(...batchItems);
     }

@@ -1,6 +1,6 @@
 ---
 created: 2026-05-26
-updated: 2026-09-18
+updated: 2026-10-13
 summary: Weekly and monthly time entry for work items added to Time Management, with totals, filters and Excel export.
 ---
 
@@ -78,7 +78,11 @@ Computing the balance never loads historical time entries into the browser. One 
 
 ## Refresh
 
-When the user clicks **Refresh**, Project Manager refreshes only linked Azure DevOps work items currently visible on the Time Management page for the selected week or month.
+When the user clicks **Refresh**, Project Manager refreshes visible linked Azure DevOps work items and checks previously added tasks and bugs across all periods in the active project. Refresh runs even when the selected week or month has no visible linked rows or a status filter hides them.
+
+Previously added items are refreshed when they are locally assigned to the current user or have a non-final local status (neither `resolved` nor `completed`). For the remaining historical items, Azure DevOps is queried for current assignment to the PAT-authenticated user or a non-final provider state. This discovers a bug returned from QA even when its local copy still says Resolved or Closed. An item reopened as New or Active has its completion date cleared and appears in the selected period when the existing assignment and status filters allow it.
+
+Discovery is limited to the current user's existing Time Management memberships. It does not import new work items, create memberships, or change tracked hours. Resolved and closed rows without time in the selected period stay hidden. Historical items that remain final and assigned away do not need a full provider snapshot.
 
 Refresh updates:
 
@@ -110,6 +114,10 @@ Only work items with tracked time in the exported period are included. A task or
 
 ## Testing Expectations
 
+- Refresh discovers a previously resolved or closed bug returned from QA in a later month, including when no linked rows are visible. The existing work item and historical time entries are preserved.
+- Refresh updates non-final historical items even when assigned away, including their transition to a final state; historical items still final and assigned away are excluded from snapshot refresh.
+- Discovery stays within the active project and the current user's Time Management memberships. Explicit task-only and release-scoped refresh requests retain their scope.
+- Historical discovery and snapshot fetching use batches of at most 200 items; unavailable snapshots do not prevent other linked items from refreshing.
 - Local midnight moves the highlight to the next date without user interaction, including month and year boundaries. Focus, visibility, and page restoration catch up after sleep; disposing the date subscription removes its timer and event listeners.
 - Opening or reloading a long task list scrolls to the bottom and centers today between the pinned columns where the horizontal scroll range permits it. Check both week and month views, short and empty lists, and a saved period without today.
 - Manual scroll positions remain unchanged by subsequent data refreshes and time edits.
