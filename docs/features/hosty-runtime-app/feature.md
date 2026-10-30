@@ -1,6 +1,6 @@
 ---
 created: 2026-06-02
-updated: 2026-10-08
+updated: 2026-10-30
 summary: Project Manager runs as a Hosty runtime app that relies on Core for login, roles, assignments and app access.
 ---
 
@@ -40,9 +40,9 @@ There is no anonymous standalone mode. Direct API access without Hosty app ident
 ## Sign-In Protocol
 
 The app's proof-aware exchange and asynchronous recovery integration use the
-SDK `@hosty-sdk/app: ^0.22.1` dependency and the root
+SDK `@hosty-sdk/app: ^0.32.0` dependency and the root
 [Hosty Overlay](../hosty-overlay/feature.md). The registry lockfile resolves SDK
-0.22.1. The existing `/api/auth/session`
+0.32.0. The existing `/api/auth/session`
 project context and `/api/auth/identity` diagnostic contracts remain available;
 the overlay uses `/api/hosty/session` for combined identity/setup readiness.
 
@@ -212,6 +212,9 @@ The app UI uses a Hosty-friendly top navigation bar. The stable navigation paths
 Settings navigation is rendered for all assigned app users. Non-admin users see only Profile settings, while Host administrators also see project, release, backup, and AI provider settings. Project switching lives in the top bar as a compact selector.
 
 The navigation links render only in `standalone` launches; under a shell they are hidden as duplicated chrome (see Launch Mode Detection below) and the top bar reduces to the project switcher.
+
+The root `HostyOverlay` selects the custom navigation renderer, so the SDK does not
+add its standard sidebar alongside the app's top navigation.
 
 ## Hosty Theme Integration
 

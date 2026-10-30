@@ -1,6 +1,6 @@
 ---
 created: 2026-10-08
-updated: 2026-10-08
+updated: 2026-10-30
 summary: HostyOverlay coordinates identity recovery, required-permission readiness and protected content visibility at the application root.
 components: [src]
 ---
@@ -11,6 +11,12 @@ The protected client tree and notifications render inside `HostyOverlay` from
 `@hosty-sdk/app/react`. The SDK owns loading, Core sign-in/recovery, required setup,
 light/dark presentation and interaction blocking. The application retains its theme
 and launch-mode bridges, app-code exchange, cookie namespace and the project/session API and local token-expiry policy.
+
+The root overlay sets `navigation={{ renderer: "custom" }}` because Project Manager
+renders its own `TopNavigation`. The SDK's automatic sidebar and its navigation
+loading state are omitted, including in standalone launches. The app's top menu
+and project switcher retain their existing launch-mode behavior; identity readiness,
+interaction blocking and SDK tools remain managed by the overlay.
 
 `GET /api/hosty/session` reads the app bearer or app cookie and validates it with
 Core before checking required permissions. Administrators receive the SDK review
@@ -26,8 +32,8 @@ checks.
 
 ## SDK Dependency
 
-The package manifest requires SDK `^0.22.1`, and the checked-in registry lockfile
-resolves published npm version `0.22.1` with its registry integrity. This release
+The package manifest requires SDK `^0.32.0`, and the checked-in registry lockfile
+resolves published npm version `0.32.0` with its registry integrity. This release
 includes the Overlay and renewal-metadata fix from
 [Hosty PR #559](https://github.com/alex-de-haas/docker-host/pull/559).
 Compatible SDK updates arrive through the existing Dependabot group and the normal
@@ -36,6 +42,9 @@ application build/release process.
 ## Testing Expectations
 
 - Run unit tests, lint and the production build against the selected SDK.
+- Verify standalone at desktop and mobile widths has no SDK sidebar or navigation
+  loading state, while the app's top navigation works. In embedded/native launches,
+  verify the app's page links are hidden and the project switcher remains available.
 - Exercise readiness with no identity, bearer-before-cookie, administrator/member
   required setup and the existing application session contract.
 - Verify ordinary Core password login both standalone and embedded in Shell;
@@ -44,7 +53,7 @@ application build/release process.
 - Verify installation and checks using the committed registry lockfile. Do not
   commit a local tarball dependency.
 
-Registry verification with SDK 0.22.1 passes `npm ci`, 183 unit tests, lint,
+Previous registry verification with SDK 0.22.1 passed `npm ci`, 183 unit tests, lint,
 typechecking and the production build with Next.js 16.3.8. Manifest rendering and
 documentation validation pass. Earlier Core-managed candidate acceptance covers
 standalone and Shell-embedded password login, a real activity deadline hiding an
