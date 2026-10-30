@@ -44,7 +44,8 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <HostThemeBridge />
-          <HostyOverlay>
+          {/* TopNavigation owns page links; suppress the SDK's automatic sidebar. */}
+          <HostyOverlay navigation={{ renderer: "custom" }}>
             {children}
             <Toaster />
           </HostyOverlay>
