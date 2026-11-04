@@ -116,3 +116,5 @@ absent and nothing is emitted. Opt-in is the `telemetry` block in `manifest.json
 ## License
 
 MIT
+
+Ready-release publication and migration are documented in [Ready app releases](docs/features/ready-releases/feature.md).

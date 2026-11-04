@@ -3,7 +3,7 @@
   "id": "com.haas.project-manager",
   "name": "Project Manager",
   "description": "Project planning, time tracking, release planning, and Azure DevOps coordination for Hosty users.",
-  "version": "0.14.2",
+  "version": "0.15.0",
   "source": {
     "type": "git",
     "repository": "https://github.com/alex-de-haas/project-manager.git",
@@ -30,7 +30,7 @@
           "type": "docker",
           "image": {
             "repository": "ghcr.io/alex-de-haas/project-manager",
-            "tag": "latest",
+            "tag": "0.15.0",
             "pullPolicy": "ifNotPresent"
           },
           "ports": [
@@ -124,8 +124,14 @@
       }
     ]
   },
-  "telemetry": { "enabled": true, "sampleRatio": 0.1 },
-  "capabilities": ["backup", "logs"],
+  "telemetry": {
+    "enabled": true,
+    "sampleRatio": 0.1
+  },
+  "capabilities": [
+    "backup",
+    "logs"
+  ],
   "catalogMetadata": {
     "publisher": {
       "name": "Haas",
@@ -133,7 +139,12 @@
       "email": "a.zayats@outlook.com"
     },
     "category": "Productivity",
-    "tags": ["projects", "planning", "time-tracking", "azure-devops"],
+    "tags": [
+      "projects",
+      "planning",
+      "time-tracking",
+      "azure-devops"
+    ],
     "icon": "assets/icon.svg",
     "license": "AGPL-3.0-only",
     "links": {

@@ -20,7 +20,7 @@ on:
       - "test/**"
       - "vitest.config.ts"
       - ".github/workflows/docker-ci.yml"
-      - ".github/workflows/docker-publish.yml"
+      - ".github/workflows/ready-releases.yml"
 
 permissions:
   contents: read

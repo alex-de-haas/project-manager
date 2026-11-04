@@ -42,3 +42,8 @@ next-env.d.ts
 
 # temporary files
 /tmp/
+
+# Ready-release build outputs and pinned consumer validator
+/release-plan/
+/release-artifacts/
+/.hosty-validator/
