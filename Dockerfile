@@ -12,22 +12,14 @@ FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_HOST_MODULE_ID=com.haas.project-manager
+# A fixed signed archive closes the runtime apt input set.
+COPY docker/debian.sources /etc/apt/sources.list.d/debian.sources
 
 FROM base AS deps
-# better-sqlite3 resolves its native binding one of two ways, and which one wins depends on
-# whether npm executes the package's `install: node-gyp rebuild` lifecycle script. That is not
-# stable across environments: on the CI runner npm withholds the script until it is approved and
-# logs
-#   npm warn allow-scripts better-sqlite3@13.0.2 (install: node-gyp rebuild)
-# so the bundled prebuild is what gets loaded there, while a local `docker build` runs the script
-# and compiles from source instead. Keep the toolchain so the compile path works when it is taken;
-# the trixie base above covers the prebuild path. Both stay in the deps layer; the runner image
-# receives only the traced standalone bundle, so it isn't bloated by them.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
-COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --prefer-offline
+COPY package.json package-lock.json ./
+# Use the native binaries shipped in the integrity-checked locked packages.
+# Lifecycle scripts stay disabled so they cannot fetch untracked build inputs.
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --prefer-offline
 
 FROM base AS builder
 ARG TARGETOS
@@ -36,11 +28,15 @@ ARG TARGETARCH
 # produced for the image while a plain `npm run build` / `next start` elsewhere stays unaffected.
 ENV NEXT_OUTPUT_STANDALONE=1
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY package.json package-lock.json next.config.js tsconfig.json postcss.config.mjs tailwind.config.ts vitest.config.ts ./
+COPY src ./src
+COPY public ./public
+# Preserve the TypeScript coverage from tsconfig.json, including test sources.
+COPY test ./test
 RUN mkdir -p public .next/cache
 # Next's trace cache includes architecture-specific native bindings. Never share it across
 # platforms: a warm cache from another target can omit the binding from standalone output.
-RUN --mount=type=cache,id=project-manager-next-${TARGETOS}-${TARGETARCH},target=/app/.next/cache npm run build
+RUN --network=none --mount=type=cache,id=project-manager-next-${TARGETOS}-${TARGETARCH},target=/app/.next/cache npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
@@ -49,7 +45,7 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 # gosu lets the entrypoint drop from root to the unprivileged `node` user after fixing data-dir
 # ownership (see docker-entrypoint.sh).
-RUN apt-get update \
+RUN apt-get -o APT::Update::Error-Mode=any update \
   && apt-get install -y --no-install-recommends gosu \
   && rm -rf /var/lib/apt/lists/*
 # `output: "standalone"` (next.config.js) traces the runtime file set: server.js, the resolved

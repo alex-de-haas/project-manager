@@ -1,0 +1,15 @@
+# Advance both timestamps deliberately when refreshing operating-system packages.
+# Historical Release files expire; archive signatures and package hashes remain checked.
+Types: deb
+URIs: http://snapshot.debian.org/archive/debian/20261103T000000Z/
+Suites: trixie trixie-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+Check-Valid-Until: no
+
+Types: deb
+URIs: http://snapshot.debian.org/archive/debian-security/20261103T000000Z/
+Suites: trixie-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+Check-Valid-Until: no
