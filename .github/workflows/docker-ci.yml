@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "Dockerfile"
+      - "docker/**"
       - "docker-entrypoint.sh"
       - ".dockerignore"
       - "package.json"

@@ -28,6 +28,10 @@ The canonical index is [com.haas.project-manager feeds](https://raw.githubuserco
 
 Check selection and image selection are independent. Fingerprints cover materialized Docker context bytes, modes, symlinks, recipe, workflow and resolved builder/frontend. Nested contexts remain independent. A completely unchanged candidate produces no build. Artifact reuse additionally requires an eligible immutable recipe, exact input fingerprint, complete architecture graph and original signed provenance.
 
+Project Manager uses literal Docker COPY inputs: application source, public assets, package/lock files, build and test configuration, tests, the entrypoint and the Debian snapshot sources. Ordinary documentation, repository instructions and release metadata are outside the image context. A documentation-only change leaves the app candidate unchanged; changing a retained release asset such as `docs/store.md` selects a new release and reuses the existing verified image digest. Source, dependency, configuration or recipe changes select a build.
+
+The Node base is pinned by digest. The runtime apt stage uses the signed Debian snapshot declared in `docker/debian.sources`; advancing that timestamp is an explicit image input change. npm downloads lockfile-integrity-checked packages with lifecycle scripts disabled and uses their bundled native binaries; the final runtime image must pass the SQLite binding probe on each architecture. The Next build also runs without networking. These constraints make this recipe eligible for digest reuse. A matching receipt still requires successful anonymous registry graph and original signed provenance checks; missing or corrupt artifacts select a rebuild.
+
 Recipes with unpinned package or operating-system inputs rebuild conservatively when the app candidate changes; an input match alone does not prove their dependency closure. Unsupported Docker input syntax retains the full context and disables reuse. Force rebuild is an explicit recovery option. The selected decision and reason are recorded in the release plan.
 
 ## Existing installations
@@ -53,6 +57,7 @@ The 2026-11-04 rollout publishes version 0.15.0 through the public daily index a
 
 ## Testing Expectations
 
+- Exercise the real Project Manager Docker recipe against documentation-only, release-asset-only and runtime-input changes, including registry/provenance rejection; build the materialized context and check the final SQLite binding.
 - Run `node --test scripts/releases/*.test.mjs` for admission, corrupt/missing artifact, provenance, immutable metadata, promotion, recovery, no-op and digest-reuse regression coverage.
 - Run the repository's application checks and `node scripts/docs-index.mjs --check --base <target-ref>` for affected source and documentation.
 - Validate generated manifests through the pinned Core consumer validator, including every production profile.
