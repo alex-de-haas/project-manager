@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="Project Manager">
+  <rect width="100" height="100" rx="20" fill="#ea580c"/>
+  <g fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="24" y="28" width="52" height="48" rx="8"/>
+    <path d="M24 43 H76"/>
+    <path d="M38 22 V34"/>
+    <path d="M62 22 V34"/>
+    <path d="M39 58 L46 65 L60 51"/>
+  </g>
+</svg>
