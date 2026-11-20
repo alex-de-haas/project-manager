@@ -3,7 +3,7 @@
   "id": "com.haas.project-manager",
   "name": "Project Manager",
   "description": "Project planning, time tracking, release planning, and Azure DevOps coordination for Hosty users.",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "source": {
     "type": "git",
     "repository": "https://github.com/alex-de-haas/project-manager.git",
@@ -30,7 +30,7 @@
           "type": "docker",
           "image": {
             "repository": "ghcr.io/alex-de-haas/project-manager",
-            "tag": "0.15.1",
+            "tag": "0.15.2",
             "pullPolicy": "ifNotPresent"
           },
           "ports": [

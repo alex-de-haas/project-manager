@@ -1,6 +1,6 @@
 ---
 created: 2026-05-26
-updated: 2026-10-13
+updated: 2026-11-20
 summary: Weekly and monthly time entry for work items added to Time Management, with totals, filters and Excel export.
 ---
 
@@ -27,6 +27,8 @@ The selected week or month and scroll position stay unchanged when the date roll
 ## Work Items
 
 Users can create local tasks and bugs from a dialog. Work item descriptions support Markdown and are stored on the canonical work item record.
+
+In the task editor, long paths, link labels, and inline code wrap within the Markdown preview. Fenced code scrolls horizontally within its own block, and the dialog scrolls vertically when the viewport is short.
 
 Time Management membership is stored separately from the canonical work item. A task or bug can exist in Project Manager as planning context without appearing in Time Management. The row appears only after a user creates it from Time Management, imports it through the Time Management import dialog, imports time entries for it, or otherwise creates a per-user Time Management membership record.
 
@@ -116,6 +118,7 @@ Only work items with tracked time in the exported period are included. A task or
 
 ## Testing Expectations
 
+- A long Markdown description keeps every task editor field inside the dialog on desktop and mobile. The save action remains reachable on short screens, and reopening the task restores the original Markdown.
 - Refresh discovers a previously resolved or closed bug returned from QA in a later month, including when no linked rows are visible. The existing work item and historical time entries are preserved.
 - Custom or missing provider states do not reopen final items, including items selected through local assignment, provider assignment, or visible scope, and items whose state changes after discovery. Native status snapshots still update when fetched.
 - Refresh updates non-final historical items even when assigned away, including their transition to a final state; historical items still final and assigned away are excluded from snapshot refresh.
