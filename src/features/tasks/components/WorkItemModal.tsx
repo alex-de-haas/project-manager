@@ -84,7 +84,7 @@ export function WorkItemModal({ task, onClose, onSuccess }: WorkItemModalProps) 
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] grid-cols-1 overflow-y-auto sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Edit Task" : "Add New Task"}</DialogTitle>
           <DialogDescription>
@@ -129,11 +129,11 @@ export function WorkItemModal({ task, onClose, onSuccess }: WorkItemModalProps) 
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Markdown supported"
               rows={5}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             />
             {description.trim() && (
               <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-3">
-                <MarkdownContent content={description} />
+                <MarkdownContent content={description} className="wrap-anywhere" />
               </div>
             )}
           </div>
